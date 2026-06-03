@@ -4,6 +4,8 @@ const APP_SHELL = [
   './index.html',
   './styles.css',
   './app.js',
+  './utils/core.js',
+  './utils/performance.js',
   './manifest.webmanifest',
   './icon.svg'
 ];
