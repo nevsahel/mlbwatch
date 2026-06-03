@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MLB Watchability Index</title>
-<meta name="theme-color" content="#0a0a14">
+<meta name="theme-color" content="#0a1a13">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
@@ -35,7 +35,7 @@
     <div class="sidebar-section active" id="sb-stars">
       <p class="star-note">Star tiers update daily from Fangraphs fWAR. T1 = top 20 in fWAR league-wide, T2 = ranks 21–50, T3 = ranks 51–100. Hitters and pitchers compete on the same leaderboard. Fallback list used before live data loads.</p>
       <div id="sb-star-list">
-        <div style="color:#555;font-size:0.75rem;">Loading star list…</div>
+        <div style="color:var(--text-dim);font-size:0.75rem;">Loading star list…</div>
       </div>
     </div>
 
@@ -51,7 +51,7 @@
     <!-- FORMULA TAB -->
     <div class="sidebar-section" id="sb-formula">
       <div class="formula-block">
-        <div class="formula-title">🎯 Situation Component <span style="font-weight:400;color:#555">(max 50)</span></div>
+        <div class="formula-title">🎯 Situation Component <span style="font-weight:400;color:var(--text-dim)">(max 50)</span></div>
         <div class="formula-row"><span class="label">Tied game</span><span class="val">+20</span></div>
         <div class="formula-row"><span class="label">1-run game</span><span class="val">+15</span></div>
         <div class="formula-row"><span class="label">2-run game</span><span class="val">+9</span></div>
@@ -71,7 +71,7 @@
       </div>
 
       <div class="formula-block">
-        <div class="formula-title">⭐ Context Component <span style="font-weight:400;color:#555">(max 30)</span></div>
+        <div class="formula-title">⭐ Context Component <span style="font-weight:400;color:var(--text-dim)">(max 30)</span></div>
         <div class="formula-row"><span class="label">Tier 1 pitcher on mound</span><span class="val">+12</span></div>
         <div class="formula-row"><span class="label">Tier 2 pitcher on mound</span><span class="val">+7</span></div>
         <div class="formula-row"><span class="label">Tier 3 pitcher on mound</span><span class="val">+3</span></div>
@@ -117,6 +117,13 @@
   <span class="sub" id="last-update">Not started</span>
 </header>
 
+<div id="newswire" class="newswire">
+  <div class="newswire-label">LIVE NEWSWIRE</div>
+  <div class="newswire-track" id="newswire-track">
+    <div class="newswire-item">Welcome to the MLB Watchability Index. Press Start to load live data...</div>
+  </div>
+</div>
+
 <div class="controls">
   <button class="btn" id="start-btn" onclick="startPolling()">&#9654; Start</button>
   <button class="btn stop" id="stop-btn" onclick="stopPolling()" disabled>&#9632; Stop</button>
@@ -125,6 +132,14 @@
     <input type="date" id="game-date" onchange="setGameDate(this.value)">
   </label>
   <button class="btn secondary" id="today-btn" onclick="setGameDate(todayET())">Today</button>
+</div>
+
+<div id="high-leverage-alert" class="hl-alert">
+  <div class="hl-alert-content">
+    <span class="hl-alert-icon">⚠️</span>
+    <span id="hl-alert-msg">HIGH LEVERAGE ALERT</span>
+    <button class="btn" id="hl-alert-btn">WATCH NOW</button>
+  </div>
 </div>
 
 <div id="notification-container"></div>
@@ -142,10 +157,10 @@
   </div>
 </aside>
 
-<main>
+<main id="main-layout">
+  <div class="content-left">
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('games')">Games</button>
-    <button class="tab-btn" onclick="switchTab('ticker')">Ticker</button>
     <button class="tab-btn" onclick="switchTab('playoffs')">Playoff Races</button>
     <button class="tab-btn" onclick="switchTab('homeruns')">Home Runs</button>
     <button class="tab-btn" onclick="switchTab('milestones')">Milestones</button>
@@ -174,11 +189,6 @@
     </div>
   </div>
 
-  <div id="tab-ticker" class="tab-content">
-    <div class="section-title">Live Play Ticker</div>
-    <div id="ticker-container"><div class="empty-msg">Press Start to load impact plays</div></div>
-  </div>
-
   <div id="tab-playoffs" class="tab-content">
     <div class="section-title">Playoff Races</div>
     <div id="playoffs-container"><div class="empty-msg">Press Start to load standings</div></div>
@@ -198,6 +208,18 @@
     <div class="section-title">Award Races</div>
     <div id="awards-container"><div class="empty-msg">Press Start to load award races</div></div>
   </div>
+  </div>
+
+  <aside class="side-panel" id="side-panel">
+    <div class="side-panel-header">
+      <div class="side-panel-kicker">Game Details</div>
+      <h2 id="side-panel-title">Select a game</h2>
+      <button class="side-panel-close" onclick="closeSidePanel()">✕</button>
+    </div>
+    <div class="side-panel-body" id="side-panel-body">
+      <div class="empty-msg">Click on any game card to view live box scores, play-by-play, and advanced metrics here.</div>
+    </div>
+  </aside>
 </main>
 
 <script src="utils/core.js"></script>
@@ -210,5 +232,3 @@ if ('serviceWorker' in navigator) {
 </script>
 </body>
 </html>
-
-
