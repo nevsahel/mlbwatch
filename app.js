@@ -4,68 +4,10 @@
    ─────────────────────────────────────────────────────────────────────────── */
 
 const MLB_API = 'https://statsapi.mlb.com/api/v1';
-const APP_PREFS_KEY = 'mlbWatchPrefsV1';
-const DATA_CACHE_PREFIX = 'mlbWatchCache:';
 
-let usedStaleData = false;
 const favoriteTeams = new Set(loadPrefs().favoriteTeams || []);
 const favoriteAlerts = {};
 const gameDetailsByPk = {};
-
-function escapeHTML(value) {
-  return String(value ?? '').replace(/[&<>"']/g, ch => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[ch]));
-}
-
-function loadPrefs() {
-  try { return JSON.parse(localStorage.getItem(APP_PREFS_KEY) || '{}'); }
-  catch { return {}; }
-}
-
-function savePrefs(next = {}) {
-  try {
-    const merged = { ...loadPrefs(), ...next };
-    localStorage.setItem(APP_PREFS_KEY, JSON.stringify(merged));
-  } catch {}
-}
-
-function readCache(key) {
-  try { return JSON.parse(localStorage.getItem(DATA_CACHE_PREFIX + key) || 'null'); }
-  catch { return null; }
-}
-
-function writeCache(key, data) {
-  try {
-    localStorage.setItem(DATA_CACHE_PREFIX + key, JSON.stringify({ savedAt: Date.now(), data }));
-  } catch {}
-}
-
-async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const data = await res.json();
-    if (cacheKey) writeCache(cacheKey, data);
-    return data;
-  } catch (error) {
-    const cached = cacheKey ? readCache(cacheKey) : null;
-    if (cached) {
-      usedStaleData = true;
-      console.warn(`Using stale cache for ${cacheKey}:`, error.message);
-      return cached.data;
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 const WATCHABILITY_CONFIG = {
   caps: { starPower: 15, teamQuality: 8, playoff: 15, context: 30, liveSituation: 50, finalSituation: 28 },
@@ -210,18 +152,20 @@ function normalizeAbbr(abbr) {
 
 // ─── TABS ────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.getElementById('tab-' + tab).classList.add('active');
-  document.querySelector(`.tab-btn[onclick*="'${tab}'"]`).classList.add('active');
-  // Lazy-load HR tab and playoffs (L10) when opened
-  if (tab === 'homeruns' && lastGames) fetchAndRenderHomeRuns(lastGames);
-  if (tab === 'ticker' && lastGames) fetchAndRenderTicker(lastGames);
-  if (tab === 'playoffs' && lastGames) {
+  renderWithErrorBoundary(() => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    document.querySelector(`.tab-btn[onclick*="'${tab}'"]`).classList.add('active');
+    // Lazy-load HR tab and playoffs (L10) when opened
+    if (tab === 'homeruns' && lastGames) fetchAndRenderHomeRuns(lastGames);
+    if (tab === 'ticker' && lastGames) fetchAndRenderTicker(lastGames);
+    if (tab === 'playoffs' && lastGames) {
     // Re-render standings if L10 data is now fresh
     const container = document.getElementById('playoffs-container');
     if (container && !container.querySelector('.empty-msg')) fetchPlayoffRaces(lastGames);
-  }
+    }
+  }, 'tab-' + tab, 'Tab failed to load');
 }
 
 // ─── TEAM RECORDS CACHE ─────────────────────────────────────────────────────
@@ -269,8 +213,8 @@ async function fetchFangraphsStarTiers() {
     ];
 
     const [hitData, pitData] = await Promise.all([
-      (await fetch(hitUrl)).json(),
-      (await fetch(pitUrl)).json()
+      await requestPool.fetchDedup(hitUrl),
+      await requestPool.fetchDedup(pitUrl)
     ]);
 
     // Combine hitters + pitchers, sort by WAR descending, assign tiers by rank
@@ -359,8 +303,8 @@ async function fetchTeamRecords() {
   try {
     const season = currentSeason();
     const [regData, wcData] = await Promise.all([
-      fetchJson(`${MLB_API}/standings?leagueId=103,104&season=${season}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${season}` }),
-      fetchJson(`${MLB_API}/standings?leagueId=103,104&season=${season}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${season}` })
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${season}` }),
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${season}` })
     ]);
     const rec = {};
     const ctx = {};
@@ -407,18 +351,6 @@ const SEASON_RBI_MILESTONES = [25, 50, 75, 100, 120, 130, 140, 150];
 const SEASON_K_MILESTONES = [25, 50, 75, 100, 150, 200, 250, 300, 310, 320, 330, 340, 350];
 const CAREER_HR_MILESTONES = [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
 const SEASON_SV_MILESTONES = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65];
-
-function showNotification(message, type = 'info') {
-  const container = document.getElementById('notification-container');
-  const notif = document.createElement('div');
-  notif.className = `notification ${type}`;
-  notif.textContent = message;
-  container.appendChild(notif);
-  setTimeout(() => {
-    notif.style.opacity = '0';
-    setTimeout(() => notif.remove(), 500);
-  }, 10000);
-}
 
 function checkAndNotify(name, statLabel, value, milestones) {
   if (!milestones.includes(value)) return;
@@ -476,7 +408,7 @@ async function checkCareerHR(playerId, playerName, currentGameHR) {
   const cached = careerHRCache[playerId];
   if (cached && cached.gameHR === currentGameHR) return;
   try {
-    const data = await fetchJson(
+    const data = await requestPool.fetchDedup(
       `${MLB_API}/people/${playerId}/stats?stats=career&group=hitting`,
       { cacheKey: `careerHR:${playerId}` }
     );
@@ -489,14 +421,6 @@ async function checkCareerHR(playerId, playerName, currentGameHR) {
 }
 
 // ─── DATE HELPERS ──────────────────────────────────────────────────────────────
-function todayET() {
-  const now = new Date();
-  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const y = et.getFullYear();
-  const m = String(et.getMonth() + 1).padStart(2, '0');
-  const d = String(et.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
 
 let selectedDate = loadPrefs().selectedDate || todayET();
 
@@ -722,7 +646,6 @@ function extractFinalDetails(feed) {
   }
 }
 
-
 // ─── PROBABLE PITCHER STATS CACHE ─────────────────────────────────────────────
 const pitcherStatsCache = {}; // id -> { era, whip, wins, losses, k9, ip, kTotal }
 const pitcherStatsFetching = new Set();
@@ -732,7 +655,7 @@ async function fetchProbablePitcherStats(pitcherId) {
   pitcherStatsFetching.add(pitcherId);
   try {
     const season = currentSeason();
-    const data = await fetchJson(`${MLB_API}/people/${pitcherId}/stats?stats=season&group=pitching&season=${season}`, { cacheKey: `pitcherStats:${season}:${pitcherId}` });
+    const data = await requestPool.fetchDedup(`${MLB_API}/people/${pitcherId}/stats?stats=season&group=pitching&season=${season}`, { cacheKey: `pitcherStats:${season}:${pitcherId}` });
     const s = data.stats?.[0]?.splits?.[0]?.stat || {};
     pitcherStatsCache[pitcherId] = {
       era: s.era || '-.--',
@@ -759,9 +682,9 @@ async function fetchGameHRs(gamePk) {
   }
   try {
     const [data, feed, winProb] = await Promise.all([
-      fetchJson(`https://baseballsavant.mlb.com/gf?game_pk=${gamePk}`, { cacheKey: `homeRuns:${gamePk}`, timeoutMs: 12000 }),
-      fetchJson(`https://statsapi.mlb.com/api/v1.1/game/${gamePk}/feed/live`, { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }).catch(() => null),
-      fetchJson(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch(() => [])
+      requestPool.fetchDedup(`https://baseballsavant.mlb.com/gf?game_pk=${gamePk}`, { cacheKey: `homeRuns:${gamePk}`, timeoutMs: 12000 }),
+      requestPool.fetchDedup(`https://statsapi.mlb.com/api/v1.1/game/${gamePk}/feed/live`, { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }).catch(() => null),
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch(() => [])
     ]);
     const evEvents = data.exit_velocity || [];
     const allPlays = feed?.liveData?.plays?.allPlays || [];
@@ -823,7 +746,7 @@ async function fetchLiveGamesData() {
   const date = selectedDate || todayET();
   let schedData;
   try {
-    schedData = await fetchJson(
+    schedData = await requestPool.fetchDedup(
       `${MLB_API}/schedule?sportId=1&date=${date}&hydrate=linescore,team,probablePitcher,broadcasts`,
       { cacheKey: `schedule:${date}` }
     );
@@ -879,7 +802,7 @@ async function fetchLiveGamesData() {
   // Fetch live feeds in parallel
   const results = await Promise.all(needFeed.map(async g => {
     try {
-      const feed = await fetchJson(
+      const feed = await requestPool.fetchDedup(
         `https://statsapi.mlb.com/api/v1.1/game/${g.gamePk}/feed/live`,
         { cacheKey: `feed:${g.gamePk}` }
       );
@@ -910,7 +833,7 @@ async function fetchLiveGamesData() {
       let winProbSeries = [];
       if (g.status.abstractGameState === 'Live' || g.status.abstractGameState === 'Final') {
         try {
-          const wpData = await fetchJson(
+          const wpData = await requestPool.fetchDedup(
             `${MLB_API}/game/${g.gamePk}/winProbability`,
             { cacheKey: `winProbability:${g.gamePk}`, timeoutMs: 7000 }
           );
@@ -1010,8 +933,6 @@ async function fetchLiveGamesData() {
   return [...results.filter(Boolean), ...previewGames];
 }
 
-
-
 // ─── EXPAND PANEL ─────────────────────────────────────────────────────────────
 const expandedCards = new Set();
 const expandCache   = {};
@@ -1043,8 +964,8 @@ async function openGameDrawer(gamePk) {
   overlay.classList.add('open');
   try {
     const [feed, wpData] = await Promise.all([
-      fetchJson('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
-      fetchJson(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
+      requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
     ]);
     const data = parseExpandData(feed, wpData);
     renderExpandPanel(body, data);
@@ -1068,8 +989,8 @@ async function loadExpandData(gamePk, panel) {
   panel.innerHTML = '<div class="expand-load-msg">Loading…</div>';
   try {
     const [feed, wpData] = await Promise.all([
-      fetchJson('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
-      fetchJson(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
+      requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
     ]);
     const data = parseExpandData(feed, wpData);
     expandCache[gamePk] = Object.assign({}, data, { fetchedAt: now });
@@ -1522,7 +1443,7 @@ async function fetchLeaderGroup(defs, statGroup) {
   const promises = defs.map(async def => {
     try {
       const url = `${MLB_API}/stats/leaders?leaderCategories=${def.api}&season=${season}&sportId=1&limit=1&statGroup=${statGroup}`;
-      const data = await (await fetch(url)).json();
+      const data = await requestPool.fetchDedup(url);
       const ldr = data.leagueLeaders?.[0]?.leaders?.[0];
       if (!ldr) return null;
       return {
@@ -1598,7 +1519,6 @@ const DIV_NAMES = { 200: 'AL West', 201: 'AL East', 202: 'AL Central', 203: 'NL 
 const AL_DIVS = [201, 202, 200];
 const NL_DIVS = [204, 205, 203];
 
-
 // ─── TEAM L10 FORM CACHE ──────────────────────────────────────────────────────
 const teamL10Cache = {}; // abbr -> { w, l, streak, streakDir }
 let l10LastFetchDate = null;
@@ -1619,7 +1539,7 @@ async function fetchAllTeamL10() {
       startDate.setDate(startDate.getDate() - 28);
       const start = `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`;
       const url = `${MLB_API}/schedule?sportId=1&teamId=${tid}&startDate=${start}&endDate=${end}&hydrate=team&gameType=R`;
-      const data = await (await fetch(url)).json();
+      const data = await requestPool.fetchDedup(url);
       const results = [];
       for (const dateObj of (data.dates || [])) {
         for (const g of (dateObj.games || [])) {
@@ -2022,44 +1942,45 @@ async function fetchMilestones(todayGames) {
     const allMilestones = [];
 
     // Fetch regular season milestones
-    await Promise.all(MILESTONE_DEFS.map(async def => {
-      try {
-        const url = `${MLB_API}/stats/leaders?leaderCategories=${def.api}&season=${currentSeason()}&sportId=1&limit=50&statGroup=${def.group}`;
-        const data = await (await fetch(url)).json();
-        const leaders = data.leagueLeaders?.[0]?.leaders || [];
-        for (const l of leaders) {
-          const pid = l.person?.id;
-          // Fix 3: exclude pitchers from hitting milestones and hitters from pitching milestones (Ohtani exempt)
-          if (pid !== OHTANI_ID) {
-            if (def.group === 'hitting' && pitcherIds.has(pid)) continue;
-            if (def.group === 'pitching' && hitterIds.has(pid) && !pitcherIds.has(pid)) continue;
+    await Promise.all(MILESTONE_DEFS.map(def =>
+      batchFetcher.add(async () => {
+        try {
+          const url = `${MLB_API}/stats/leaders?leaderCategories=${def.api}&season=${currentSeason()}&sportId=1&limit=50&statGroup=${def.group}`;
+          const data = await requestPool.fetchDedup(url);
+          const leaders = data.leagueLeaders?.[0]?.leaders || [];
+          for (const l of leaders) {
+            const pid = l.person?.id;
+            if (pid !== OHTANI_ID) {
+              if (def.group === 'hitting' && pitcherIds.has(pid)) continue;
+              if (def.group === 'pitching' && hitterIds.has(pid) && !pitcherIds.has(pid)) continue;
+            }
+            const raw = def.isFloat ? parseFloat(l.value) || 0 : parseInt(l.value) || 0;
+            const val = def.isFloat ? Math.floor(raw) : raw;
+            const displayVal = def.isFloat ? raw.toFixed(1) : raw;
+            const next = def.milestones.find(m => m > val);
+            if (!next) continue;
+            const diff = def.isFloat ? (next - raw).toFixed(1) : next - val;
+            const diffNum = def.isFloat ? parseFloat(diff) : next - val;
+            if (diffNum > 20) continue;
+            const tAbbr = normalizeAbbr(l.team?.abbreviation || teamAbbrFromId(l.team?.id) || '?');
+            allMilestones.push({
+              id: pid,
+              name: l.person?.fullName || 'Unknown',
+              team: tAbbr,
+              stat: def.label,
+              current: displayVal,
+              next,
+              diff: diffNum,
+              type: MILESTONE_META[def.label]?.type || def.group,
+              scope: 'season',
+              priority: 0,
+              playingNow: liveTeams.has(tAbbr),
+              playingToday: todayTeams.has(tAbbr)
+            });
           }
-          const raw = def.isFloat ? parseFloat(l.value) || 0 : parseInt(l.value) || 0;
-          const val = def.isFloat ? Math.floor(raw) : raw;
-          const displayVal = def.isFloat ? raw.toFixed(1) : raw;
-          const next = def.milestones.find(m => m > val);
-          if (!next) continue;
-          const diff = def.isFloat ? (next - raw).toFixed(1) : next - val;
-          const diffNum = def.isFloat ? parseFloat(diff) : next - val;
-          if (diffNum > 20) continue;
-          const tAbbr = normalizeAbbr(l.team?.abbreviation || teamAbbrFromId(l.team?.id) || '?');
-          allMilestones.push({
-            id: pid,
-            name: l.person?.fullName || 'Unknown',
-            team: tAbbr,
-            stat: def.label,
-            current: displayVal,
-            next,
-            diff: diffNum,
-            type: MILESTONE_META[def.label]?.type || def.group,
-            scope: 'season',
-            priority: 0,
-            playingNow: liveTeams.has(tAbbr),
-            playingToday: todayTeams.has(tAbbr)
-          });
-        }
-      } catch (e) { console.warn(`Milestone ${def.label}:`, e); }
-    }));
+        } catch (e) { console.warn(`Milestone ${def.label}:`, e); }
+      })
+    ));
 
     // Fetch career milestones
     try {
@@ -2340,10 +2261,12 @@ function closeSidebar() {
 }
 
 function switchSidebarTab(tab) {
-  document.querySelectorAll('.sidebar-tab').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.sidebar-section').forEach(s => s.classList.remove('active'));
-  document.getElementById('sb-' + tab).classList.add('active');
-  document.querySelector(`.sidebar-tab[onclick*="'${tab}'"]`).classList.add('active');
+  renderWithErrorBoundary(() => {
+    document.querySelectorAll('.sidebar-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sidebar-section').forEach(s => s.classList.remove('active'));
+    document.getElementById('sb-' + tab).classList.add('active');
+    document.querySelector(`.sidebar-tab[onclick*="'${tab}'"]`).classList.add('active');
+  }, 'sb-' + tab, 'Sidebar tab failed to load');
 }
 
 function revealSpoiler(el, gamePk) {
@@ -2578,7 +2501,6 @@ async function fetchFangraphsWAR(season) {
 const POSITIONS_SS_AL = ['C','1B','2B','3B','SS','LF','CF','RF','DH'];
 const POSITIONS_SS_NL = ['C','1B','2B','3B','SS','LF','CF','RF','DH']; // NL has no pitcher SS since universal DH
 
-
 async function fetchAwardRaces() {
   const container = document.getElementById('awards-container');
   container.innerHTML = '<div class="empty-msg">Loading award races...</div>';
@@ -2623,12 +2545,11 @@ async function fetchAwardRaces() {
 
     // ── 2. Fetch MLB API stats for display (traditional stats alongside WAR) ─
     const [alHit, nlHit, alPit, nlPit, alGames] = await Promise.all([
-      fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases&season=${season}&sportId=1&limit=40&statGroup=hitting&leagueId=103`).then(r=>r.json()),
-      fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases&season=${season}&sportId=1&limit=40&statGroup=hitting&leagueId=104`).then(r=>r.json()),
-      fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins&season=${season}&sportId=1&limit=40&statGroup=pitching&leagueId=103`).then(r=>r.json()),
-      fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins&season=${season}&sportId=1&limit=40&statGroup=pitching&leagueId=104`).then(r=>r.json()),
-      // Fetch current season game count to compute qualified IP threshold
-      fetch(`${MLB_API}/schedule?sportId=1&season=${season}&gameType=R&teamId=147`).then(r=>r.json()).catch(()=>null),
+      batchFetcher.add(() => fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases&season=${season}&sportId=1&limit=40&statGroup=hitting&leagueId=103`).then(r=>r.json())),
+      batchFetcher.add(() => fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases&season=${season}&sportId=1&limit=40&statGroup=hitting&leagueId=104`).then(r=>r.json())),
+      batchFetcher.add(() => fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins&season=${season}&sportId=1&limit=40&statGroup=pitching&leagueId=103`).then(r=>r.json())),
+      batchFetcher.add(() => fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins&season=${season}&sportId=1&limit=40&statGroup=pitching&leagueId=104`).then(r=>r.json())),
+      batchFetcher.add(() => fetch(`${MLB_API}/schedule?sportId=1&season=${season}&gameType=R&teamId=147`).then(r=>r.json()).catch(()=>null)),
     ]);
 
     // ── 3. Build per-player stat pools from MLB API ──────────────────────────
@@ -3313,7 +3234,6 @@ async function fetchAwardRaces() {
   }
 }
 
-
 // ─── HOME RUNS TAB ────────────────────────────────────────────────────────────
 // Spray chart coordinate conversion. Prefer Savant's feet coordinates because
 // they directly describe landing direction from home plate.
@@ -3557,8 +3477,8 @@ async function fetchAndRenderHomeRuns(games) {
 async function fetchImpactPlays(gamePk) {
   try {
     const [feed, wpData] = await Promise.all([
-      fetchJson('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }),
-      fetchJson(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch(() => [])
+      requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }),
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch(() => [])
     ]);
     const gd = feed.gameData?.teams || {};
     const away = normalizeAbbr(gd.away?.abbreviation || 'Away');
@@ -3778,4 +3698,3 @@ async function pollGames() {
 }
 
 hydratePreferenceControls();
-

@@ -12,7 +12,7 @@
 <body>
 
 <!-- ── Sidebar Toggle Button ── -->
-<button class="sidebar-toggle" id="sidebar-toggle" onclick="openSidebar()" title="Settings & Info">⚙</button>
+<button class="sidebar-toggle" id="sidebar-toggle" onclick="openSidebar()" title="Settings & Info" aria-label="Open settings">⚙</button>
 
 <!-- ── Sidebar Overlay ── -->
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
@@ -21,7 +21,7 @@
 <div class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <h2>⚙ Settings & Info</h2>
-    <button class="sidebar-close" onclick="closeSidebar()">✕</button>
+    <button class="sidebar-close" onclick="closeSidebar()" aria-label="Close settings">✕</button>
   </div>
   <div class="sidebar-tabs">
     <button class="sidebar-tab active" onclick="switchSidebarTab('stars')">Stars</button>
@@ -135,7 +135,7 @@
       <div class="drawer-kicker">Game Details</div>
       <h2 id="drawer-title">Loading</h2>
     </div>
-    <button class="drawer-close" onclick="closeGameDrawer()">✕</button>
+    <button class="drawer-close" onclick="closeGameDrawer()" aria-label="Close game details">✕</button>
   </div>
   <div class="drawer-body" id="drawer-body">
     <div class="expand-load-msg">Select a game</div>
@@ -200,6 +200,8 @@
   </div>
 </main>
 
+<script src="utils/core.js"></script>
+<script src="utils/performance.js"></script>
 <script src="app.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
