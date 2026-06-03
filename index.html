@@ -1,0 +1,212 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLB Watchability Index</title>
+<meta name="theme-color" content="#0a0a14">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ── Sidebar Toggle Button ── -->
+<button class="sidebar-toggle" id="sidebar-toggle" onclick="openSidebar()" title="Settings & Info">⚙</button>
+
+<!-- ── Sidebar Overlay ── -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<!-- ── Sidebar Panel ── -->
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h2>⚙ Settings & Info</h2>
+    <button class="sidebar-close" onclick="closeSidebar()">✕</button>
+  </div>
+  <div class="sidebar-tabs">
+    <button class="sidebar-tab active" onclick="switchSidebarTab('stars')">Stars</button>
+    <button class="sidebar-tab" onclick="switchSidebarTab('favorites')">Favorites</button>
+    <button class="sidebar-tab" onclick="switchSidebarTab('formula')">Formula</button>
+    <button class="sidebar-tab" onclick="switchSidebarTab('spoiler')">Spoiler</button>
+  </div>
+  <div class="sidebar-body">
+
+    <!-- STARS TAB -->
+    <div class="sidebar-section active" id="sb-stars">
+      <p class="star-note">Star tiers update daily from Fangraphs fWAR. T1 = top 20 in fWAR league-wide, T2 = ranks 21–50, T3 = ranks 51–100. Hitters and pitchers compete on the same leaderboard. Fallback list used before live data loads.</p>
+      <div id="sb-star-list">
+        <div style="color:#555;font-size:0.75rem;">Loading star list…</div>
+      </div>
+    </div>
+
+    <!-- FAVORITES TAB -->
+    <div class="sidebar-section" id="sb-favorites">
+      <p class="spoiler-note">Favorite teams float higher, ignore spoiler masking, and get extra live context and alerts.</p>
+      <div class="team-grid" id="favorite-team-grid">
+        <!-- populated by JS -->
+      </div>
+      <button class="spoiler-clear" onclick="clearAllFavorites()">Clear favorites</button>
+    </div>
+
+    <!-- FORMULA TAB -->
+    <div class="sidebar-section" id="sb-formula">
+      <div class="formula-block">
+        <div class="formula-title">🎯 Situation Component <span style="font-weight:400;color:#555">(max 50)</span></div>
+        <div class="formula-row"><span class="label">Tied game</span><span class="val">+20</span></div>
+        <div class="formula-row"><span class="label">1-run game</span><span class="val">+15</span></div>
+        <div class="formula-row"><span class="label">2-run game</span><span class="val">+9</span></div>
+        <div class="formula-row"><span class="label">3-run game</span><span class="val">+4</span></div>
+        <div class="formula-row"><span class="label">5+ run game</span><span class="val">−4</span></div>
+        <div class="formula-row"><span class="label">7+ run game</span><span class="val">−8</span></div>
+        <div class="formula-divider"></div>
+        <div class="formula-row"><span class="label">Extras (11+)</span><span class="val">+18</span></div>
+        <div class="formula-row"><span class="label">9th inning</span><span class="val">+15</span></div>
+        <div class="formula-row"><span class="label">8th inning</span><span class="val">+11</span></div>
+        <div class="formula-row"><span class="label">7th inning</span><span class="val">+7</span></div>
+        <div class="formula-row"><span class="label">5–6th inning</span><span class="val">+3</span></div>
+        <div class="formula-divider"></div>
+        <div class="formula-row"><span class="label">Each runner on base</span><span class="val">+3 (max 7)</span></div>
+        <div class="formula-row"><span class="label">2 outs + runners</span><span class="val">+3</span></div>
+        <div class="formula-row"><span class="label">No-hitter alert (6+ inn)</span><span class="val">+10</span></div>
+      </div>
+
+      <div class="formula-block">
+        <div class="formula-title">⭐ Context Component <span style="font-weight:400;color:#555">(max 30)</span></div>
+        <div class="formula-row"><span class="label">Tier 1 pitcher on mound</span><span class="val">+12</span></div>
+        <div class="formula-row"><span class="label">Tier 2 pitcher on mound</span><span class="val">+7</span></div>
+        <div class="formula-row"><span class="label">Tier 3 pitcher on mound</span><span class="val">+3</span></div>
+        <div class="formula-row"><span class="label">Tier 1 batter at plate</span><span class="val">+10</span></div>
+        <div class="formula-row"><span class="label">Tier 2 batter at plate</span><span class="val">+5</span></div>
+        <div class="formula-row"><span class="label">Tier 3 batter at plate</span><span class="val">+2</span></div>
+        <div class="formula-divider"></div>
+        <div class="formula-row"><span class="label">Team win% ≥ .600</span><span class="val">+10</span></div>
+        <div class="formula-row"><span class="label">Team win% ≥ .560</span><span class="val">+7</span></div>
+        <div class="formula-row"><span class="label">Team win% ≥ .520</span><span class="val">+4</span></div>
+        <div class="formula-divider"></div>
+        <div class="formula-row"><span class="label">Both teams in WC spot</span><span class="val">+15 (max)</span></div>
+        <div class="formula-row"><span class="label">On playoff bubble (≤1 GB)</span><span class="val">+10</span></div>
+        <div class="formula-row"><span class="label">Within 3 WC games back</span><span class="val">+7</span></div>
+        <div class="formula-row"><span class="label">Rivalry game</span><span class="val">+5</span></div>
+        <div class="formula-row"><span class="label">Player near milestone</span><span class="val">+5</span></div>
+      </div>
+
+      <div class="formula-block">
+        <div class="formula-title">📐 Final Score Formula</div>
+        <div class="formula-row"><span class="label">Live game</span><span class="val">30 + Sit + (Ctx × 0.65)</span></div>
+        <div class="formula-row"><span class="label">Pre-game</span><span class="val">20 + (Ctx × 1.1)</span></div>
+        <div class="formula-row"><span class="label">Final game</span><span class="val">22 + Sit + (Ctx × 0.55)</span></div>
+        <p class="formula-note">All scores are clamped 0–100. A 100 requires: tied extras, runners loaded, Tier 1 stars, playoff race, and rivalry.</p>
+      </div>
+    </div>
+
+    <!-- SPOILER TAB -->
+    <div class="sidebar-section" id="sb-spoiler">
+      <p class="spoiler-note">Select teams to put in Spoiler Mode. Their games will show minimal info — no score, no details — so you can watch later without spoilers.</p>
+      <div class="team-grid" id="spoiler-team-grid">
+        <!-- populated by JS -->
+      </div>
+      <button class="spoiler-clear" onclick="clearAllSpoilers()">Clear all spoilers</button>
+    </div>
+
+  </div>
+</div>
+
+<header>
+  <div class="status-dot" id="status-dot"></div>
+  <h1>MLB Watchability Index</h1>
+  <span class="sub" id="last-update">Not started</span>
+</header>
+
+<div class="controls">
+  <button class="btn" id="start-btn" onclick="startPolling()">&#9654; Start</button>
+  <button class="btn stop" id="stop-btn" onclick="stopPolling()" disabled>&#9632; Stop</button>
+  <label class="date-control">
+    Date
+    <input type="date" id="game-date" onchange="setGameDate(this.value)">
+  </label>
+  <button class="btn secondary" id="today-btn" onclick="setGameDate(todayET())">Today</button>
+</div>
+
+<div id="notification-container"></div>
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeGameDrawer()"></div>
+<aside class="game-drawer" id="game-drawer" aria-label="Game details">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-kicker">Game Details</div>
+      <h2 id="drawer-title">Loading</h2>
+    </div>
+    <button class="drawer-close" onclick="closeGameDrawer()">✕</button>
+  </div>
+  <div class="drawer-body" id="drawer-body">
+    <div class="expand-load-msg">Select a game</div>
+  </div>
+</aside>
+
+<main>
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('games')">Games</button>
+    <button class="tab-btn" onclick="switchTab('ticker')">Ticker</button>
+    <button class="tab-btn" onclick="switchTab('playoffs')">Playoff Races</button>
+    <button class="tab-btn" onclick="switchTab('homeruns')">Home Runs</button>
+    <button class="tab-btn" onclick="switchTab('milestones')">Milestones</button>
+    <button class="tab-btn" onclick="switchTab('awards')">Award Races</button>
+  </div>
+
+  <div id="tab-games" class="tab-content active">
+    <div class="section-title">Live Games</div>
+    <div class="games-controls" id="games-controls">
+      <span class="gc-label">Sort</span>
+      <button class="gc-btn active" id="sort-watchability" onclick="setSort('watchability')">🔥 Watchability</button>
+      <button class="gc-btn" id="sort-score" onclick="setSort('score')">Score Diff</button>
+      <button class="gc-btn" id="sort-inning" onclick="setSort('inning')">Inning</button>
+      <div class="gc-divider"></div>
+      <span class="gc-label">Filter</span>
+      <button class="gc-btn" id="filter-hot" onclick="setFilter('hot')">🌶 Hot (60+)</button>
+      <button class="gc-btn" id="filter-fire" onclick="setFilter('fire')">🔥 Fire (75+)</button>
+      <button class="gc-btn" id="filter-live" onclick="setFilter('live')">▶ Live only</button>
+      <span class="gc-count" id="games-count"></span>
+    </div>
+    <div id="games-grid"><div class="empty-msg">Press Start to load today's games</div></div>
+
+    <div class="section-title">Stat Leaders</div>
+    <div id="leaders-container">
+      <div class="empty-msg">Press Start to load stat leaders</div>
+    </div>
+  </div>
+
+  <div id="tab-ticker" class="tab-content">
+    <div class="section-title">Live Play Ticker</div>
+    <div id="ticker-container"><div class="empty-msg">Press Start to load impact plays</div></div>
+  </div>
+
+  <div id="tab-playoffs" class="tab-content">
+    <div class="section-title">Playoff Races</div>
+    <div id="playoffs-container"><div class="empty-msg">Press Start to load standings</div></div>
+  </div>
+
+  <div id="tab-homeruns" class="tab-content">
+    <div class="section-title">Today's Home Runs</div>
+    <div id="homeruns-container"><div class="empty-msg">Press Start to load home runs</div></div>
+  </div>
+
+  <div id="tab-milestones" class="tab-content">
+    <div class="section-title">Upcoming Milestones</div>
+    <div id="milestones-container"><div class="empty-msg">Press Start to load milestones</div></div>
+  </div>
+
+  <div id="tab-awards" class="tab-content">
+    <div class="section-title">Award Races</div>
+    <div id="awards-container"><div class="empty-msg">Press Start to load award races</div></div>
+  </div>
+</main>
+
+<script src="app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
+
+

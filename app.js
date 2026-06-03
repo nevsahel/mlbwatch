@@ -1,0 +1,3781 @@
+﻿/* ───────────────────────────────────────────────────────────────────────────
+   MLB WATCHABILITY INDEX — FULL IMPLEMENTATION
+   Uses the public MLB Stats API (statsapi.mlb.com)
+   ─────────────────────────────────────────────────────────────────────────── */
+
+const MLB_API = 'https://statsapi.mlb.com/api/v1';
+const APP_PREFS_KEY = 'mlbWatchPrefsV1';
+const DATA_CACHE_PREFIX = 'mlbWatchCache:';
+
+let usedStaleData = false;
+const favoriteTeams = new Set(loadPrefs().favoriteTeams || []);
+const favoriteAlerts = {};
+const gameDetailsByPk = {};
+
+function escapeHTML(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+function loadPrefs() {
+  try { return JSON.parse(localStorage.getItem(APP_PREFS_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function savePrefs(next = {}) {
+  try {
+    const merged = { ...loadPrefs(), ...next };
+    localStorage.setItem(APP_PREFS_KEY, JSON.stringify(merged));
+  } catch {}
+}
+
+function readCache(key) {
+  try { return JSON.parse(localStorage.getItem(DATA_CACHE_PREFIX + key) || 'null'); }
+  catch { return null; }
+}
+
+function writeCache(key, data) {
+  try {
+    localStorage.setItem(DATA_CACHE_PREFIX + key, JSON.stringify({ savedAt: Date.now(), data }));
+  } catch {}
+}
+
+async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const data = await res.json();
+    if (cacheKey) writeCache(cacheKey, data);
+    return data;
+  } catch (error) {
+    const cached = cacheKey ? readCache(cacheKey) : null;
+    if (cached) {
+      usedStaleData = true;
+      console.warn(`Using stale cache for ${cacheKey}:`, error.message);
+      return cached.data;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const WATCHABILITY_CONFIG = {
+  caps: { starPower: 15, teamQuality: 8, playoff: 15, context: 30, liveSituation: 50, finalSituation: 28 },
+  context: { milestone: 5, rivalry: 5 },
+  bases: { preview: 20, live: 30, final: 22 },
+  scaling: { previewContext: 1.1, liveContext: 0.65, finalContext: 0.55 },
+  live: {
+    diff: { tied: 20, oneRun: 15, twoRun: 9, threeRun: 4, fivePlus: -4, sevenPlus: -8 },
+    inning: { extras11: 18, ninth: 15, eighth: 11, seventh: 7, fifthSixth: 3 },
+    runners: { each: 3, cap: 7, twoOutPressure: 3 },
+    noHitter: 10
+  },
+  final: {
+    diff: { tied: 20, oneRun: 14, twoRun: 8, threeRun: 3 },
+    extras: 8
+  }
+};
+
+// ─── RIVALRY PAIRS ─────────────────────────────────────────────────────────────
+const RIVALRY_PAIRS = [
+['NYY','BOS'],
+['NYY','BAL'],
+['NYY','TB'],
+['NYY','TOR'],
+['NYY','HOU'],
+['BOS','BAL'],
+['BOS','TB'],
+['BOS','TOR'],
+['BAL','TB'],
+['BAL','WAS'],
+['TB','TOR'],
+['CLE','CWS'],
+['CLE','DET'],
+['CWS','DET'],
+['MIN','CWS'],
+['MIN','CLE'],
+['DET','MIN'],
+['HOU','TEX'],
+['LAA','SEA'],
+['LAA','OAK'],
+['SEA','OAK'],
+['NYM','PHI'],
+['NYM','ATL'],
+['PHI','ATL'],
+['NYM','MIA'],
+['PHI','MIA'],
+['ATL','MIA'],
+['PHI','PIT'],
+['CHC','STL'],
+['MIL','STL'],
+['PIT','STL'],
+['CIN','PIT'],
+['MIL','CHC'],
+['CIN','CHC'],
+['LAD','SF'],
+['LAD','SD'],
+['SF','SD'],
+['COL','ARI'],
+['LAD','COL'],
+['SF','COL'],
+['SD','ARI'],
+['LAD','ARI'],
+['CWS','CHC'],
+['NYY','NYM'],
+['MIA','TB'],
+['TOR','DET'],
+['TOR','SEA'],
+['TOR','BOS'],
+['TOR','NYY'],
+['DET','TOR'],
+['WAS','PHI'],
+['OAK','SF'],
+['LAA','LAD'],
+['ARI','TEX'],
+['COL','SEA']
+];
+
+function isRivalry(a, b) {
+  return RIVALRY_PAIRS.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
+}
+
+// ─── TEAM DATA (logos + colors) ───────────────────────────────────────────────
+const TEAM_DATA = {
+  ARI: { id: 109, color: '#A71930' },
+  ATL: { id: 144, color: '#CE1141' },
+  BAL: { id: 110, color: '#DF4601' },
+  BOS: { id: 111, color: '#BD3039' },
+  CHC: { id: 112, color: '#0E3386' },
+  CWS: { id: 145, color: '#C4CED4' },
+  CIN: { id: 113, color: '#C6011F' },
+  CLE: { id: 114, color: '#E31937' },
+  COL: { id: 115, color: '#33006F' },
+  DET: { id: 116, color: '#FA4616' },
+  HOU: { id: 117, color: '#EB6E1F' },
+  KC:  { id: 118, color: '#004687' },
+  LAA: { id: 108, color: '#BA0021' },
+  LAD: { id: 119, color: '#005A9C' },
+  MIA: { id: 146, color: '#00A3E0' },
+  MIL: { id: 158, color: '#FFC52F' },
+  MIN: { id: 142, color: '#D31145' },
+  NYM: { id: 121, color: '#FF5910' },
+  NYY: { id: 147, color: '#003087' },
+  OAK: { id: 133, color: '#003831' },
+  ATH: { id: 133, color: '#003831' },
+  PHI: { id: 143, color: '#E81828' },
+  PIT: { id: 134, color: '#FDB827' },
+  SD:  { id: 135, color: '#FFC425' },
+  SF:  { id: 137, color: '#FD5A1E' },
+  SEA: { id: 136, color: '#005C5C' },
+  STL: { id: 138, color: '#C41E3A' },
+  TB:  { id: 139, color: '#8FBCE6' },
+  TEX: { id: 140, color: '#C0111F' },
+  TOR: { id: 141, color: '#134A8E' },
+  WSH: { id: 120, color: '#AB0003' }
+};
+
+function teamLogo(abbr) {
+  const t = TEAM_DATA[abbr];
+  if (!t) return '';
+  return `<img class="team-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" alt="" onerror="this.style.display='none'">`;
+}
+
+function teamColor(abbr) {
+  return TEAM_DATA[abbr]?.color || '#888';
+}
+
+// Build reverse lookup: team ID -> abbreviation
+const TEAM_ID_TO_ABBR = {};
+for (const [abbr, data] of Object.entries(TEAM_DATA)) {
+  TEAM_ID_TO_ABBR[data.id] = abbr;
+}
+
+function teamAbbrFromId(id) {
+  return normalizeAbbr(TEAM_ID_TO_ABBR[id] || '?');
+}
+
+// Some MLB API endpoints return non-standard abbreviations — normalize them here
+const ABBR_ALIASES = { 'AZ': 'ARI', 'CWS': 'CWS', 'WSH': 'WSH', 'ATH': 'OAK' };
+function normalizeAbbr(abbr) {
+  return ABBR_ALIASES[abbr] || abbr;
+}
+
+// ─── TABS ────────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.querySelector(`.tab-btn[onclick*="'${tab}'"]`).classList.add('active');
+  // Lazy-load HR tab and playoffs (L10) when opened
+  if (tab === 'homeruns' && lastGames) fetchAndRenderHomeRuns(lastGames);
+  if (tab === 'ticker' && lastGames) fetchAndRenderTicker(lastGames);
+  if (tab === 'playoffs' && lastGames) {
+    // Re-render standings if L10 data is now fresh
+    const container = document.getElementById('playoffs-container');
+    if (container && !container.querySelector('.empty-msg')) fetchPlayoffRaces(lastGames);
+  }
+}
+
+// ─── TEAM RECORDS CACHE ─────────────────────────────────────────────────────
+let teamRecords = {}; // abbr -> { w, l }
+let playoffContext = {}; // abbr -> { divRank, wcRank, wcGB, pct }
+let milestoneWatchTeams = new Set(); // teams with a player near a milestone
+
+// ─── STAR POWER TABLE ──────────────────────────────────────────────────────
+// Dynamically populated from Fangraphs WAR leaderboard daily.
+// Fallback static list used until live data loads.
+const STAR_TIERS_FALLBACK = {
+  1: ['Shohei Ohtani','Aaron Judge','Mookie Betts','Fernando Tatis Jr.','Ronald Acuña Jr.',
+      'Freddie Freeman','Bryce Harper','Juan Soto','Corbin Carroll','Gunnar Henderson',
+      'Bobby Witt Jr.','Julio Rodríguez','Elly De La Cruz','Paul Skenes','Spencer Strider',
+      'Gerrit Cole','Zack Wheeler','Tarik Skubal','Chris Sale','Yoshinobu Yamamoto','Tyler Glasnow'],
+  2: ['Yordan Alvarez','Kyle Tucker','José Ramírez','Trea Turner','Corey Seager',
+      'Marcus Semien','Pete Alonso','Vladimir Guerrero Jr.','Bo Bichette','Matt Olson',
+      'Michael Harris II','Austin Riley','Jarren Duran','Jazz Chisholm Jr.','Adley Rutschman','Cal Raleigh',
+      'Kevin Gausman','Luis Castillo','Hunter Greene','Framber Valdez','Nathan Eovaldi',
+      'Pablo López','Jesús Luzardo','Emmanuel Clase','Edwin Díaz','Josh Hader','Ryan Helsley','Devin Williams'],
+  3: ['Adolis García','Nathaniel Lowe','Nolan Arenado','Paul Goldschmidt','Willy Adames','Christian Yelich']
+};
+
+// Build reverse lookup: name -> tier (mutable, gets updated by fetchFangraphsStarTiers)
+const PLAYER_TIER = {};
+function rebuildPlayerTier(tiers) {
+  for (const k of Object.keys(PLAYER_TIER)) delete PLAYER_TIER[k];
+  for (const [tier, names] of Object.entries(tiers)) {
+    for (const n of names) PLAYER_TIER[n] = parseInt(tier);
+  }
+}
+rebuildPlayerTier(STAR_TIERS_FALLBACK);
+
+// Cache key for daily refresh
+let fangraphsStarLastDate = null;
+
+async function fetchFangraphsStarTiers() {
+  const today = todayET();
+  if (fangraphsStarLastDate === today) return;
+  try {
+    const season = currentSeason();
+    const [hitUrl, pitUrl] = [
+      `https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=bat&lg=all&qual=0&season=${season}&season1=${season}&ind=0&team=0&rost=0&players=0&type=8&sortcol=2&sortdir=default&pagenum=1&pageitems=150`,
+      `https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=pit&lg=all&qual=0&season=${season}&season1=${season}&ind=0&team=0&rost=0&players=0&type=8&sortcol=2&sortdir=default&pagenum=1&pageitems=150`
+    ];
+
+    const [hitData, pitData] = await Promise.all([
+      (await fetch(hitUrl)).json(),
+      (await fetch(pitUrl)).json()
+    ]);
+
+    // Combine hitters + pitchers, sort by WAR descending, assign tiers by rank
+    const allRows = [];
+    const extractRows = (data) => {
+      const rows = data?.data || (Array.isArray(data) ? data : []);
+      rows.forEach(p => {
+        const name = p.PlayerName || p.Name || p.playerName;
+        const war = parseFloat(p.WAR ?? p.war ?? 0);
+        if (name && !isNaN(war)) allRows.push({ name, war });
+      });
+    };
+    extractRows(hitData);
+    extractRows(pitData);
+
+    // Deduplicate by name (keep highest WAR), sort descending
+    const seen = {};
+    for (const r of allRows) {
+      if (!seen[r.name] || seen[r.name] < r.war) seen[r.name] = r.war;
+    }
+    const sorted = Object.entries(seen).sort((a, b) => b[1] - a[1]);
+
+    if (sorted.length < 20) {
+      console.warn('[StarTiers] Fangraphs returned insufficient data, keeping fallback tiers');
+      return;
+    }
+
+    const tier1 = sorted.slice(0, 20).map(([n]) => n);       // top 20
+    const tier2 = sorted.slice(20, 50).map(([n]) => n);      // 21–50
+    const tier3 = sorted.slice(50, 100).map(([n]) => n);     // 51–100
+
+    rebuildPlayerTier({ 1: tier1, 2: tier2, 3: tier3 });
+    fangraphsStarLastDate = today;
+    console.log(`[StarTiers] Updated: T1=${tier1.length} T2=${tier2.length} T3=${tier3.length}`);
+  } catch (e) {
+    console.warn('[StarTiers] Fangraphs fetch failed, using fallback:', e.message);
+  }
+}
+
+function getStarPowerScore(game) {
+  let score = 0;
+  // Check pitcher
+  if (game.currentPitcher) {
+    const t = PLAYER_TIER[game.currentPitcher.name];
+    if (t === 1) score += 12;
+    else if (t === 2) score += 7;
+    else if (t === 3) score += 3;
+  }
+  // Check batter
+  if (game.currentBatter) {
+    const t = PLAYER_TIER[game.currentBatter.name];
+    if (t === 1) score += 10;
+    else if (t === 2) score += 5;
+    else if (t === 3) score += 2;
+  }
+  return score;
+}
+
+function getTeamQualityScore(abbr) {
+  const r = teamRecords[abbr];
+  if (!r) return 0;
+  const games = r.w + r.l;
+  if (games < 10) return 3; // early season
+  const pct = r.w / games;
+  if (pct >= 0.600) return 10;
+  if (pct >= 0.560) return 7;
+  if (pct >= 0.520) return 4;
+  if (pct >= 0.480) return 2;
+  return 0;
+}
+
+function getPlayoffImportanceScore(abbr) {
+  const ctx = playoffContext[abbr];
+  if (!ctx) return 0;
+  const wcGB = parseFloat(ctx.wcGB) || 0;
+  const wcRank = parseInt(ctx.wcRank) || 99;
+  if (wcRank <= 3) return 12;         // in a WC spot
+  if (wcRank <= 6 && wcGB <= 1) return 10; // right on the bubble
+  if (wcGB <= 3) return 7;
+  if (wcGB <= 5) return 4;
+  if (ctx.divRank === 1) return 8;    // div leader regardless of WC
+  return 0;
+}
+
+async function fetchTeamRecords() {
+  try {
+    const season = currentSeason();
+    const [regData, wcData] = await Promise.all([
+      fetchJson(`${MLB_API}/standings?leagueId=103,104&season=${season}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${season}` }),
+      fetchJson(`${MLB_API}/standings?leagueId=103,104&season=${season}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${season}` })
+    ]);
+    const rec = {};
+    const ctx = {};
+    for (const group of regData.records) {
+      for (const t of group.teamRecords) {
+        const abbr = normalizeAbbr(t.team.abbreviation || t.team.name);
+        rec[abbr] = { w: t.wins, l: t.losses };
+        ctx[abbr] = {
+          divRank: parseInt(t.divisionRank) || 99,
+          pct: parseFloat(t.winningPercentage) || 0,
+          wcRank: 99,
+          wcGB: '999'
+        };
+      }
+    }
+    for (const group of wcData.records) {
+      for (const t of group.teamRecords) {
+        const abbr = t.team.abbreviation || t.team.name;
+        if (ctx[abbr]) {
+          ctx[abbr].wcRank = parseInt(t.wildCardRank) || 99;
+          ctx[abbr].wcGB = t.wildCardGamesBack ?? '999';
+        }
+      }
+    }
+    teamRecords = rec;
+    playoffContext = ctx;
+  } catch (e) { console.warn('Records fetch failed:', e); }
+}
+
+function teamRec(abbr) {
+  const r = teamRecords[abbr];
+  return r ? ` (${r.w}-${r.l})` : '';
+}
+
+// ─── NOTIFICATIONS & TRACKING ────────────────────────────────────────────────
+let isFirstLoad = true;
+const prevScores = {};
+const prevLeaders = {};
+const notifiedMilestones = new Set();
+const careerHRCache = {};
+
+const SEASON_HR_MILESTONES = [10, 20, 30, 40, 50, 60, 61, 62, 70];
+const SEASON_RBI_MILESTONES = [25, 50, 75, 100, 120, 130, 140, 150];
+const SEASON_K_MILESTONES = [25, 50, 75, 100, 150, 200, 250, 300, 310, 320, 330, 340, 350];
+const CAREER_HR_MILESTONES = [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
+const SEASON_SV_MILESTONES = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65];
+
+function showNotification(message, type = 'info') {
+  const container = document.getElementById('notification-container');
+  const notif = document.createElement('div');
+  notif.className = `notification ${type}`;
+  notif.textContent = message;
+  container.appendChild(notif);
+  setTimeout(() => {
+    notif.style.opacity = '0';
+    setTimeout(() => notif.remove(), 500);
+  }, 10000);
+}
+
+function checkAndNotify(name, statLabel, value, milestones) {
+  if (!milestones.includes(value)) return;
+  const key = `${name}-${statLabel}-${value}`;
+  if (notifiedMilestones.has(key)) return;
+  notifiedMilestones.add(key);
+  if (!isFirstLoad) {
+    const msgs = {
+      'Season H':   `${name} has ${value} hits this season!`,
+      'Season HR':  `${name} has hit season home run #${value}!`,
+      'Season RBI': `${name} has reached ${value} RBIs this season!`,
+      'Season SB':  `${name} has stolen base #${value} this season!`,
+      'Season K':   `${name} has ${value} strikeouts this season!`,
+      'Season SV':  `${name} has recorded season save #${value}!`,
+      'Career H':   `${name} has reached ${value} career hits!`,
+      'Career HR':  `${name} has hit career home run #${value}!`,
+      'Career RBI': `${name} has reached ${value} career RBIs!`,
+      'Career K':   `${name} has reached ${value} career strikeouts!`
+    };
+    showNotification(msgs[statLabel] || `${name}: ${value} ${statLabel}`, 'milestone');
+  }
+}
+
+function checkBoxscoreMilestones(feed) {
+  if (!feed?.liveData?.boxscore) return;
+  const bs = feed.liveData.boxscore.teams;
+  for (const side of ['home', 'away']) {
+    const players = bs[side]?.players;
+    if (!players) continue;
+    for (const [, player] of Object.entries(players)) {
+      const name = player.person?.fullName;
+      const pid = player.person?.id;
+      if (!name) continue;
+      const sBat = player.seasonStats?.batting;
+      if (sBat) {
+        checkAndNotify(name, 'Season H',   parseInt(sBat.hits) || 0,       [10, 25, 50, 100, 150, 200]);
+        checkAndNotify(name, 'Season HR',  parseInt(sBat.homeRuns) || 0,   SEASON_HR_MILESTONES);
+        checkAndNotify(name, 'Season RBI', parseInt(sBat.rbi) || 0,        SEASON_RBI_MILESTONES);
+        checkAndNotify(name, 'Season SB',  parseInt(sBat.stolenBases) || 0,[5, 10, 15, 20, 25, 30, 40, 50, 60, 70]);
+      }
+      const sPit = player.seasonStats?.pitching;
+      if (sPit) {
+        checkAndNotify(name, 'Season K',  parseInt(sPit.strikeOuts) || 0, SEASON_K_MILESTONES);
+        checkAndNotify(name, 'Season SV', parseInt(sPit.saves) || 0,      SEASON_SV_MILESTONES);
+      }
+      const gBat = player.stats?.batting;
+      if (gBat && pid && (parseInt(gBat.homeRuns) || 0) > 0) {
+        checkCareerHR(pid, name, parseInt(gBat.homeRuns) || 0);
+      }
+    }
+  }
+}
+
+async function checkCareerHR(playerId, playerName, currentGameHR) {
+  const cached = careerHRCache[playerId];
+  if (cached && cached.gameHR === currentGameHR) return;
+  try {
+    const data = await fetchJson(
+      `${MLB_API}/people/${playerId}/stats?stats=career&group=hitting`,
+      { cacheKey: `careerHR:${playerId}` }
+    );
+    const stat = data.stats?.[0]?.splits?.[0]?.stat;
+    if (!stat) return;
+    const careerHR = parseInt(stat.homeRuns) || 0;
+    careerHRCache[playerId] = { gameHR: currentGameHR, careerHR };
+    checkAndNotify(playerName, 'Career HR', careerHR, CAREER_HR_MILESTONES);
+  } catch (e) { console.warn('Career HR fetch failed:', e); }
+}
+
+// ─── DATE HELPERS ──────────────────────────────────────────────────────────────
+function todayET() {
+  const now = new Date();
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const y = et.getFullYear();
+  const m = String(et.getMonth() + 1).padStart(2, '0');
+  const d = String(et.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+let selectedDate = loadPrefs().selectedDate || todayET();
+
+function currentSeason() { return parseInt((selectedDate || todayET()).slice(0, 4), 10) || new Date().getFullYear(); }
+
+function formatGameTime(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York'
+    }) + ' ET';
+  } catch { return 'TBD'; }
+}
+
+function setGameDate(date) {
+  selectedDate = date || todayET();
+  savePrefs({ selectedDate });
+  const input = document.getElementById('game-date');
+  if (input) input.value = selectedDate;
+  isFirstLoad = true;
+  pollCount = 0;
+  lastGames = null;
+  document.getElementById('last-update').textContent = selectedDate === todayET() ? 'Date set to today' : `Date set to ${selectedDate}`;
+  if (polling) pollGames();
+}
+
+// ─── WATCHABILITY INDEX CALCULATOR ─────────────────────────────────────────────
+// Redesigned as a tiered, bounded system so scores spread across the full range.
+// Each component has a hard cap; total is a weighted blend, not an additive pile.
+//
+// Component caps (live game):
+//   situation  0–50  (score diff, inning, runners, outs, no-hitter)
+//   context    0–30  (star power, team quality, playoff stakes, rivalry, milestone)
+//   Total      0–80  raw → mapped to 0–100 via a gentle curve
+//   100 requires: tied extras with runners loaded + T1 stars + playoff race + rivalry
+//
+function calculateWatchabilityBreakdown(g) {
+  const cfg = WATCHABILITY_CONFIG;
+  const isFinal   = /final|game over|completed/i.test(g.gameState);
+  const isPreview = /scheduled|pre-game|warmup|preview|postponed/i.test(g.gameState);
+
+  const rival    = isRivalry(g.awayTeam, g.homeTeam);
+  const starPow  = Math.min(getStarPowerScore(g), cfg.caps.starPower);
+  const teamQA   = getTeamQualityScore(g.awayTeam);
+  const teamQH   = getTeamQualityScore(g.homeTeam);
+  const teamQ    = Math.min(Math.round((teamQA + teamQH) / 2), cfg.caps.teamQuality);
+  const playoffA = getPlayoffImportanceScore(g.awayTeam);
+  const playoffH = getPlayoffImportanceScore(g.homeTeam);
+  const playoffScore = Math.min(playoffA + (playoffA >= 7 && playoffH >= 7 ? playoffH : 0), cfg.caps.playoff);
+  const milestoneBonus = (milestoneWatchTeams.has(g.awayTeam) || milestoneWatchTeams.has(g.homeTeam)) ? cfg.context.milestone : 0;
+  const rivalBonus = rival ? cfg.context.rivalry : 0;
+
+  // ── Context component (max 30) ──
+  const context = Math.min(starPow + teamQ + playoffScore + milestoneBonus + rivalBonus, cfg.caps.context);
+  const parts = [
+    { label: 'Stars', value: starPow },
+    { label: 'Teams', value: teamQ },
+    { label: 'Playoff', value: playoffScore },
+    { label: 'Milestone', value: milestoneBonus },
+    { label: 'Rivalry', value: rivalBonus }
+  ].filter(p => p.value);
+
+  // ── Pre-game ──
+  if (isPreview) {
+    // Context-only, scaled to 20–55 range
+    const raw = cfg.bases.preview + Math.round(context * cfg.scaling.previewContext);
+    return { score: clamp(raw), situation: 0, context, parts };
+  }
+
+  const diff    = Math.abs(g.awayScore - g.homeScore);
+  const inn     = g.currentInning || 1;
+  const runners = (g.onFirst ? 1 : 0) + (g.onSecond ? 1 : 0) + (g.onThird ? 1 : 0);
+
+  // ── Final ──
+  if (isFinal) {
+    let sit = 0;
+    if (diff === 0) sit += cfg.final.diff.tied;
+    else if (diff === 1) sit += cfg.final.diff.oneRun;
+    else if (diff === 2) sit += cfg.final.diff.twoRun;
+    else if (diff === 3) sit += cfg.final.diff.threeRun;
+    if (inn > 9) sit += cfg.final.extras;
+    sit = Math.min(sit, cfg.caps.finalSituation);
+    const raw = cfg.bases.final + sit + Math.round(context * cfg.scaling.finalContext);
+    return { score: clamp(raw), situation: sit, context, parts: [{ label: 'Final drama', value: sit }, ...parts] };
+  }
+
+  // ── Live game ──
+
+  // -- Situation component (max 50) --
+  let sit = 0;
+
+  // Score closeness  (0–20)
+  if      (diff === 0) sit += cfg.live.diff.tied;
+  else if (diff === 1) sit += cfg.live.diff.oneRun;
+  else if (diff === 2) sit += cfg.live.diff.twoRun;
+  else if (diff === 3) sit += cfg.live.diff.threeRun;
+  else if (diff >= 7)  sit += cfg.live.diff.sevenPlus;
+  else if (diff >= 5)  sit += cfg.live.diff.fivePlus;
+
+  // Inning urgency  (0–18)
+  if      (inn >= 11) sit += cfg.live.inning.extras11;
+  else if (inn >= 9)  sit += cfg.live.inning.ninth;
+  else if (inn >= 8)  sit += cfg.live.inning.eighth;
+  else if (inn >= 7)  sit += cfg.live.inning.seventh;
+  else if (inn >= 5)  sit += cfg.live.inning.fifthSixth;
+
+  // Runners & pressure  (0–10)
+  sit += Math.min(runners * cfg.live.runners.each, cfg.live.runners.cap);
+  if (g.outs === 2 && runners > 0) sit += cfg.live.runners.twoOutPressure;
+
+  // No-hitter alert  (0–10, replaces other bonuses when active)
+  const noHitter = inn >= 5 && (g.awayHits === 0 || g.homeHits === 0);
+  if (noHitter) sit += cfg.live.noHitter;
+
+  sit = Math.min(sit, cfg.caps.liveSituation);
+
+  // -- Blend: situation dominates, context lifts the floor/ceiling --
+  // Base = 30. Situation adds up to +50. Context adds up to +20 (scaled).
+  const raw = cfg.bases.live + sit + Math.round(context * cfg.scaling.liveContext);
+  return { score: clamp(raw), situation: sit, context, parts: [{ label: 'Situation', value: sit }, ...parts] };
+}
+
+function calculateWatchability(g) {
+  return calculateWatchabilityBreakdown(g).score;
+}
+
+function clamp(v) { return Math.min(100, Math.max(0, Math.round(v))); }
+
+// ─── EXTRACT FINAL GAME DETAILS (WP/LP/SV/POTG) ────────────────────────────
+function extractFinalDetails(feed) {
+  try {
+    const decisions = feed.liveData?.decisions || {};
+    const bx = feed.liveData?.boxscore?.teams;
+    if (!bx) return null;
+
+    const allPlayers = {};
+    for (const side of ['home', 'away']) {
+      const players = bx[side]?.players || {};
+      for (const [key, p] of Object.entries(players)) {
+        allPlayers[p.person?.id] = p;
+      }
+    }
+
+    const getPlayer = (dec) => {
+      if (!dec?.id) return null;
+      return allPlayers[dec.id];
+    };
+
+    const wpPlayer = getPlayer(decisions.winner);
+    const lpPlayer = getPlayer(decisions.loser);
+    const svPlayer = getPlayer(decisions.save);
+
+    const wpName = decisions.winner?.fullName || null;
+    const lpName = decisions.loser?.fullName || null;
+    const svName = decisions.save?.fullName || null;
+
+    // Format pitcher stat line for POTG: (IP, Pitches, X K)
+    const fmtPitcherPOTG = (p) => {
+      if (!p) return null;
+      const gp = p.stats?.pitching || {};
+      const ip = gp.inningsPitched || '?';
+      const pitches = gp.pitchesThrown ?? gp.numberOfPitches ?? null;
+      const k = parseInt(gp.strikeOuts) || 0;
+      let parts = [ip + ' IP'];
+      if (pitches != null) parts.push(`${pitches} P`);
+      if (k > 0) parts.push(`${k} K`);
+      return `(${parts.join(', ')})`;
+    };
+
+    // Format batter stat line for POTG: (H-AB, X HR, X RBI, X SB) — omit zeros
+    const fmtBatterPOTG = (p) => {
+      if (!p) return null;
+      const gb = p.stats?.batting || {};
+      const h = parseInt(gb.hits) || 0;
+      const ab = parseInt(gb.atBats) || 0;
+      const hr = parseInt(gb.homeRuns) || 0;
+      const rbi = parseInt(gb.rbi) || 0;
+      const sb = parseInt(gb.stolenBases) || 0;
+      let parts = [`${h}-${ab}`];
+      if (hr > 0) parts.push(`${hr} HR`);
+      if (rbi > 0) parts.push(`${rbi} RBI`);
+      if (sb > 0) parts.push(`${sb} SB`);
+      return `(${parts.join(', ')})`;
+    };
+
+    // Determine POTG: find the best individual performance across all players
+    let potg = null;
+    let potgScore = -1;
+
+    for (const side of ['home', 'away']) {
+      const players = bx[side]?.players || {};
+      for (const [, p] of Object.entries(players)) {
+        const name = p.person?.fullName;
+        if (!name) continue;
+        const gb = p.stats?.batting || {};
+        const gp = p.stats?.pitching || {};
+        const h = parseInt(gb.hits) || 0;
+        const hr = parseInt(gb.homeRuns) || 0;
+        const rbi = parseInt(gb.rbi) || 0;
+        const tb = parseInt(gb.totalBases) || 0;
+        const k = parseInt(gp.strikeOuts) || 0;
+        const ip = parseFloat(gp.inningsPitched) || 0;
+
+        // Score: favor multi-HR, lots of RBI, dominant pitching
+        let score = hr * 8 + rbi * 3 + tb * 1.5 + h * 1 + k * 2 + ip * 1.5;
+
+        if (score > potgScore) {
+          potgScore = score;
+          const isPitcher = ip >= 3 || (k >= 5 && h <= 2);
+          potg = {
+            name,
+            isPitcher,
+            pitcherLine: isPitcher ? fmtPitcherPOTG(p) : null,
+            batterLine: !isPitcher ? fmtBatterPOTG(p) : null
+          };
+        }
+      }
+    }
+
+    return { wpName, lpName, svName, potg };
+  } catch(e) {
+    console.warn('extractFinalDetails failed:', e);
+    return null;
+  }
+}
+
+
+// ─── PROBABLE PITCHER STATS CACHE ─────────────────────────────────────────────
+const pitcherStatsCache = {}; // id -> { era, whip, wins, losses, k9, ip, kTotal }
+const pitcherStatsFetching = new Set();
+
+async function fetchProbablePitcherStats(pitcherId) {
+  if (!pitcherId || pitcherStatsCache[pitcherId] || pitcherStatsFetching.has(pitcherId)) return;
+  pitcherStatsFetching.add(pitcherId);
+  try {
+    const season = currentSeason();
+    const data = await fetchJson(`${MLB_API}/people/${pitcherId}/stats?stats=season&group=pitching&season=${season}`, { cacheKey: `pitcherStats:${season}:${pitcherId}` });
+    const s = data.stats?.[0]?.splits?.[0]?.stat || {};
+    pitcherStatsCache[pitcherId] = {
+      era: s.era || '-.--',
+      whip: s.whip || '-.--',
+      wins: s.wins ?? '-',
+      losses: s.losses ?? '-',
+      k9: s.strikeoutsPer9Inn || null,
+      ip: s.inningsPitched || '0',
+      kTotal: s.strikeOuts ?? null
+    };
+  } catch(e) {}
+  pitcherStatsFetching.delete(pitcherId);
+}
+
+// ─── HOME RUN FEED CACHE ──────────────────────────────────────────────────────
+let hrFeedCache = {}; // gamePk -> array of HR events
+let hrFeedLastFetch = {}; // gamePk -> timestamp
+const HR_FEED_TTL = 45000; // 45s
+
+async function fetchGameHRs(gamePk) {
+  const now = Date.now();
+  if (hrFeedCache[gamePk] && (now - (hrFeedLastFetch[gamePk] || 0)) < HR_FEED_TTL) {
+    return hrFeedCache[gamePk];
+  }
+  try {
+    const [data, feed, winProb] = await Promise.all([
+      fetchJson(`https://baseballsavant.mlb.com/gf?game_pk=${gamePk}`, { cacheKey: `homeRuns:${gamePk}`, timeoutMs: 12000 }),
+      fetchJson(`https://statsapi.mlb.com/api/v1.1/game/${gamePk}/feed/live`, { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }).catch(() => null),
+      fetchJson(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch(() => [])
+    ]);
+    const evEvents = data.exit_velocity || [];
+    const allPlays = feed?.liveData?.plays?.allPlays || [];
+    const hrPlays = allPlays.filter(p => p?.result?.eventType === 'home_run');
+    const wpByAtBat = {};
+    if (Array.isArray(winProb)) {
+      winProb.forEach(p => {
+        if (p?.atBatIndex != null) wpByAtBat[p.atBatIndex] = p;
+      });
+    }
+    const hrs = evEvents
+      .filter(e => e.result === 'Home Run' && e.hit_speed)
+      .map(hr => enrichHomeRunEvent(hr, hrPlays, wpByAtBat));
+    hrFeedCache[gamePk] = hrs;
+    hrFeedLastFetch[gamePk] = now;
+    return hrs;
+  } catch(e) {
+    return hrFeedCache[gamePk] || [];
+  }
+}
+
+function enrichHomeRunEvent(hr, hrPlays, wpByAtBat) {
+  const atBatIndex = Number.isFinite(parseInt(hr.ab_number, 10)) ? parseInt(hr.ab_number, 10) - 1 : null;
+  const play = hrPlays.find(p => p.about?.atBatIndex === atBatIndex)
+    || hrPlays.find(p =>
+      p.matchup?.batter?.id === parseInt(hr.batter, 10)
+      && p.about?.inning === parseInt(hr.inning, 10)
+      && p.about?.halfInning === hr.half_inning
+    )
+    || null;
+  const wp = atBatIndex != null ? wpByAtBat[atBatIndex] : null;
+  const awayScore = play?.result?.awayScore;
+  const homeScore = play?.result?.homeScore;
+  const rbi = parseInt(play?.result?.rbi ?? 0, 10) || countRunsFromDescription(hr.des);
+  const isTop = (play?.about?.isTopInning ?? (hr.half_inning === 'top')) === true;
+  const beforeAway = Number.isFinite(awayScore) ? awayScore - (isTop ? rbi : 0) : null;
+  const beforeHome = Number.isFinite(homeScore) ? homeScore - (!isTop ? rbi : 0) : null;
+  const homeWpa = typeof wp?.homeTeamWinProbabilityAdded === 'number' ? wp.homeTeamWinProbabilityAdded : null;
+  const battingWpa = homeWpa == null ? null : (isTop ? -homeWpa : homeWpa);
+  return {
+    ...hr,
+    scoringPlay: play || null,
+    scoreAfter: Number.isFinite(awayScore) && Number.isFinite(homeScore) ? { away: awayScore, home: homeScore } : null,
+    scoreBefore: Number.isFinite(beforeAway) && Number.isFinite(beforeHome) ? { away: beforeAway, home: beforeHome } : null,
+    rbi,
+    battingTeamWpa: battingWpa,
+    homeTeamWpaAdded: homeWpa
+  };
+}
+
+function countRunsFromDescription(desc = '') {
+  const lower = desc.toLowerCase();
+  const runners = (lower.match(/ scores/g) || []).length;
+  return Math.max(1, runners + 1);
+}
+
+// ─── FETCH LIVE GAME DATA ──────────────────────────────────────────────────────
+async function fetchLiveGamesData() {
+  const date = selectedDate || todayET();
+  let schedData;
+  try {
+    schedData = await fetchJson(
+      `${MLB_API}/schedule?sportId=1&date=${date}&hydrate=linescore,team,probablePitcher,broadcasts`,
+      { cacheKey: `schedule:${date}` }
+    );
+  } catch (e) {
+    console.warn('Schedule fetch failed:', e);
+    return [];
+  }
+
+  if (!schedData.dates || schedData.dates.length === 0) return [];
+
+  const rawGames = schedData.dates[0].games;
+  const needFeed = [];
+  const previewGames = [];
+
+  for (const g of rawGames) {
+    const abs = g.status.abstractGameState;
+    if (abs === 'Live' || abs === 'Final') {
+      needFeed.push(g);
+    } else {
+      // Extract probable pitchers
+      const awayPP = g.teams.away.probablePitcher || null;
+      const homePP = g.teams.home.probablePitcher || null;
+      // Extract national TV broadcast
+      const natTV = (g.broadcasts || []).filter(b => b.type === 'TV' && b.isNational).map(b => b.name);
+      const dedupedTV = [...new Set(natTV)];
+      const previewObj = {
+        gamePk: g.gamePk,
+        awayTeam: normalizeAbbr(g.teams.away.team.abbreviation || g.teams.away.team.name),
+        homeTeam: normalizeAbbr(g.teams.home.team.abbreviation || g.teams.home.team.name),
+        awayTeamId: g.teams.away.team.id,
+        homeTeamId: g.teams.home.team.id,
+        awayScore: 0, homeScore: 0,
+        currentInning: 0, inningHalf: '',
+        inningStatus: formatGameTime(g.gameDate),
+        gameState: g.status.detailedState,
+        outs: 0,
+        onFirst: false, onSecond: false, onThird: false,
+        currentBatter: null, currentPitcher: null,
+        awayHits: 0, homeHits: 0,
+        watchabilityIndex: 25,
+        isNoHitter: false,
+        isPerfectGame: false,
+        awayProbablePitcher: awayPP ? { id: awayPP.id, name: awayPP.fullName } : null,
+        homeProbablePitcher: homePP ? { id: homePP.id, name: homePP.fullName } : null,
+        nationalTV: dedupedTV
+      };
+      previewObj.watchabilityBreakdown = calculateWatchabilityBreakdown(previewObj);
+      previewObj.watchabilityIndex = previewObj.watchabilityBreakdown.score;
+      previewGames.push(previewObj);
+    }
+  }
+
+  // Fetch live feeds in parallel
+  const results = await Promise.all(needFeed.map(async g => {
+    try {
+      const feed = await fetchJson(
+        `https://statsapi.mlb.com/api/v1.1/game/${g.gamePk}/feed/live`,
+        { cacheKey: `feed:${g.gamePk}` }
+      );
+
+      const ls    = feed.liveData.linescore;
+      const plays = feed.liveData.plays;
+      const teams = feed.gameData.teams;
+      const isFinal = g.status.abstractGameState === 'Final';
+
+      const inn = ls.currentInning || 9;
+      const awayH = ls.teams?.away?.hits ?? 0;
+      const homeH = ls.teams?.home?.hits ?? 0;
+
+      let inningStatus;
+      if (isFinal) {
+        inningStatus = inn > 9 ? `FINAL/${inn}` : 'FINAL';
+      } else {
+        inningStatus = `${ls.inningHalf === 'Top' ? '\u25B2' : '\u25BC'} ${inn}`;
+      }
+
+      // Extract count from current play
+      const currentCount = plays?.currentPlay?.count || {};
+      const balls = currentCount.balls ?? 0;
+      const strikes = currentCount.strikes ?? 0;
+
+      // Fetch win probability from dedicated endpoint (non-blocking)
+      let homeWinProb = null;
+      let winProbSeries = [];
+      if (g.status.abstractGameState === 'Live' || g.status.abstractGameState === 'Final') {
+        try {
+          const wpData = await fetchJson(
+            `${MLB_API}/game/${g.gamePk}/winProbability`,
+            { cacheKey: `winProbability:${g.gamePk}`, timeoutMs: 7000 }
+          );
+          if (Array.isArray(wpData) && wpData.length > 0) {
+            winProbSeries = wpData
+              .filter(p => typeof p.homeTeamWinProbability === 'number')
+              .map(p => ({
+                atBatIndex: p.atBatIndex ?? p.about?.atBatIndex ?? null,
+                home: p.homeTeamWinProbability,
+                delta: p.homeTeamWinProbabilityAdded ?? null
+              }));
+            const lastWp = wpData[wpData.length - 1];
+            homeWinProb = lastWp.homeTeamWinProbability ?? null;
+          }
+        } catch (e) { console.warn('WP fetch failed:', e); }
+      }
+
+      // Perfect game / no-hitter detection (through 6 complete innings → inn >= 7)
+      let isNoHitter = false;
+      let isPerfectGame = false;
+      if (inn >= 7 && !isFinal) {
+        const bs = feed.liveData.boxscore?.teams;
+        if (awayH === 0) {
+          isNoHitter = true;
+          const hp = bs?.home?.teamStats?.pitching;
+          const hf = bs?.home?.teamStats?.fielding;
+          if (hp && (hp.baseOnBalls || 0) === 0 && (hp.hitByPitch || 0) === 0 && (hf?.errors || 0) === 0) {
+            isPerfectGame = true;
+          }
+        }
+        if (homeH === 0) {
+          isNoHitter = true;
+          const ap = bs?.away?.teamStats?.pitching;
+          const af = bs?.away?.teamStats?.fielding;
+          if (ap && (ap.baseOnBalls || 0) === 0 && (ap.hitByPitch || 0) === 0 && (af?.errors || 0) === 0) {
+            isPerfectGame = true;
+          }
+        }
+      }
+
+      const obj = {
+        gamePk: g.gamePk,
+        awayTeam: normalizeAbbr(teams.away.abbreviation),
+        homeTeam: normalizeAbbr(teams.home.abbreviation),
+        awayTeamId: teams.away.id,
+        homeTeamId: teams.home.id,
+        awayScore: ls.teams?.away?.runs ?? 0,
+        homeScore: ls.teams?.home?.runs ?? 0,
+        currentInning: inn,
+        inningHalf: ls.inningHalf || '',
+        inningStatus,
+        gameState: g.status.detailedState,
+        outs: ls.outs || 0,
+        onFirst:  !!ls.offense?.first,
+        onSecond: !!ls.offense?.second,
+        onThird:  !!ls.offense?.third,
+        currentBatter:  (function() {
+          const bid = ls.offense?.batter?.id || plays?.currentPlay?.matchup?.batter?.id;
+          const bname = ls.offense?.batter?.fullName || plays?.currentPlay?.matchup?.batter?.fullName || null;
+          if (!bid || !bname) return null;
+          const bx = feed.liveData.boxscore?.teams;
+          const bp = bx?.home?.players?.['ID'+bid] || bx?.away?.players?.['ID'+bid];
+          const gb = bp?.stats?.batting || {};
+          const sb = bp?.seasonStats?.batting || {};
+          return { name: bname, gameH: gb.hits ?? '-', gameAB: gb.atBats ?? '-', avg: sb.avg || '---', obp: sb.obp || '---', ops: sb.ops || '---' };
+        })(),
+        currentPitcher: (function() {
+          const pid = ls.defense?.pitcher?.id || plays?.currentPlay?.matchup?.pitcher?.id;
+          const pname = ls.defense?.pitcher?.fullName || plays?.currentPlay?.matchup?.pitcher?.fullName || null;
+          if (!pid || !pname) return null;
+          const bx = feed.liveData.boxscore?.teams;
+          const pp = bx?.home?.players?.['ID'+pid] || bx?.away?.players?.['ID'+pid];
+          const gp = pp?.stats?.pitching || {};
+          const sp = pp?.seasonStats?.pitching || {};
+          return { name: pname, gameIP: gp.inningsPitched || '0.0', gamePitches: gp.pitchesThrown ?? gp.numberOfPitches ?? 0, gameK: parseInt(gp.strikeOuts) || 0, era: sp.era || '-.--' };
+        })(),
+        awayHits: awayH,
+        homeHits: homeH,
+        balls, strikes,
+        homeWinProb,
+        winProbSeries,
+        watchabilityIndex: 0,
+        isNoHitter,
+        isPerfectGame,
+        finalDetails: isFinal ? extractFinalDetails(feed) : null
+      };
+      obj.watchabilityBreakdown = calculateWatchabilityBreakdown(obj);
+      obj.watchabilityIndex = obj.watchabilityBreakdown.score;
+      checkBoxscoreMilestones(feed);
+      return obj;
+    } catch (e) {
+      console.error(`Feed error ${g.gamePk}:`, e);
+      return null;
+    }
+  }));
+
+  return [...results.filter(Boolean), ...previewGames];
+}
+
+
+
+// ─── EXPAND PANEL ─────────────────────────────────────────────────────────────
+const expandedCards = new Set();
+const expandCache   = {};
+const EXPAND_TTL    = 30000;
+
+function toggleExpandCard(gamePk, btn) {
+  const panel = document.querySelector('.card-expand-panel[data-gpk="' + gamePk + '"]');
+  if (!panel) return;
+  const open = panel.classList.toggle('open');
+  btn.classList.toggle('open', open);
+  if (open) {
+    expandedCards.add(gamePk);
+    loadExpandData(gamePk, panel);
+  } else {
+    expandedCards.delete(gamePk);
+  }
+}
+
+async function openGameDrawer(gamePk) {
+  const drawer = document.getElementById('game-drawer');
+  const overlay = document.getElementById('drawer-overlay');
+  const title = document.getElementById('drawer-title');
+  const body = document.getElementById('drawer-body');
+  const game = gameDetailsByPk[gamePk];
+  if (!drawer || !overlay || !title || !body) return;
+  title.textContent = game ? `${game.awayTeam} @ ${game.homeTeam}` : 'Game Details';
+  body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+  drawer.classList.add('open');
+  overlay.classList.add('open');
+  try {
+    const [feed, wpData] = await Promise.all([
+      fetchJson('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
+      fetchJson(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
+    ]);
+    const data = parseExpandData(feed, wpData);
+    renderExpandPanel(body, data);
+  } catch (e) {
+    body.innerHTML = '<div class="expand-load-msg" style="color:#ef4444">Failed to load details</div>';
+  }
+}
+
+function closeGameDrawer() {
+  document.getElementById('game-drawer')?.classList.remove('open');
+  document.getElementById('drawer-overlay')?.classList.remove('open');
+}
+
+async function loadExpandData(gamePk, panel) {
+  const now = Date.now();
+  const cached = expandCache[gamePk];
+  if (cached && (now - cached.fetchedAt) < EXPAND_TTL) {
+    renderExpandPanel(panel, cached);
+    return;
+  }
+  panel.innerHTML = '<div class="expand-load-msg">Loading…</div>';
+  try {
+    const [feed, wpData] = await Promise.all([
+      fetchJson('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
+      fetchJson(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
+    ]);
+    const data = parseExpandData(feed, wpData);
+    expandCache[gamePk] = Object.assign({}, data, { fetchedAt: now });
+    renderExpandPanel(panel, data);
+  } catch(e) {
+    panel.innerHTML = '<div class="expand-load-msg" style="color:#ef4444">Failed to load details</div>';
+  }
+}
+
+function parseExpandData(feed, wpData = []) {
+  const ls    = feed.liveData && feed.liveData.linescore || {};
+  const plays = feed.liveData && feed.liveData.plays     || {};
+  const bx    = feed.liveData && feed.liveData.boxscore && feed.liveData.boxscore.teams || {};
+  const gd    = feed.gameData && feed.gameData.teams     || {};
+
+  const awayAbbr = normalizeAbbr(gd.away && gd.away.abbreviation || 'Away');
+  const homeAbbr = normalizeAbbr(gd.home && gd.home.abbreviation || 'Home');
+  const innings  = ls.innings || [];
+  const maxInn   = Math.max(innings.length, 9);
+  const awayInns = [], homeInns = [];
+  for (let i = 0; i < maxInn; i++) {
+    const inn = innings[i] || {};
+    awayInns.push(inn.away && inn.away.runs != null ? inn.away.runs : (i < innings.length ? '0' : '·'));
+    homeInns.push(inn.home && inn.home.runs != null ? inn.home.runs : (i < innings.length ? '0' : '·'));
+  }
+  const awayTotals = ls.teams && ls.teams.away || {};
+  const homeTotals = ls.teams && ls.teams.home || {};
+  const boxRows = { awayAbbr, homeAbbr, awayInns, homeInns, awayTotals, homeTotals, maxInn };
+
+  // Scoring plays — last 5, most recent first
+  const scoringIdxs = plays.scoringPlays || [];
+  const allPlays    = plays.allPlays     || [];
+  const scoringPlays = scoringIdxs.slice(-5).map(idx => {
+    const p = allPlays[idx];
+    if (!p) return null;
+    const inn  = p.about && p.about.inning || '?';
+    const half = p.about && p.about.halfInning === 'top' ? '▲' : '▼';
+    const desc = p.result && p.result.description || '';
+    const away = p.result && p.result.awayScore != null ? p.result.awayScore : '?';
+    const home = p.result && p.result.homeScore != null ? p.result.homeScore : '?';
+    return { inn, half, desc, away, home };
+  }).filter(Boolean).reverse();
+
+  // Pitching lines
+  function extractPitchers(side) {
+    const players = bx[side] && bx[side].players || {};
+    const lines = [];
+    for (const key of Object.keys(players)) {
+      const p  = players[key];
+      const gp = p.stats && p.stats.pitching;
+      if (!gp || !gp.inningsPitched || gp.inningsPitched === '0.0') continue;
+      lines.push({
+        name: p.person && p.person.fullName || '?',
+        ip:   gp.inningsPitched || '0',
+        h:    gp.hits != null ? gp.hits : '-',
+        r:    gp.earnedRuns != null ? gp.earnedRuns : '-',
+        bb:   gp.baseOnBalls != null ? gp.baseOnBalls : '-',
+        k:    gp.strikeOuts != null ? gp.strikeOuts : '-',
+        pit:  gp.pitchesThrown != null ? gp.pitchesThrown : (gp.numberOfPitches != null ? gp.numberOfPitches : '-'),
+        note: p.gameStatus && p.gameStatus.note || ''
+      });
+    }
+    lines.sort(function(a, b) { return parseFloat(b.ip) - parseFloat(a.ip); });
+    return lines;
+  }
+  const awayPitching = extractPitchers('away');
+  const homePitching = extractPitchers('home');
+
+  const wpByAtBat = {};
+  if (Array.isArray(wpData)) {
+    wpData.forEach(p => {
+      const idx = p.atBatIndex ?? p.about?.atBatIndex;
+      if (idx != null) wpByAtBat[idx] = p;
+    });
+  }
+
+  const topWpaPlays = allPlays
+    .map(p => {
+      const idx = p.about?.atBatIndex;
+      const wp = idx != null ? wpByAtBat[idx] : null;
+      const delta = typeof wp?.homeTeamWinProbabilityAdded === 'number' ? wp.homeTeamWinProbabilityAdded : null;
+      if (delta == null) return null;
+      return {
+        inn: p.about?.inning || '?',
+        half: p.about?.halfInning === 'top' ? '▲' : '▼',
+        desc: p.result?.description || '',
+        away: p.result?.awayScore,
+        home: p.result?.homeScore,
+        delta
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, 5);
+
+  const homeRuns = allPlays
+    .filter(p => p.result?.eventType === 'home_run')
+    .map(p => ({
+      inn: p.about?.inning || '?',
+      half: p.about?.halfInning === 'top' ? '▲' : '▼',
+      desc: p.result?.description || '',
+      rbi: p.result?.rbi || 1,
+      away: p.result?.awayScore,
+      home: p.result?.homeScore
+    }))
+    .reverse();
+
+  function extractLineup(side) {
+    const players = bx[side]?.players || {};
+    return Object.values(players)
+      .filter(p => p.battingOrder)
+      .sort((a, b) => parseInt(a.battingOrder) - parseInt(b.battingOrder))
+      .slice(0, 12)
+      .map(p => {
+        const bat = p.stats?.batting || {};
+        return {
+          order: String(p.battingOrder || '').slice(0, 1),
+          name: p.person?.fullName || '?',
+          pos: p.position?.abbreviation || '',
+          line: `${bat.hits ?? 0}-${bat.atBats ?? 0}${bat.homeRuns ? `, ${bat.homeRuns} HR` : ''}${bat.rbi ? `, ${bat.rbi} RBI` : ''}`
+        };
+      });
+  }
+
+  const lineup = { away: extractLineup('away'), home: extractLineup('home') };
+  const bullpen = {
+    away: awayPitching.filter(p => parseFloat(p.ip) < 3.5),
+    home: homePitching.filter(p => parseFloat(p.ip) < 3.5)
+  };
+
+  return { boxRows, scoringPlays, awayPitching, homePitching, awayAbbr, homeAbbr, topWpaPlays, homeRuns, lineup, bullpen };
+}
+
+function renderExpandPanel(panel, data) {
+  const boxRows      = data.boxRows;
+  const scoringPlays = data.scoringPlays;
+  const awayPitching = data.awayPitching;
+  const homePitching = data.homePitching;
+  const awayAbbr     = data.awayAbbr;
+  const homeAbbr     = data.homeAbbr;
+  const topWpaPlays  = data.topWpaPlays || [];
+  const homeRuns     = data.homeRuns || [];
+  const lineup       = data.lineup || { away: [], home: [] };
+  const bullpen      = data.bullpen || { away: [], home: [] };
+  let html = '';
+
+  // Box Score
+  const innLabels = [];
+  for (let i = 1; i <= boxRows.maxInn; i++) innLabels.push(i);
+  const colsStyle = 'grid-template-columns: 2.5rem repeat(' + boxRows.maxInn + ', 1fr) 0.5rem 1.5rem 1.5rem 1.5rem';
+
+  html += '<div class="expand-section-label">Box Score</div>';
+  html += '<div class="expand-box">';
+  html += '<div class="expand-box-row header" style="' + colsStyle + '">';
+  html += '<span class="expand-box-cell team"></span>';
+  innLabels.forEach(function(n) { html += '<span class="expand-box-cell">' + n + '</span>'; });
+  html += '<span class="expand-box-cell"></span><span class="expand-box-cell">R</span><span class="expand-box-cell">H</span><span class="expand-box-cell">E</span></div>';
+
+  ['away','home'].forEach(function(side) {
+    const abbr  = side === 'away' ? awayAbbr : homeAbbr;
+    const inns  = side === 'away' ? boxRows.awayInns : boxRows.homeInns;
+    const tots  = side === 'away' ? boxRows.awayTotals : boxRows.homeTotals;
+    const cls   = side === 'home' ? ' total' : '';
+    html += '<div class="expand-box-row' + cls + '" style="' + colsStyle + '">';
+    html += '<span class="expand-box-cell team">' + teamLogo(abbr) + ' ' + abbr + '</span>';
+    inns.forEach(function(v) { html += '<span class="expand-box-cell">' + v + '</span>'; });
+    html += '<span class="expand-box-cell"></span>';
+    html += '<span class="expand-box-cell">' + (tots.runs != null ? tots.runs : '-') + '</span>';
+    html += '<span class="expand-box-cell">' + (tots.hits != null ? tots.hits : '-') + '</span>';
+    html += '<span class="expand-box-cell">' + (tots.errors != null ? tots.errors : '-') + '</span>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Scoring Plays
+  if (scoringPlays && scoringPlays.length > 0) {
+    html += '<div class="expand-section-label" style="margin-top:8px">Recent Scoring Plays</div>';
+    html += '<div class="expand-plays">';
+    scoringPlays.forEach(function(p) {
+      const shortDesc = p.desc.length > 90 ? p.desc.slice(0, 90) + '…' : p.desc;
+      html += '<div class="expand-play">';
+      html += '<span class="expand-play-inn">' + p.half + p.inn + '</span>';
+      html += '<span class="expand-play-desc">' + shortDesc + ' <span class="expand-play-score">' + awayAbbr + ' ' + p.away + ' · ' + homeAbbr + ' ' + p.home + '</span></span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  if (topWpaPlays.length > 0) {
+    html += '<div class="expand-section-label" style="margin-top:8px">Top WPA Plays</div>';
+    html += '<div class="expand-plays">';
+    topWpaPlays.forEach(function(p) {
+      const shortDesc = p.desc.length > 92 ? p.desc.slice(0, 92) + '…' : p.desc;
+      const sign = p.delta > 0 ? '+' : '';
+      html += '<div class="expand-play">';
+      html += '<span class="expand-play-inn">' + p.half + p.inn + '</span>';
+      html += '<span class="expand-play-desc">' + escapeHTML(shortDesc) + ' <span class="expand-play-score">' + sign + p.delta.toFixed(1) + ' home WPA · ' + awayAbbr + ' ' + (p.away ?? '?') + ' · ' + homeAbbr + ' ' + (p.home ?? '?') + '</span></span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  if (homeRuns.length > 0) {
+    html += '<div class="expand-section-label" style="margin-top:8px">Home Runs</div>';
+    html += '<div class="drawer-chip-list">';
+    homeRuns.forEach(function(hr) {
+      html += '<div class="drawer-chip"><strong>' + hr.half + hr.inn + '</strong> ' + escapeHTML(hr.desc) + ' <span>' + awayAbbr + ' ' + (hr.away ?? '?') + ' · ' + homeAbbr + ' ' + (hr.home ?? '?') + '</span></div>';
+    });
+    html += '</div>';
+  }
+
+  if ((lineup.away && lineup.away.length) || (lineup.home && lineup.home.length)) {
+    html += '<div class="expand-section-label" style="margin-top:8px">Lineup Status</div>';
+    html += '<div class="drawer-lineups">';
+    function addLineupRows(rows, abbr) {
+      html += '<div><div class="drawer-team-label">' + teamLogo(abbr) + ' ' + abbr + '</div>';
+      rows.forEach(function(p) {
+        html += '<div class="drawer-lineup-row"><span>' + escapeHTML(p.order) + '. ' + escapeHTML(p.name) + ' <em>' + escapeHTML(p.pos) + '</em></span><strong>' + escapeHTML(p.line) + '</strong></div>';
+      });
+      html += '</div>';
+    }
+    addLineupRows(lineup.away || [], awayAbbr);
+    addLineupRows(lineup.home || [], homeAbbr);
+    html += '</div>';
+  }
+
+  // Pitching Lines
+  if ((awayPitching && awayPitching.length > 0) || (homePitching && homePitching.length > 0)) {
+    html += '<div class="expand-section-label" style="margin-top:8px">Pitching</div>';
+    html += '<div class="expand-pitching">';
+    html += '<div class="expand-pitcher-row header"><span>Pitcher</span><span>IP</span><span>H</span><span>R</span><span>BB</span><span>K</span><span>P</span></div>';
+    function addRows(pitchers, abbr) {
+      if (!pitchers || !pitchers.length) return;
+      html += '<div class="expand-pitcher-row" style="color:#555;font-size:0.6rem;font-style:italic"><span style="text-align:left">' + teamLogo(abbr) + ' ' + abbr + '</span><span></span><span></span><span></span><span></span><span></span><span></span></div>';
+      pitchers.forEach(function(p) {
+        const noteHtml = p.note ? ' <span style="color:#f59e0b;font-weight:700">' + p.note + '</span>' : '';
+        html += '<div class="expand-pitcher-row"><span>' + p.name + noteHtml + '</span><span>' + p.ip + '</span><span>' + p.h + '</span><span>' + p.r + '</span><span>' + p.bb + '</span><span>' + p.k + '</span><span>' + p.pit + '</span></div>';
+      });
+    }
+    addRows(awayPitching, awayAbbr);
+    addRows(homePitching, homeAbbr);
+    html += '</div>';
+  }
+
+  if ((bullpen.away && bullpen.away.length) || (bullpen.home && bullpen.home.length)) {
+    html += '<div class="expand-section-label" style="margin-top:8px">Bullpen Usage</div>';
+    html += '<div class="drawer-chip-list">';
+    [...(bullpen.away || []).map(p => ({ ...p, team: awayAbbr })), ...(bullpen.home || []).map(p => ({ ...p, team: homeAbbr }))]
+      .slice(0, 10)
+      .forEach(function(p) {
+        html += '<div class="drawer-chip"><strong>' + teamLogo(p.team) + ' ' + p.team + '</strong> ' + escapeHTML(p.name) + ' <span>' + escapeHTML(p.ip) + ' IP · ' + escapeHTML(p.pit) + ' pitches · ' + escapeHTML(p.k) + ' K</span></div>';
+      });
+    html += '</div>';
+  }
+
+  panel.innerHTML = html;
+}
+
+// ─── SORT / FILTER STATE ──────────────────────────────────────────────────────
+let currentSort   = loadPrefs().sort || 'watchability'; // 'watchability' | 'score' | 'inning'
+let currentFilter = loadPrefs().filter || null;          // null | 'hot' | 'fire' | 'live'
+
+function setSort(s) {
+  currentSort = s;
+  savePrefs({ sort: s });
+  document.querySelectorAll('[id^="sort-"]').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('sort-' + s);
+  if (btn) btn.classList.add('active');
+  if (lastGames) renderGames(lastGames);
+}
+
+function setFilter(f) {
+  if (currentFilter === f) {
+    currentFilter = null;
+    savePrefs({ filter: null });
+    document.querySelectorAll('[id^="filter-"]').forEach(b => { b.classList.remove('active'); b.classList.remove('active-blue'); });
+  } else {
+    currentFilter = f;
+    savePrefs({ filter: f });
+    document.querySelectorAll('[id^="filter-"]').forEach(b => { b.classList.remove('active'); b.classList.remove('active-blue'); });
+    const btn = document.getElementById('filter-' + f);
+    if (btn) btn.classList.add(f === 'live' ? 'active-blue' : 'active');
+  }
+  if (lastGames) renderGames(lastGames);
+}
+
+function applySortFilter(games) {
+  let g = [...games];
+
+  // Filter
+  if (currentFilter === 'hot')  g = g.filter(x => x.watchabilityIndex >= 60);
+  if (currentFilter === 'fire') g = g.filter(x => x.watchabilityIndex >= 75);
+  if (currentFilter === 'live') g = g.filter(x => !/final|scheduled|pre-game|warmup|preview/i.test(x.gameState));
+
+  // Always put finals at the bottom
+  const isFinalFn = x => /final/i.test(x.inningStatus);
+  const favoriteRank = x => isFavoriteGame(x) ? 1 : 0;
+
+  if (currentSort === 'watchability') {
+    g.sort((a, b) => {
+      const fav = favoriteRank(b) - favoriteRank(a);
+      if (fav) return fav;
+      const af = isFinalFn(a), bf = isFinalFn(b);
+      if (af !== bf) return af ? 1 : -1;
+      return b.watchabilityIndex - a.watchabilityIndex;
+    });
+  } else if (currentSort === 'score') {
+    g.sort((a, b) => {
+      const fav = favoriteRank(b) - favoriteRank(a);
+      if (fav) return fav;
+      const af = isFinalFn(a), bf = isFinalFn(b);
+      if (af !== bf) return af ? 1 : -1;
+      const ad = Math.abs(a.awayScore - a.homeScore);
+      const bd = Math.abs(b.awayScore - b.homeScore);
+      return ad - bd; // closest first
+    });
+  } else if (currentSort === 'inning') {
+    g.sort((a, b) => {
+      const fav = favoriteRank(b) - favoriteRank(a);
+      if (fav) return fav;
+      const af = isFinalFn(a), bf = isFinalFn(b);
+      if (af !== bf) return af ? 1 : -1;
+      return (b.currentInning || 0) - (a.currentInning || 0);
+    });
+  }
+
+  return g;
+}
+
+// ─── RENDER GAMES ──────────────────────────────────────────────────────────────
+function renderGames(games) {
+  const grid = document.getElementById('games-grid');
+  grid.innerHTML = '';
+
+  const filtered = applySortFilter(games);
+
+  const countEl = document.getElementById('games-count');
+  if (countEl) {
+    const showing = filtered.length;
+    const total = games.length;
+    countEl.textContent = showing < total ? `${showing} of ${total} games` : `${total} game${total !== 1 ? 's' : ''}`;
+  }
+
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div class="empty-msg">No games match this filter</div>';
+    return;
+  }
+
+  filtered.forEach(game => {
+    const card = document.createElement('div');
+    const wi = game.watchabilityIndex;
+    card.className = `game-card${wi > 75 ? ' fire' : wi > 55 ? ' hot' : ''}`;
+
+    const isFinal = /final/i.test(game.inningStatus);
+    const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
+
+    // ── Spoiler Mode ──
+    const isSpoilered = (spoilerTeams.has(game.awayTeam) || spoilerTeams.has(game.homeTeam)) && !isFavoriteGame(game);
+    if (isSpoilered) {
+      card.classList.add('spoilered');
+      card.innerHTML = `
+        <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
+        <div class="inning-line" style="color:#555">${isScheduled ? game.inningStatus : isFinal ? 'FINAL' : 'Live'}</div>
+        <div class="spoiler-mask" onclick="revealSpoiler(this, ${game.gamePk})">
+          🙈 Spoiler Mode — tap to reveal
+        </div>
+      `;
+      card._fullGame = game;
+      grid.appendChild(card);
+      return;
+    }
+
+    // Render full card info
+    renderSingleGameCard(card, game);
+    card.addEventListener('click', (event) => {
+      if (event.target.closest('button') || event.target.closest('.card-expand-panel')) return;
+      openGameDrawer(game.gamePk);
+    });
+    grid.appendChild(card);
+  });
+}
+
+function renderScoreBreakdown(game) {
+  const breakdown = game.watchabilityBreakdown;
+  if (!breakdown?.parts?.length) return '';
+  const chips = breakdown.parts
+    .filter(part => part.value !== 0)
+    .slice(0, 5)
+    .map(part => `<span class="score-chip">${escapeHTML(part.label)} +${escapeHTML(part.value)}</span>`)
+    .join('');
+  return chips ? `<div class="score-breakdown">${chips}</div>` : '';
+}
+
+function renderWinProbSparkline(game) {
+  const series = game.winProbSeries || [];
+  if (series.length < 2) return '';
+  const points = series.slice(-36);
+  const w = 180, h = 34, pad = 3;
+  const path = points.map((p, i) => {
+    const x = pad + (i / Math.max(points.length - 1, 1)) * (w - pad * 2);
+    const y = pad + (1 - Math.max(0, Math.min(100, p.home)) / 100) * (h - pad * 2);
+    return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const last = points[points.length - 1]?.home;
+  const label = typeof last === 'number' ? `${game.homeTeam} ${Math.round(last)}%` : 'Win probability';
+  return `<div class="wp-sparkline" title="Win probability">
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+      <line x1="0" y1="${h/2}" x2="${w}" y2="${h/2}" />
+      <path d="${path}" />
+    </svg>
+    <span>${escapeHTML(label)}</span>
+  </div>`;
+}
+
+function checkFavoriteAlerts(games) {
+  if (isFirstLoad || favoriteTeams.size === 0) return;
+  games.filter(isFavoriteGame).forEach(game => {
+    const prev = favoriteAlerts[game.gamePk];
+    favoriteAlerts[game.gamePk] = { away: game.awayScore, home: game.homeScore, wi: game.watchabilityIndex };
+    if (!prev) return;
+    if (prev.away !== game.awayScore || prev.home !== game.homeScore) {
+      showNotification(`Favorite update: ${game.awayTeam} ${game.awayScore}, ${game.homeTeam} ${game.homeScore}`, 'score');
+    } else if (prev.wi < 70 && game.watchabilityIndex >= 70) {
+      showNotification(`Favorite game heating up: ${game.awayTeam} @ ${game.homeTeam} (${game.watchabilityIndex})`, 'info');
+    }
+  });
+}
+
+// ─── STAT LEADERS ──────────────────────────────────────────────────────────────
+const BATTING_LEADER_DEFS = [
+  { api: 'hits',                  label: 'Hits' },
+  { api: 'homeRuns',              label: 'HR' },
+  { api: 'runsBattedIn',          label: 'RBI' },
+  { api: 'battingAverage',        label: 'AVG' },
+  { api: 'onBasePlusSlugging',    label: 'OPS' },
+  { api: 'stolenBases',           label: 'SB' }
+];
+
+const PITCHING_LEADER_DEFS = [
+  { api: 'inningsPitched',                label: 'IP' },
+  { api: 'strikeouts',                    label: 'K' },
+  { api: 'earnedRunAverage',              label: 'ERA' },
+  { api: 'battingAverage',               label: 'BAA' },
+  { api: 'walksAndHitsPerInningPitched',  label: 'WHIP' },
+  { api: 'saves',                         label: 'SV' }
+];
+
+async function fetchLeaderGroup(defs, statGroup) {
+  const season = currentSeason();
+  const promises = defs.map(async def => {
+    try {
+      const url = `${MLB_API}/stats/leaders?leaderCategories=${def.api}&season=${season}&sportId=1&limit=1&statGroup=${statGroup}`;
+      const data = await (await fetch(url)).json();
+      const ldr = data.leagueLeaders?.[0]?.leaders?.[0];
+      if (!ldr) return null;
+      return {
+        label: def.label,
+        name:  ldr.person?.fullName || 'Unknown',
+        team:  normalizeAbbr(ldr.team?.abbreviation || teamAbbrFromId(ldr.team?.id) || ldr.team?.name || ''),
+        value: ldr.value
+      };
+    } catch (e) { console.error(`Leader ${def.label}:`, e); return null; }
+  });
+  return (await Promise.all(promises)).filter(Boolean);
+}
+
+function renderLeaderRow(results, container) {
+  const row = document.createElement('div');
+  row.className = 'leaders-row';
+  results.forEach(l => {
+    // Detect leader changes
+    const prev = prevLeaders[l.label];
+    if (prev && prev.name !== l.name) {
+      showNotification(`New ${l.label} leader: ${l.name} (${l.value})`, 'leader');
+    }
+    prevLeaders[l.label] = { name: l.name, value: l.value };
+
+    const card = document.createElement('div');
+    card.className = 'leader-card';
+    card.innerHTML = `
+      <div class="leader-cat">${l.label}</div>
+      <div class="leader-name">${l.name}</div>
+      <div class="leader-team">${l.team}</div>
+      <div class="leader-val">${l.value}</div>
+    `;
+    row.appendChild(card);
+  });
+  container.appendChild(row);
+}
+
+async function fetchStatLeaders() {
+  const container = document.getElementById('leaders-container');
+  container.innerHTML = '<div class="empty-msg">Loading stat leaders...</div>';
+
+  const [battingResults, pitchingResults] = await Promise.all([
+    fetchLeaderGroup(BATTING_LEADER_DEFS, 'hitting'),
+    fetchLeaderGroup(PITCHING_LEADER_DEFS, 'pitching')
+  ]);
+
+  container.innerHTML = '';
+
+  if (battingResults.length === 0 && pitchingResults.length === 0) {
+    container.innerHTML = '<div class="empty-msg">No leader data available yet this season</div>';
+    return;
+  }
+
+  if (battingResults.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'leaders-section';
+    section.innerHTML = '<div class="leaders-section-title">Batting Leaders</div>';
+    renderLeaderRow(battingResults, section);
+    container.appendChild(section);
+  }
+
+  if (pitchingResults.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'leaders-section';
+    section.innerHTML = '<div class="leaders-section-title">Pitching Leaders</div>';
+    renderLeaderRow(pitchingResults, section);
+    container.appendChild(section);
+  }
+}
+
+// ─── PLAYOFF RACES ──────────────────────────────────────────────────────────
+const DIV_NAMES = { 200: 'AL West', 201: 'AL East', 202: 'AL Central', 203: 'NL West', 204: 'NL East', 205: 'NL Central' };
+const AL_DIVS = [201, 202, 200];
+const NL_DIVS = [204, 205, 203];
+
+
+// ─── TEAM L10 FORM CACHE ──────────────────────────────────────────────────────
+const teamL10Cache = {}; // abbr -> { w, l, streak, streakDir }
+let l10LastFetchDate = null;
+
+async function fetchAllTeamL10() {
+  const today = todayET();
+  if (l10LastFetchDate === today && Object.keys(teamL10Cache).length > 0) return;
+  const allAbbrs = Object.keys(TEAM_DATA).filter(a => a !== 'ATH');
+  const season = currentSeason();
+  // Fetch last 15 games for each team in parallel (15 to be sure we get 10 completed)
+  await Promise.all(allAbbrs.map(async abbr => {
+    const tid = TEAM_DATA[abbr]?.id;
+    if (!tid) return;
+    try {
+      // end=today, start=~25 days ago should be plenty
+      const end = today;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 28);
+      const start = `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`;
+      const url = `${MLB_API}/schedule?sportId=1&teamId=${tid}&startDate=${start}&endDate=${end}&hydrate=team&gameType=R`;
+      const data = await (await fetch(url)).json();
+      const results = [];
+      for (const dateObj of (data.dates || [])) {
+        for (const g of (dateObj.games || [])) {
+          if (g.status?.abstractGameState !== 'Final') continue;
+          const isHome = g.teams?.home?.team?.id === tid;
+          const myScore = isHome ? g.teams?.home?.score : g.teams?.away?.score;
+          const oppScore = isHome ? g.teams?.away?.score : g.teams?.home?.score;
+          if (myScore == null || oppScore == null) continue;
+          results.push(myScore > oppScore ? 'W' : 'L');
+        }
+      }
+      const last10 = results.slice(-10);
+      const w = last10.filter(r => r === 'W').length;
+      const l = last10.filter(r => r === 'L').length;
+      // Streak: count how many in a row from end
+      let streakCount = 0;
+      let streakDir = '';
+      for (let i = results.length - 1; i >= 0; i--) {
+        if (streakDir === '') { streakDir = results[i]; streakCount = 1; }
+        else if (results[i] === streakDir) streakCount++;
+        else break;
+      }
+      teamL10Cache[abbr] = { w, l, streakCount, streakDir, games: last10.length };
+    } catch(e) {}
+  }));
+  l10LastFetchDate = today;
+}
+
+function l10Html(abbr) {
+  const d = teamL10Cache[abbr];
+  if (!d || d.games < 5) return '<span class="l10-cell even">—</span>';
+  const cls = d.w >= 7 ? 'hot' : d.w <= 3 ? 'cold' : 'even';
+  return `<span class="l10-cell ${cls}">${d.w}-${d.l}</span>`;
+}
+
+function streakHtml(abbr) {
+  const d = teamL10Cache[abbr];
+  if (!d || !d.streakDir) return '<span class="streak-cell">—</span>';
+  const cls = d.streakDir === 'W' ? 'win' : 'loss';
+  return `<span class="streak-cell ${cls}">${d.streakDir}${d.streakCount}</span>`;
+}
+
+async function fetchPlayoffRaces(todayGames) {
+  const container = document.getElementById('playoffs-container');
+  container.innerHTML = '<div class="empty-msg">Loading standings...</div>';
+  try {
+    // Kick off L10 fetch in background (non-blocking — will populate on next render if slow)
+    fetchAllTeamL10();
+    const [regData, wcData] = await Promise.all([
+      (await fetch(`${MLB_API}/standings?leagueId=103,104&season=${currentSeason()}&standingsTypes=regularSeason&hydrate=team`)).json(),
+      (await fetch(`${MLB_API}/standings?leagueId=103,104&season=${currentSeason()}&standingsTypes=wildCard&hydrate=team`)).json()
+    ]);
+
+    // Build division map
+    const divMap = {};
+    for (const group of regData.records) {
+      const divId = group.division.id;
+      divMap[divId] = group.teamRecords.map(t => ({
+        abbr: normalizeAbbr(t.team.abbreviation),
+        name: t.team.name,
+        w: t.wins, l: t.losses,
+        pct: t.winningPercentage,
+        gb: t.gamesBack,
+        divRank: parseInt(t.divisionRank),
+        wcRank: t.wildCardRank,
+        wcGB: t.wildCardGamesBack,
+        leagueId: group.league.id,
+        eliminationNumber: t.eliminationNumber || '-',
+        magicNumber: t.magicNumber || null,
+        wildCardEliminationNumber: t.wildCardEliminationNumber || '-',
+        gamesPlayed: t.wins + t.losses
+      }));
+    }
+
+    // Build wild card map
+    const wcMap = {};
+    for (const group of wcData.records) {
+      const lgId = group.league?.id;
+      if (!lgId) continue;
+      wcMap[lgId] = group.teamRecords.map(t => ({
+        abbr: normalizeAbbr(t.team.abbreviation),
+        name: t.team.name,
+        w: t.wins, l: t.losses,
+        wcRank: parseInt(t.wildCardRank),
+        wcGB: t.wildCardGamesBack,
+        wildCardEliminationNumber: t.wildCardEliminationNumber || '-',
+        magicNumber: t.magicNumber || null
+      }));
+    }
+
+    // Today's teams
+    const todayTeams = new Set();
+    if (todayGames) todayGames.forEach(g => { todayTeams.add(g.awayTeam); todayTeams.add(g.homeTeam); });
+
+    container.innerHTML = '';
+
+    function racePulseHtml(lg) {
+      const cards = [];
+      lg.divs.forEach(divId => {
+        const teams = divMap[divId] || [];
+        if (teams.length < 2) return;
+        const leader = teams[0];
+        const challenger = teams[1];
+        const gb = challenger.gb === '--' ? '0.0' : challenger.gb;
+        if (parseFloat(gb) <= 5) {
+          cards.push(`<div class="race-pulse-card">
+            <div class="race-pulse-label">${escapeHTML(DIV_NAMES[divId] || 'Division')}</div>
+            <div class="race-pulse-title">${teamLogo(leader.abbr)} ${leader.abbr} chased by ${teamLogo(challenger.abbr)} ${challenger.abbr}</div>
+            <div class="race-pulse-note">${escapeHTML(gb)} GB · ${escapeHTML(challenger.w)}-${escapeHTML(challenger.l)} · ${l10Html(challenger.abbr)}</div>
+          </div>`);
+        }
+      });
+      const wc = wcMap[lg.lgId] || [];
+      const bubble = wc.slice(2, 7);
+      if (bubble.length) {
+        cards.push(`<div class="race-pulse-card wild">
+          <div class="race-pulse-label">Wild Card Bubble</div>
+          <div class="race-pulse-title">${bubble.map(t => `${teamLogo(t.abbr)} ${t.abbr}`).join(' ')}</div>
+          <div class="race-pulse-note">${bubble.map(t => `${t.abbr} ${t.wcGB} GB`).join(' · ')}</div>
+        </div>`);
+      }
+      return cards.length ? `<div class="race-pulse-grid">${cards.slice(0, 4).join('')}</div>` : '';
+    }
+
+    // Render each league
+    [{name: 'American League', divs: AL_DIVS, lgId: 103}, {name: 'National League', divs: NL_DIVS, lgId: 104}].forEach(lg => {
+      const section = document.createElement('div');
+      section.className = 'standings-league';
+      let html = `<div class="standings-league-title">${lg.name}</div>${racePulseHtml(lg)}`;
+
+      // Divisions
+      lg.divs.forEach(divId => {
+        const teams = divMap[divId];
+        if (!teams) return;
+        html += `<div class="standings-division"><div class="standings-div-title">${DIV_NAMES[divId] || divId}</div>`;
+        html += '<table class="standings-table"><thead><tr><th>Team</th><th>W</th><th>L</th><th>PCT</th><th>GB</th><th title="Magic Number">MN</th><th title="Last 10">L10</th><th title="Current Streak">STK</th></tr></thead><tbody>';
+        teams.forEach((t, i) => {
+          const cls = i === 0 ? 'playoff' : '';
+          // Magic number: only show for div leader (i===0), show elimination number for others
+          let mnDisplay = '-';
+          if (i === 0 && t.magicNumber && t.magicNumber !== '-') {
+            mnDisplay = `<span style="color:#4ade80;font-weight:700">${t.magicNumber}</span>`;
+          } else if (i > 0 && t.eliminationNumber && t.eliminationNumber !== '-' && t.eliminationNumber !== 'E') {
+            mnDisplay = `<span style="color:#ef444488">E${t.eliminationNumber}</span>`;
+          }
+          html += `<tr class="${cls}"><td class="team-name">${teamLogo(t.abbr)} ${t.abbr}</td><td>${t.w}</td><td>${t.l}</td><td>${t.pct}</td><td class="gb">${t.gb}</td><td class="gb">${mnDisplay}</td><td>${l10Html(t.abbr)}</td><td>${streakHtml(t.abbr)}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+      });
+
+      // Wild Card
+      const wc = wcMap[lg.lgId];
+      if (wc && wc.length > 0) {
+        html += '<div class="standings-division"><div class="standings-div-title">Wild Card</div>';
+        html += '<table class="standings-table"><thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>WC GB</th><th title="WC Elim Number">WCE</th><th title="Last 10">L10</th><th title="Current Streak">STK</th></tr></thead><tbody>';
+        wc.forEach((t, i) => {
+          const cls = i < 3 ? 'wc' : '';
+          const cutline = i === 2 ? '<tr><td colspan="6" style="padding:0"><div class="wc-cutline"></div></td></tr>' : '';
+          let wceDisplay = '-';
+          if (i < 3 && t.magicNumber && t.magicNumber !== '-') {
+            wceDisplay = `<span style="color:#4ade80;font-weight:700">${t.magicNumber}</span>`;
+          } else if (i >= 3 && t.wildCardEliminationNumber && t.wildCardEliminationNumber !== '-' && t.wildCardEliminationNumber !== 'E') {
+            wceDisplay = `<span style="color:#ef444488">E${t.wildCardEliminationNumber}</span>`;
+          }
+          html += `<tr class="${cls}"><td>${t.wcRank}</td><td class="team-name">${teamLogo(t.abbr)} ${t.abbr}</td><td>${t.w}</td><td>${t.l}</td><td class="gb">${t.wcGB}</td><td class="gb">${wceDisplay}</td><td>${l10Html(t.abbr)}</td><td>${streakHtml(t.abbr)}</td></tr>${cutline}`;
+        });
+        html += '</tbody></table></div>';
+      }
+
+      // ── Key games today: scored by playoff importance ──
+      if (todayGames) {
+        const scoredGames = [];
+        for (const g of todayGames) {
+          // Find both teams anywhere in this league's divisions
+          let aTeam = null, hTeam = null;
+          for (const divId of lg.divs) {
+            const div = divMap[divId];
+            if (!div) continue;
+            const a = div.find(t => t.abbr === g.awayTeam);
+            const h = div.find(t => t.abbr === g.homeTeam);
+            if (a) aTeam = a;
+            if (h) hTeam = h;
+          }
+          if (!aTeam || !hTeam) continue; // game not in this league
+
+          const aWCGB = parseFloat(aTeam.wcGB) || 0;
+          const hWCGB = parseFloat(hTeam.wcGB) || 0;
+          const awayWCRank = parseInt(aTeam.wcRank) || 99;
+          const homeWCRank = parseInt(hTeam.wcRank) || 99;
+
+          let score = 0;
+          const reasons = [];
+
+          // Direct division matchup — always elevated
+          if (aTeam.leagueId === hTeam.leagueId) {
+            // Check if same division
+            const sameDivKey = Object.keys(divMap).find(k =>
+              divMap[k].some(t => t.abbr === g.awayTeam) && divMap[k].some(t => t.abbr === g.homeTeam)
+            );
+            if (sameDivKey) {
+              score += 30;
+              const gbBetween = Math.abs((aTeam.gb === '--' ? 0 : parseFloat(aTeam.gb)) - 0);
+              reasons.push('Division matchup');
+              if (aTeam.divRank <= 3 && hTeam.divRank <= 3) {
+                score += 20;
+                reasons.push('both in div top 3');
+              }
+            }
+          }
+
+          // Division leader / close to top
+          if (aTeam.divRank === 1) { score += 15; reasons.push(`${g.awayTeam} leads division`); }
+          else if (aTeam.divRank <= 2) { score += 8; }
+          if (hTeam.divRank === 1) { score += 15; reasons.push(`${g.homeTeam} leads division`); }
+          else if (hTeam.divRank <= 2) { score += 8; }
+
+          // Wild card bubble
+          if (awayWCRank <= 3) { score += 18; reasons.push(`${g.awayTeam} in WC spot`); }
+          else if (awayWCRank <= 6 && aWCGB <= 3) { score += 12; reasons.push(`${g.awayTeam} WC chase`); }
+          else if (aWCGB <= 5) { score += 6; }
+
+          if (homeWCRank <= 3) { score += 18; reasons.push(`${g.homeTeam} in WC spot`); }
+          else if (homeWCRank <= 6 && hWCGB <= 3) { score += 12; reasons.push(`${g.homeTeam} WC chase`); }
+          else if (hWCGB <= 5) { score += 6; }
+
+          // Both teams fighting for same playoff spot — massive bonus
+          if (awayWCRank <= 6 && homeWCRank <= 6) { score += 15; reasons.push('WC rivals'); }
+
+          // Near the bubble (3-5 back)
+          if (aWCGB >= 3 && aWCGB <= 5) { score += 5; }
+          if (hWCGB >= 3 && hWCGB <= 5) { score += 5; }
+
+          // Rivalry bonus
+          if (isRivalry(g.awayTeam, g.homeTeam)) { score += 10; reasons.push('Rivalry'); }
+
+          if (score >= 25) {
+            scoredGames.push({ g, score, reasons });
+          }
+        }
+
+        scoredGames.sort((a, b) => b.score - a.score);
+
+        if (scoredGames.length > 0) {
+          html += '<div style="margin-top:14px">';
+          html += '<div class="standings-div-title" style="margin-bottom:8px">🔑 Key Games Today</div>';
+          scoredGames.slice(0, 4).forEach(({ g, score, reasons }) => {
+            const pill = score >= 70 ? '#dc262688;border-color:#ef4444' : score >= 50 ? '#92400e88;border-color:#f59e0b' : '#1e3a5f88;border-color:#3b82f6';
+            html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:6px;background:${pill.split(';')[0]};border:1px solid ${pill.split(';')[1].split(':')[1]};margin-bottom:6px;font-size:0.78rem;">
+              <span style="font-weight:700">${teamLogo(g.awayTeam)} ${g.awayTeam} @ ${teamLogo(g.homeTeam)} ${g.homeTeam}</span>
+              <span style="font-size:0.68rem;color:#aaa;margin-left:8px">${reasons.slice(0,2).join(' · ')}</span>
+            </div>`;
+          });
+          html += '</div>';
+        }
+      }
+
+      section.innerHTML = html;
+      container.appendChild(section);
+    });
+  } catch (e) {
+    console.error('Standings fetch failed:', e);
+    container.innerHTML = '<div class="empty-msg">Failed to load standings</div>';
+  }
+}
+
+// ─── MILESTONES TAB ─────────────────────────────────────────────────────────
+const MILESTONE_DEFS = [
+  { api: 'hits',           group: 'hitting',  label: 'Season H',  milestones: [10, 25, 50, 100, 150, 200] },
+  { api: 'homeRuns',       group: 'hitting',  label: 'Season HR', milestones: [10, 20, 30, 40, 50, 60, 61, 62, 70] },
+  { api: 'runsBattedIn',   group: 'hitting',  label: 'Season RBI',milestones: [25, 50, 75, 100, 120, 130, 140, 150] },
+  { api: 'stolenBases',    group: 'hitting',  label: 'Season SB', milestones: [5, 10, 15, 20, 25, 30, 40, 50, 60, 70] },
+  { api: 'strikeouts',     group: 'pitching', label: 'Season K',  milestones: [25, 50, 75, 100, 150, 200, 250, 300, 310, 320, 330, 340, 350] },
+  { api: 'saves',          group: 'pitching', label: 'Season SV', milestones: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65] },
+  { api: 'inningsPitched', group: 'pitching', label: 'Season IP', milestones: [50, 100, 150, 200, 250], isFloat: true }
+];
+
+const CAREER_HR_MS =  [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
+const CAREER_H_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
+const CAREER_RBI_MS = [10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000];
+const CAREER_K_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
+let milestoneFilter = loadPrefs().milestoneFilter || 'all';
+
+const MILESTONE_META = {
+  'Season H': { short: 'H', type: 'hitter', scope: 'season', major: [100,150,200], historic: [200] },
+  'Season HR': { short: 'HR', type: 'hitter', scope: 'season', major: [30,40,50,60], historic: [60,61,62,70] },
+  'Season RBI': { short: 'RBI', type: 'hitter', scope: 'season', major: [100,120,130,140,150], historic: [150] },
+  'Season SB': { short: 'SB', type: 'hitter', scope: 'season', major: [30,40,50,60,70], historic: [50,60,70] },
+  'Season K': { short: 'K', type: 'pitcher', scope: 'season', major: [150,200,250,300], historic: [300] },
+  'Season SV': { short: 'SV', type: 'pitcher', scope: 'season', major: [30,40,50], historic: [50,60] },
+  'Season IP': { short: 'IP', type: 'pitcher', scope: 'season', major: [150,200,250], historic: [250] },
+  'Career H': { short: 'H', type: 'hitter', scope: 'career', major: [1000,1500,2000,2500,3000], historic: [3000] },
+  'Career HR': { short: 'HR', type: 'hitter', scope: 'career', major: [300,400,500], historic: [500] },
+  'Career RBI': { short: 'RBI', type: 'hitter', scope: 'career', major: [1000,1500,2000], historic: [1500,2000] },
+  'Career K': { short: 'K', type: 'pitcher', scope: 'career', major: [1000,2000,3000], historic: [3000] }
+};
+
+function setMilestoneFilter(filter) {
+  milestoneFilter = filter;
+  savePrefs({ milestoneFilter: filter });
+  if (window.lastMilestones) renderMilestoneBoard(window.lastMilestones);
+}
+
+function milestoneImportance(m) {
+  const meta = MILESTONE_META[m.stat] || {};
+  if ((meta.historic || []).includes(Number(m.next))) return 'Historic';
+  if ((meta.major || []).includes(Number(m.next))) return 'Major';
+  if (meta.scope === 'career') return 'Career';
+  return 'Round number';
+}
+
+function milestoneUrgency(m) {
+  if (m.playingNow && m.diff <= 2) return 'Could happen today';
+  if (m.diff <= 1) return 'Could happen today';
+  if (m.playingToday && m.diff <= 3) return 'Could happen today';
+  if (m.diff <= 5) return 'This series';
+  if (m.diff <= 10) return 'This week';
+  return 'Longer watch';
+}
+
+function milestonePriority(m) {
+  const importance = milestoneImportance(m);
+  let score = 100 - Math.min(m.diff, 20) * 3;
+  if (m.playingNow) score += 22;
+  else if (m.playingToday) score += 10;
+  if (isFavoriteTeam(m.team)) score += 12;
+  if (importance === 'Historic') score += 25;
+  else if (importance === 'Major') score += 14;
+  else if (importance === 'Career') score += 8;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function isFavoriteTeam(team) {
+  return favoriteTeams.has(normalizeAbbr(team));
+}
+
+function milestoneProgress(m) {
+  const current = parseFloat(m.current) || 0;
+  const next = parseFloat(m.next) || 1;
+  const pct = Math.max(0, Math.min(100, (current / next) * 100));
+  return Math.round(pct);
+}
+
+function milestonePaceText(m) {
+  const current = parseFloat(m.current) || 0;
+  const diff = parseFloat(m.diff) || 0;
+  if (m.playingNow && diff <= 2) return 'live watch';
+  if (diff <= 1) return 'next opportunity';
+  if (diff <= 3) return 'very close';
+  if (diff <= 5) return 'series watch';
+  if (diff <= 10) return 'week watch';
+  return 'longer chase';
+}
+
+async function fetchMilestones(todayGames) {
+  const container = document.getElementById('milestones-container');
+  container.innerHTML = '<div class="empty-msg">Loading milestones...</div>';
+
+  // Build set of teams with LIVE games right now
+  const liveTeams = new Set();
+  const todayTeams = new Set();
+  if (todayGames) {
+    todayGames.forEach(g => {
+      todayTeams.add(g.awayTeam);
+      todayTeams.add(g.homeTeam);
+      const isLive = !/final|scheduled|pre-game|warmup|preview|postponed/i.test(g.gameState) &&
+                     /live|in progress/i.test(g.gameState);
+      if (isLive) {
+        liveTeams.add(g.awayTeam);
+        liveTeams.add(g.homeTeam);
+      }
+    });
+  }
+
+  // Fetch set of pitcher IDs from current season pitching leaders (to exclude from hitting milestones)
+  const pitcherIds = new Set();
+  const hitterIds = new Set();
+  const OHTANI_ID = 660271; // Shohei Ohtani — always exempt from filtering
+
+  try {
+    const [pitPool, hitPool] = await Promise.all([
+      (await fetch(`${MLB_API}/stats/leaders?leaderCategories=strikeouts,inningsPitched&season=${currentSeason()}&sportId=1&limit=50&statGroup=pitching`)).json(),
+      (await fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,hits,runsBattedIn&season=${currentSeason()}&sportId=1&limit=50&statGroup=hitting`)).json()
+    ]);
+    for (const cat of (pitPool.leagueLeaders || [])) {
+      for (const l of (cat.leaders || [])) {
+        const pid = l.person?.id;
+        if (pid && pid !== OHTANI_ID) pitcherIds.add(pid);
+      }
+    }
+    for (const cat of (hitPool.leagueLeaders || [])) {
+      for (const l of (cat.leaders || [])) {
+        const pid = l.person?.id;
+        if (pid && pid !== OHTANI_ID) hitterIds.add(pid);
+      }
+    }
+  } catch(e) { console.warn('Pitcher/hitter pool fetch:', e); }
+
+  try {
+    // Fetch top players in each category
+    const allMilestones = [];
+
+    // Fetch regular season milestones
+    await Promise.all(MILESTONE_DEFS.map(async def => {
+      try {
+        const url = `${MLB_API}/stats/leaders?leaderCategories=${def.api}&season=${currentSeason()}&sportId=1&limit=50&statGroup=${def.group}`;
+        const data = await (await fetch(url)).json();
+        const leaders = data.leagueLeaders?.[0]?.leaders || [];
+        for (const l of leaders) {
+          const pid = l.person?.id;
+          // Fix 3: exclude pitchers from hitting milestones and hitters from pitching milestones (Ohtani exempt)
+          if (pid !== OHTANI_ID) {
+            if (def.group === 'hitting' && pitcherIds.has(pid)) continue;
+            if (def.group === 'pitching' && hitterIds.has(pid) && !pitcherIds.has(pid)) continue;
+          }
+          const raw = def.isFloat ? parseFloat(l.value) || 0 : parseInt(l.value) || 0;
+          const val = def.isFloat ? Math.floor(raw) : raw;
+          const displayVal = def.isFloat ? raw.toFixed(1) : raw;
+          const next = def.milestones.find(m => m > val);
+          if (!next) continue;
+          const diff = def.isFloat ? (next - raw).toFixed(1) : next - val;
+          const diffNum = def.isFloat ? parseFloat(diff) : next - val;
+          if (diffNum > 20) continue;
+          const tAbbr = normalizeAbbr(l.team?.abbreviation || teamAbbrFromId(l.team?.id) || '?');
+          allMilestones.push({
+            id: pid,
+            name: l.person?.fullName || 'Unknown',
+            team: tAbbr,
+            stat: def.label,
+            current: displayVal,
+            next,
+            diff: diffNum,
+            type: MILESTONE_META[def.label]?.type || def.group,
+            scope: 'season',
+            priority: 0,
+            playingNow: liveTeams.has(tAbbr),
+            playingToday: todayTeams.has(tAbbr)
+          });
+        }
+      } catch (e) { console.warn(`Milestone ${def.label}:`, e); }
+    }));
+
+    // Fetch career milestones
+    try {
+      const [hitPool2, pitPool2] = await Promise.all([
+        (await fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,hits,runsBattedIn&season=${currentSeason()}&sportId=1&limit=30&statGroup=hitting`)).json(),
+        (await fetch(`${MLB_API}/stats/leaders?leaderCategories=strikeouts&season=${currentSeason()}&sportId=1&limit=30&statGroup=pitching`)).json()
+      ]);
+
+      const playerMap = {};
+      const addPlayers = (data, group) => {
+        for (const cat of (data.leagueLeaders || [])) {
+          for (const l of (cat.leaders || [])) {
+            const pid = l.person?.id;
+            if (!pid || playerMap[pid]) continue;
+            playerMap[pid] = { pid, name: l.person?.fullName, team: normalizeAbbr(l.team?.abbreviation || teamAbbrFromId(l.team?.id) || '?'), group };
+          }
+        }
+      };
+      addPlayers(hitPool2, 'hitting');
+      addPlayers(pitPool2, 'pitching');
+
+      const players = Object.values(playerMap);
+
+      await Promise.all(players.map(async ({ pid, name, team, group }) => {
+        try {
+          const [hitData, pitData] = await Promise.all([
+            (await fetch(`${MLB_API}/people/${pid}/stats?stats=career&group=hitting`)).json(),
+            (await fetch(`${MLB_API}/people/${pid}/stats?stats=career&group=pitching`)).json()
+          ]);
+          const hitStat = hitData.stats?.[0]?.splits?.[0]?.stat;
+          const pitStat = pitData.stats?.[0]?.splits?.[0]?.stat;
+          const tAbbr = team;
+          const playingNow = liveTeams.has(tAbbr);
+          const playingToday = todayTeams.has(tAbbr);
+
+          const tryCareer = (val, ms, statLabel, forGroup) => {
+            if (!val) return;
+            // Fix 3: skip career hitting milestones for pitchers (and vice versa), Ohtani exempt
+            if (pid !== OHTANI_ID) {
+              if (forGroup === 'hitting' && pitcherIds.has(pid)) return;
+              if (forGroup === 'pitching' && !pitcherIds.has(pid)) return;
+            }
+            const next = ms.find(m => m > val);
+            if (!next) return;
+            const diff = next - val;
+            if (diff > 20) return;
+            allMilestones.push({
+              id: pid,
+              name,
+              team: tAbbr,
+              stat: statLabel,
+              current: val,
+              next,
+              diff,
+              type: MILESTONE_META[statLabel]?.type || group,
+              scope: 'career',
+              priority: 0,
+              playingNow,
+              playingToday
+            });
+          };
+
+          if (hitStat) {
+            tryCareer(parseInt(hitStat.homeRuns) || 0,  CAREER_HR_MS,  'Career HR', 'hitting');
+            tryCareer(parseInt(hitStat.hits) || 0,       CAREER_H_MS,   'Career H',  'hitting');
+            tryCareer(parseInt(hitStat.rbi) || 0,        CAREER_RBI_MS, 'Career RBI','hitting');
+          }
+          if (pitStat) {
+            tryCareer(parseInt(pitStat.strikeOuts) || 0, CAREER_K_MS,   'Career K',  'pitching');
+          }
+        } catch(e) {}
+      }));
+    } catch(e) { console.warn('Career milestones fetch failed:', e); }
+
+    // Populate milestone watch teams (players within 5 of a milestone)
+    milestoneWatchTeams = new Set(
+      allMilestones.filter(m => m.diff <= 5).map(m => m.team)
+    );
+
+    allMilestones.forEach(m => {
+      m.importance = milestoneImportance(m);
+      m.urgency = milestoneUrgency(m);
+      m.priority = milestonePriority(m);
+      m.progress = milestoneProgress(m);
+      m.shortStat = MILESTONE_META[m.stat]?.short || m.stat;
+      m.paceText = milestonePaceText(m);
+    });
+    allMilestones.sort((a, b) => b.priority - a.priority || a.diff - b.diff);
+    window.lastMilestones = allMilestones;
+
+    if (allMilestones.length === 0) {
+      container.innerHTML = '<div class="empty-msg">No upcoming milestones to track</div>';
+      return;
+    }
+    renderMilestoneBoard(allMilestones);
+  } catch (e) {
+    console.error('Milestones fetch failed:', e);
+    container.innerHTML = '<div class="empty-msg">Failed to load milestones</div>';
+  }
+}
+
+function renderMilestoneBoard(allMilestones) {
+  const container = document.getElementById('milestones-container');
+  if (!container) return;
+  const filterFns = {
+    all: () => true,
+    live: m => m.playingNow,
+    today: m => m.playingToday,
+    favorites: m => isFavoriteTeam(m.team),
+    historic: m => m.importance === 'Historic' || m.importance === 'Major',
+    hitters: m => m.type === 'hitter',
+    pitchers: m => m.type === 'pitcher',
+    career: m => m.scope === 'career'
+  };
+  const filterFn = filterFns[milestoneFilter] || filterFns.all;
+  const filtered = allMilestones.filter(filterFn);
+  const liveCount = allMilestones.filter(m => m.playingNow).length;
+  const todayCount = allMilestones.filter(m => m.playingToday).length;
+  const historicCount = allMilestones.filter(m => m.importance === 'Historic' || m.importance === 'Major').length;
+  const favCount = allMilestones.filter(m => isFavoriteTeam(m.team)).length;
+
+  const urgencyOrder = ['Could happen today', 'This series', 'This week', 'Longer watch'];
+  const groups = {};
+  filtered.forEach(m => {
+    if (!groups[m.urgency]) groups[m.urgency] = [];
+    groups[m.urgency].push(m);
+  });
+
+  container.innerHTML = `
+    <div class="milestone-hero">
+      <div class="milestone-hero-main">
+        <div class="milestone-hero-kicker">Chase Board</div>
+        <div class="milestone-hero-title">${filtered.length} active milestone${filtered.length !== 1 ? 's' : ''}</div>
+        <div class="milestone-hero-sub">Sorted by watch priority: proximity, live context, favorites, and historical weight.</div>
+      </div>
+      <div class="milestone-summary-grid">
+        <div><strong>${liveCount}</strong><span>live now</span></div>
+        <div><strong>${todayCount}</strong><span>playing today</span></div>
+        <div><strong>${historicCount}</strong><span>major/historic</span></div>
+        <div><strong>${favCount}</strong><span>favorites</span></div>
+      </div>
+    </div>
+    <div class="milestone-filters">
+      ${[
+        ['all','All'],
+        ['live','Live'],
+        ['today','Today'],
+        ['favorites','Favorites'],
+        ['historic','Major'],
+        ['hitters','Hitters'],
+        ['pitchers','Pitchers'],
+        ['career','Career']
+      ].map(([id,label]) => `<button class="milestone-filter${milestoneFilter === id ? ' active' : ''}" onclick="setMilestoneFilter('${id}')">${label}</button>`).join('')}
+    </div>
+    <div class="milestone-board">
+      ${filtered.length ? urgencyOrder.map(groupName => {
+        const items = (groups[groupName] || []).sort((a,b) => b.priority - a.priority || a.diff - b.diff);
+        if (!items.length) return '';
+        return `<section class="milestone-lane">
+          <div class="milestone-lane-title">${groupName}<span>${items.length}</span></div>
+          <div class="milestones-grid rich">${items.slice(0, 12).map(renderMilestoneCard).join('')}</div>
+        </section>`;
+      }).join('') : '<div class="empty-msg">No milestones match this filter</div>'}
+    </div>`;
+}
+
+function renderMilestoneCard(m) {
+  const statusClass = m.playingNow ? ' now' : m.playingToday ? ' today' : '';
+  const importanceClass = (m.importance || '').toLowerCase().replace(/\s+/g, '-');
+  const diffLabel = Number(m.diff) === 1 ? `1 ${m.shortStat} away` : `${m.diff} ${m.shortStat} away`;
+  const fav = isFavoriteTeam(m.team) ? '<span class="milestone-pill fav">Favorite</span>' : '';
+  const live = m.playingNow ? '<span class="milestone-pill live">Live now</span>' : m.playingToday ? '<span class="milestone-pill today">Today</span>' : '';
+  return `<article class="milestone-card rich${statusClass}">
+    <div class="milestone-topline">
+      <span class="milestone-importance ${importanceClass}">${escapeHTML(m.importance)}</span>
+      <span class="milestone-priority">${m.priority}</span>
+    </div>
+    <div class="milestone-player">${teamLogo(m.team)} ${escapeHTML(m.name)}</div>
+    <div class="milestone-team">${escapeHTML(m.team)} · ${escapeHTML(m.stat)}</div>
+    <div class="milestone-target">
+      <strong>${escapeHTML(m.current)}</strong>
+      <span>/ ${escapeHTML(m.next)} ${escapeHTML(m.shortStat)}</span>
+    </div>
+    <div class="milestone-progress"><div style="width:${m.progress}%"></div></div>
+    <div class="milestone-card-footer">
+      <span>${escapeHTML(diffLabel)}</span>
+      <em>${escapeHTML(m.paceText)}</em>
+    </div>
+    <div class="milestone-pills">${live}${fav}<span class="milestone-pill">${escapeHTML(m.scope)}</span></div>
+  </article>`;
+}
+
+// ─── SPOILER MODE ────────────────────────────────────────────────────────────
+let spoilerTeams = new Set(JSON.parse(localStorage.getItem('spoilerTeams') || '[]'));
+const ALL_TEAM_ABBRS = Object.keys(TEAM_DATA).filter(a => a !== 'ATH').sort();
+
+function saveSpoilerTeams() {
+  try { localStorage.setItem('spoilerTeams', JSON.stringify([...spoilerTeams])); } catch(e) {}
+}
+
+function saveFavoriteTeams() {
+  savePrefs({ favoriteTeams: [...favoriteTeams] });
+}
+
+function isFavoriteGame(game) {
+  return favoriteTeams.has(game.awayTeam) || favoriteTeams.has(game.homeTeam);
+}
+
+function toggleFavoriteTeam(abbr) {
+  if (favoriteTeams.has(abbr)) favoriteTeams.delete(abbr);
+  else favoriteTeams.add(abbr);
+  saveFavoriteTeams();
+  renderFavoriteGrid();
+  if (lastGames) renderGames(lastGames);
+}
+
+function clearAllFavorites() {
+  favoriteTeams.clear();
+  saveFavoriteTeams();
+  renderFavoriteGrid();
+  if (lastGames) renderGames(lastGames);
+}
+
+function toggleSpoilerTeam(abbr) {
+  if (spoilerTeams.has(abbr)) spoilerTeams.delete(abbr);
+  else spoilerTeams.add(abbr);
+  saveSpoilerTeams();
+  renderSpoilerGrid();
+  if (lastGames) renderGames(lastGames);
+}
+
+function clearAllSpoilers() {
+  spoilerTeams.clear();
+  saveSpoilerTeams();
+  renderSpoilerGrid();
+  if (lastGames) renderGames(lastGames);
+}
+
+function renderSpoilerGrid() {
+  const grid = document.getElementById('spoiler-team-grid');
+  grid.innerHTML = ALL_TEAM_ABBRS.map(abbr => {
+    const isSpoiled = spoilerTeams.has(abbr);
+    const t = TEAM_DATA[abbr];
+    return `<div class="team-toggle${isSpoiled ? ' spoilered' : ''}" onclick="toggleSpoilerTeam('${abbr}')">
+      <img class="tt-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" onerror="this.style.display='none'">
+      <span>${abbr}</span>
+      <div class="tt-check">${isSpoiled ? '✓' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderFavoriteGrid() {
+  const grid = document.getElementById('favorite-team-grid');
+  if (!grid) return;
+  grid.innerHTML = ALL_TEAM_ABBRS.map(abbr => {
+    const isFav = favoriteTeams.has(abbr);
+    const t = TEAM_DATA[abbr];
+    return `<div class="team-toggle${isFav ? ' favorite' : ''}" onclick="toggleFavoriteTeam('${abbr}')">
+      <img class="tt-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" onerror="this.style.display='none'">
+      <span>${abbr}</span>
+      <div class="tt-check">${isFav ? '★' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+// ─── SIDEBAR CONTROLS ────────────────────────────────────────────────────────
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-overlay').classList.add('open');
+  renderStarList();
+  renderSpoilerGrid();
+  renderFavoriteGrid();
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+}
+
+function switchSidebarTab(tab) {
+  document.querySelectorAll('.sidebar-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.sidebar-section').forEach(s => s.classList.remove('active'));
+  document.getElementById('sb-' + tab).classList.add('active');
+  document.querySelector(`.sidebar-tab[onclick*="'${tab}'"]`).classList.add('active');
+}
+
+function revealSpoiler(el, gamePk) {
+  const card = el.closest('.game-card');
+  if (!card || !card._fullGame) return;
+  const game = card._fullGame;
+  // Temporarily hide from spoiler set for this one render
+  const wasAway = spoilerTeams.has(game.awayTeam);
+  const wasHome = spoilerTeams.has(game.homeTeam);
+  spoilerTeams.delete(game.awayTeam);
+  spoilerTeams.delete(game.homeTeam);
+  card.classList.remove('spoilered');
+  renderSingleGameCard(card, game);
+  // Restore — user still has them spoilered globally
+  if (wasAway) spoilerTeams.add(game.awayTeam);
+  if (wasHome) spoilerTeams.add(game.homeTeam);
+}
+
+// Renders full game info into an existing card element (used for reveal + main render)
+function renderSingleGameCard(card, game) {
+  const wi = game.watchabilityIndex;
+  const isFinal = /final/i.test(game.inningStatus);
+  const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
+
+  const prev = prevScores[game.gamePk];
+  if (prev && !isFirstLoad && (prev.away !== game.awayScore || prev.home !== game.homeScore)) {
+    card.classList.add('score-flash');
+  }
+  prevScores[game.gamePk] = { away: game.awayScore, home: game.homeScore };
+  if (game.currentInning > 9 && !isFinal && !isScheduled) card.classList.add('extras-flash');
+
+  let badgeHtml = '';
+  if (isFavoriteGame(game)) badgeHtml += '<div class="badge favorite-badge">Favorite</div>';
+  if (isRivalry(game.awayTeam, game.homeTeam)) badgeHtml += '<div class="badge rivalry">Rivalry</div>';
+  if (game.isPerfectGame && !isFinal) badgeHtml += '<div class="badge perfect">PERFECT GAME ALERT</div>';
+  else if (game.isNoHitter && !isFinal) badgeHtml += '<div class="badge nohitter">NO HITTER ALERT</div>';
+
+  const b1 = game.onFirst ? 'occupied' : '';
+  const b2 = game.onSecond ? 'occupied' : '';
+  const b3 = game.onThird ? 'occupied' : '';
+  const outsHtml = [0,1].map(i => `<div class="out-dot ${i < game.outs ? 'filled' : ''}"></div>`).join('');
+  const scoreLine = isScheduled ? '' : `<div class="score-line">${game.awayScore} - ${game.homeScore}</div>`;
+  const inningColor = isFinal ? '#4ade80' : isScheduled ? '#888' : '#666';
+  const showSituation = !isFinal && !isScheduled;
+  const awayColor = teamColor(game.awayTeam);
+  const homeColor = teamColor(game.homeTeam);
+  const wpHtml = (showSituation && game.homeWinProb != null) ? `
+    <div class="win-prob">
+      <span>${game.awayTeam} ${Math.round(100 - game.homeWinProb)}%</span>
+      <div class="win-prob-bar">
+        <div class="win-prob-away" style="width:${100 - game.homeWinProb}%;background:${awayColor}"></div>
+        <div class="win-prob-home" style="width:${game.homeWinProb}%;background:${homeColor}"></div>
+      </div>
+      <span>${game.homeTeam} ${Math.round(game.homeWinProb)}%</span>
+    </div>` : '';
+
+  let batterLine = 'AB: <strong>TBD</strong>';
+  if (game.currentBatter) {
+    const b = game.currentBatter;
+    batterLine = `AB: <strong>${escapeHTML(b.name)}</strong> <span style="color:#888">(${escapeHTML(b.gameH)}-${escapeHTML(b.gameAB)} | ${escapeHTML(b.avg)}/${escapeHTML(b.obp)}/${escapeHTML(b.ops)})</span>`;
+  }
+  let pitcherLine = 'P: <strong>TBD</strong>';
+  if (game.currentPitcher) {
+    const p = game.currentPitcher;
+    const kPart = p.gameK > 0 ? `, ${p.gameK} K` : '';
+    pitcherLine = `P: <strong>${escapeHTML(p.name)}</strong> <span style="color:#888">(${escapeHTML(p.gameIP)} IP, ${escapeHTML(p.gamePitches)} Pitches${kPart} | ${escapeHTML(p.era)} ERA)</span>`;
+  }
+
+  // Pre-game: fetch pitcher stats if needed (non-blocking)
+  if (isScheduled) {
+    if (game.awayProbablePitcher?.id) fetchProbablePitcherStats(game.awayProbablePitcher.id);
+    if (game.homeProbablePitcher?.id) fetchProbablePitcherStats(game.homeProbablePitcher.id);
+  }
+
+  // Build pregame pitcher block
+  function spBlock(pp, side) {
+    if (!pp) return `<div class="pregame-sp"><div class="sp-label">${side} SP</div><div class="sp-name" style="color:#555">TBD</div></div>`;
+    const stats = pitcherStatsCache[pp.id];
+    const tierNum = PLAYER_TIER[pp.name];
+    const tierHtml = tierNum <= 2 ? `<span class="sp-tier t${tierNum}">${tierNum === 1 ? '⭐' : '★'}</span>` : '';
+    const statLine = stats ? `${stats.wins}-${stats.losses}, ${stats.era} ERA, ${stats.kTotal ? stats.kTotal+'K' : stats.k9+'K/9'}` : 'Loading…';
+    return `<div class="pregame-sp">
+      <div class="sp-label">${side} SP</div>
+      <div class="sp-name">${escapeHTML(pp.name)}${tierHtml}</div>
+      <div class="sp-stats">${escapeHTML(statLine)}</div>
+    </div>`;
+  }
+
+  const pregameHtml = isScheduled ? (() => {
+    const tvNets = game.nationalTV || [];
+    const tvBadge = tvNets.length > 0
+      ? `<div style="margin-top:8px;font-size:0.68rem;color:#60a5fa;font-weight:700">📺 ${tvNets.join(' · ')}</div>`
+      : '';
+    return `<div class="pregame-pitchers">${spBlock(game.awayProbablePitcher,'Away')}<div class="pregame-vs">vs</div>${spBlock(game.homeProbablePitcher,'Home')}</div>${tvBadge}`;
+  })() : '';
+
+  const playerHtml = showSituation ? `
+    <div class="player-info">
+      <div>${batterLine}</div>
+      <div>${pitcherLine}</div>
+    </div>
+    <div class="situation-graphic">
+      <div class="bases">
+        <div class="base base-1 ${b1}"></div>
+        <div class="base base-2 ${b2}"></div>
+        <div class="base base-3 ${b3}"></div>
+      </div>
+      <div class="outs-container">
+        <span class="outs-label">Outs</span>
+        ${outsHtml}
+      </div>
+      <div class="count-display">
+        <strong>${(game.strikes >= 3) ? 0 : (game.balls || 0)}</strong>-<strong>${(game.strikes >= 3) ? 0 : (game.strikes || 0)}</strong>
+      </div>
+    </div>
+    ${wpHtml}` : isScheduled ? pregameHtml : isFinal && game.finalDetails ? (() => {
+      const fd = game.finalDetails;
+      let html = '<div class="player-info" style="margin-top:8px;gap:3px;">';
+      if (fd.wpName) html += `<div>WP: <strong>${escapeHTML(fd.wpName)}</strong></div>`;
+      if (fd.lpName) html += `<div>LP: <strong>${escapeHTML(fd.lpName)}</strong></div>`;
+      if (fd.svName) html += `<div>SV: <strong>${escapeHTML(fd.svName)}</strong></div>`;
+      if (fd.potg) {
+        const p = fd.potg;
+        const statLine = p.isPitcher ? p.pitcherLine : p.batterLine;
+        html += `<div style="margin-top:4px;color:#f59e0b;font-weight:700;font-size:0.75rem;">POTG: ${escapeHTML(p.name)} ${escapeHTML(statLine || '')}</div>`;
+      }
+      html += '</div>';
+      return html;
+    })() : '';
+
+  const showWatchBar = !isFinal && !isScheduled;
+  const watchBarHtml = showWatchBar ? `
+    <div class="watch-bar-wrap">
+      <div class="watch-bar-label">
+        <span>Watchability</span>
+        <span class="score-num" style="color:${wi > 70 ? '#4ade80' : '#f59e0b'}">${wi}</span>
+      </div>
+      <div class="watch-bar-bg">
+        <div class="watch-bar-fill" style="width:${wi}%;background:${wi > 70 ? '#4ade80' : '#f59e0b'}"></div>
+      </div>
+    </div>` : '';
+
+  // Determine if this game supports expand (live or final — not pre-game)
+  const canExpand = !isScheduled;
+
+  card.innerHTML = `
+    ${badgeHtml}
+    <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam}${teamRec(game.awayTeam)} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}${teamRec(game.homeTeam)}</div>
+    ${scoreLine}
+    <div class="inning-line" style="color:${inningColor}">${game.inningStatus}</div>
+    ${watchBarHtml}
+    ${renderWinProbSparkline(game)}
+    ${renderScoreBreakdown(game)}
+    <div class="reasons"></div>
+    ${playerHtml}
+    ${canExpand ? `<button class="card-expand-toggle${expandedCards.has(game.gamePk) ? ' open' : ''}" onclick="toggleExpandCard(${game.gamePk}, this)">
+      <span>Details</span> <span class="toggle-arrow">▾</span>
+    </button>
+    <div class="card-expand-panel${expandedCards.has(game.gamePk) ? ' open' : ''}" data-gpk="${game.gamePk}">
+      <div class="expand-load-msg">Click to expand</div>
+    </div>` : ''}
+  `;
+
+  // If this card was previously expanded, reload its panel content
+  if (canExpand && expandedCards.has(game.gamePk)) {
+    const panel = card.querySelector('.card-expand-panel');
+    if (panel) loadExpandData(game.gamePk, panel);
+  }
+}
+
+function renderStarList() {
+  const container = document.getElementById('sb-star-list');
+  // Group PLAYER_TIER back into tiers
+  const tiers = { 1: [], 2: [], 3: [] };
+  for (const [name, tier] of Object.entries(PLAYER_TIER)) {
+    if (tiers[tier]) tiers[tier].push(name);
+  }
+  // Sort each tier alphabetically
+  for (const t of [1,2,3]) tiers[t].sort();
+
+  const tierInfo = {
+    1: { label: 'Tier 1 — Top 20 fWAR', cls: 't1', warbadge: 'ranks 1–20' },
+    2: { label: 'Tier 2 — fWAR ranks 21–50', cls: 't2', warbadge: 'ranks 21–50' },
+    3: { label: 'Tier 3 — fWAR ranks 51–100', cls: 't3', warbadge: 'ranks 51–100' }
+  };
+
+  let html = '';
+  for (const t of [1,2,3]) {
+    const info = tierInfo[t];
+    const names = tiers[t];
+    if (!names.length) continue;
+    html += `<div class="star-tier-label ${info.cls}">
+      <div class="tier-badge ${info.cls}">${t}</div>
+      ${info.label} <span style="font-size:0.6rem;color:#555;font-weight:400;margin-left:4px">${info.warbadge}</span>
+    </div>
+    <div class="star-chips">
+      ${names.map(n => `<div class="star-chip ${info.cls}">${escapeHTML(n)}</div>`).join('')}
+    </div>`;
+  }
+  container.innerHTML = html || '<div style="color:#555;font-size:0.75rem;">No players loaded yet. Press Start to fetch data.</div>';
+}
+
+// ─── AWARD RACES ─────────────────────────────────────────────────────────────
+// MVP + ROTY: ranked by fWAR (hitters AND pitchers compete together).
+// Cy Young: pitchers only, ranked by ERA/K/WHIP/IP blend (qualified starters only).
+// Silver Slugger: hitters only by position, ranked by OPS+ (park-adjusted).
+
+// ── Fangraphs WAR cache (30-min TTL) ─────────────────────────────────────────
+let _fgWarCache = null;
+let _fgWarCacheTime = 0;
+const FG_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+async function fetchFangraphsWAR(season) {
+  const now = Date.now();
+  if (_fgWarCache && (now - _fgWarCacheTime) < FG_CACHE_TTL) {
+    return _fgWarCache;
+  }
+  let fgHitters = [], fgPitchers = [];
+  try {
+    const [fgH, fgP] = await Promise.all([
+      fetch(`https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=bat&lg=all&qual=0&season=${season}&season1=${season}&ind=0&team=0&rost=0&players=0&type=8&sortcol=2&sortdir=default&pagenum=1&pageitems=150`).then(r=>r.json()),
+      fetch(`https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=pit&lg=all&qual=0&season=${season}&season1=${season}&ind=0&team=0&rost=0&players=0&type=8&sortcol=2&sortdir=default&pagenum=1&pageitems=150`).then(r=>r.json()),
+    ]);
+    fgHitters  = (fgH?.data  || (Array.isArray(fgH)  ? fgH  : []));
+    fgPitchers = (fgP?.data  || (Array.isArray(fgP)  ? fgP  : []));
+  } catch(e) { console.warn('[Awards] Fangraphs WAR fetch failed:', e.message); }
+  _fgWarCache = { fgHitters, fgPitchers };
+  _fgWarCacheTime = now;
+  return _fgWarCache;
+}
+
+const POSITIONS_SS_AL = ['C','1B','2B','3B','SS','LF','CF','RF','DH'];
+const POSITIONS_SS_NL = ['C','1B','2B','3B','SS','LF','CF','RF','DH']; // NL has no pitcher SS since universal DH
+
+
+async function fetchAwardRaces() {
+  const container = document.getElementById('awards-container');
+  container.innerHTML = '<div class="empty-msg">Loading award races...</div>';
+  const season = currentSeason();
+
+  try {
+    // ── 1. Fetch Fangraphs fWAR (cached, 30-min TTL) ────────────────────────
+    const { fgHitters, fgPitchers } = await fetchFangraphsWAR(season);
+
+    // Build name→WAR lookup (deduplicated, keep highest)
+    const warByName = {};
+    const teamByName = {};
+    const leagueByName = {};  // 'AL' or 'NL'
+    const isPitcherByName = {};
+
+    for (const p of fgHitters) {
+      const name = p.PlayerName || p.Name;
+      const war  = parseFloat(p.WAR ?? p.war ?? 0);
+      const team = p.Team || p.team || '';
+      const lg   = p.League || p.league || '';
+      if (!name) continue;
+      if (!warByName[name] || war > warByName[name]) {
+        warByName[name] = war;
+        teamByName[name] = team;
+        leagueByName[name] = lg;
+        isPitcherByName[name] = false;
+      }
+    }
+    for (const p of fgPitchers) {
+      const name = p.PlayerName || p.Name;
+      const war  = parseFloat(p.WAR ?? p.war ?? 0);
+      const team = p.Team || p.team || '';
+      const lg   = p.League || p.league || '';
+      if (!name) continue;
+      if (!warByName[name] || war > warByName[name]) {
+        warByName[name] = war;
+        teamByName[name] = team;
+        leagueByName[name] = lg;
+        isPitcherByName[name] = true;
+      }
+    }
+
+    // ── 2. Fetch MLB API stats for display (traditional stats alongside WAR) ─
+    const [alHit, nlHit, alPit, nlPit, alGames] = await Promise.all([
+      fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases&season=${season}&sportId=1&limit=40&statGroup=hitting&leagueId=103`).then(r=>r.json()),
+      fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases&season=${season}&sportId=1&limit=40&statGroup=hitting&leagueId=104`).then(r=>r.json()),
+      fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins&season=${season}&sportId=1&limit=40&statGroup=pitching&leagueId=103`).then(r=>r.json()),
+      fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins&season=${season}&sportId=1&limit=40&statGroup=pitching&leagueId=104`).then(r=>r.json()),
+      // Fetch current season game count to compute qualified IP threshold
+      fetch(`${MLB_API}/schedule?sportId=1&season=${season}&gameType=R&teamId=147`).then(r=>r.json()).catch(()=>null),
+    ]);
+
+    // ── 3. Build per-player stat pools from MLB API ──────────────────────────
+    function buildPool(data) {
+      const pool = {};
+      for (const cat of (data?.leagueLeaders || [])) {
+        const statKey = cat.leaderCategory;
+        for (const l of (cat.leaders || [])) {
+          const id = l.person?.id; if (!id) continue;
+          if (!pool[id]) pool[id] = {
+            id,
+            name: l.person.fullName,
+            team: normalizeAbbr(l.team?.abbreviation || teamAbbrFromId(l.team?.id) || '?'),
+            stats: {}
+          };
+          pool[id].stats[statKey] = l.value;
+        }
+      }
+      return Object.values(pool);
+    }
+
+    const alHitters  = buildPool(alHit);
+    const nlHitters  = buildPool(nlHit);
+    const alPitchers = buildPool(alPit);
+    const nlPitchers = buildPool(nlPit);
+
+    // Compute qualified IP threshold: 1 IP per team game played, min 30
+    let gamesPlayed = 0;
+    try {
+      const dates = alGames?.dates || [];
+      gamesPlayed = dates.filter(d => d.games?.some(g => /final/i.test(g.status?.detailedState))).length;
+    } catch(e) {}
+    const qualifiedIP = Math.max(30, gamesPlayed);
+
+    // Attach fWAR to every player object (match by name since IDs differ between APIs)
+    const attachWAR = (players, isPitcher) => players.map(p => ({
+      ...p,
+      war: warByName[p.name] ?? null,
+      isPitcher: isPitcher || isPitcherByName[p.name] || false,
+    }));
+
+    const alH = attachWAR(alHitters, false);
+    const nlH = attachWAR(nlHitters, false);
+    const alP = attachWAR(alPitchers, true);
+    const nlP = attachWAR(nlPitchers, true);
+
+    // ── 4. MVP: merge hitters + pitchers per league, rank by fWAR ────────────
+    // WAR is the primary signal; traditional stats shown as supporting evidence.
+    // Pitchers are eligible (rare but possible — Ohtani 2023, etc).
+    const mergeForMVP = (hitters, pitchers) => {
+      const all = [...hitters, ...pitchers];
+      const seen = new Set();
+      return all.filter(p => {
+        if (seen.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
+    };
+
+    // Offense-weighted MVP ranking: hitters get a +0.5 WAR bonus over pitchers
+    const mvpScore = (p) => (p.war ?? 0) + (p.isPitcher ? 0 : 0.5);
+
+    // ── Votes simulation ─────────────────────────────────────────────────────
+    // Simulates a 5-voter panel. Each voter adds noise to the base score,
+    // then ranks top-5 and awards BBWAA-style points (14/9/7/4/2).
+    // Result: voteTotal added to each candidate for display.
+    const VOTE_PTS = [14, 9, 7, 4, 2];
+    function simulateVotes(candidates) {
+      const votes = {};
+      candidates.forEach(p => { votes[p.id] = 0; });
+      for (let v = 0; v < 5; v++) {
+        // Each voter has a slight bias toward offense or WAR
+        const offenseBias  = (Math.random() - 0.5) * 0.6; // ±0.3
+        const sorted = [...candidates].sort((a, b) => {
+          const sa = mvpScore(a) + (a.isPitcher ? 0 : offenseBias) + (Math.random() - 0.5) * 0.4;
+          const sb = mvpScore(b) + (b.isPitcher ? 0 : offenseBias) + (Math.random() - 0.5) * 0.4;
+          return sb - sa;
+        });
+        sorted.slice(0, 5).forEach((p, i) => { votes[p.id] = (votes[p.id] || 0) + VOTE_PTS[i]; });
+      }
+      return votes;
+    }
+
+    const rankByWAR = (arr) => {
+      const eligible = [...arr].filter(p => p.war !== null);
+      // Sort top 10 to feed the vote sim (broader pool = more realistic)
+      const top10 = eligible.sort((a, b) => mvpScore(b) - mvpScore(a)).slice(0, 10);
+      const votes = simulateVotes(top10);
+      return top10
+        .map(p => ({ ...p, voteTotal: votes[p.id] || 0 }))
+        .sort((a, b) => b.voteTotal - a.voteTotal)
+        .slice(0, 5);
+    };
+
+    // If Fangraphs data came through, use WAR ranking; else fall back to OPS/ERA blend
+    const hasFG = Object.keys(warByName).length > 20;
+
+    const fallbackScoreHitter = p => {
+      const s = p.stats;
+      return (parseFloat(s.onBasePlusSlugging)||0)*60 + (parseInt(s.homeRuns)||0)*1.5 + (parseInt(s.runsBattedIn)||0)*0.8 + (parseFloat(s.battingAverage)||0)*40;
+    };
+    const fallbackScorePitcher = p => {
+      const s = p.stats;
+      // 0.75 multiplier: pitchers need to be meaningfully better to rank above hitters
+      return ((4-(parseFloat(s.earnedRunAverage)||9))*15 + (parseInt(s.strikeouts)||0)*0.3 + (parseFloat(s.inningsPitched)||0)*0.15 + (1.5-(parseFloat(s.walksAndHitsPerInningPitched)||2))*20) * 0.75;
+    };
+
+    const rankFallback = (hitters, pitchers) => {
+      const scored = [
+        ...hitters.map(p => ({ ...p, _score: fallbackScoreHitter(p) })),
+        ...pitchers.map(p => ({ ...p, _score: fallbackScorePitcher(p) }))
+      ];
+      const seen = new Set();
+      const top10 = scored
+        .filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; })
+        .sort((a,b) => b._score - a._score)
+        .slice(0, 10);
+      const votes = {};
+      top10.forEach(p => { votes[p.id] = 0; });
+      for (let v = 0; v < 5; v++) {
+        const bias = (Math.random() - 0.5) * 0.3;
+        [...top10].sort((a,b) => (b._score + (b.isPitcher ? 0 : bias)) - (a._score + (a.isPitcher ? 0 : bias)) + (Math.random()-0.5)*4)
+          .slice(0,5).forEach((p,i) => { votes[p.id] += VOTE_PTS[i]; });
+      }
+      return top10
+        .map(p => ({ ...p, voteTotal: votes[p.id] || 0 }))
+        .sort((a,b) => b.voteTotal - a.voteTotal)
+        .slice(0, 5);
+    };
+
+    const mvpAL = hasFG ? rankByWAR(mergeForMVP(alH, alP)) : rankFallback(alH, alP);
+    const mvpNL = hasFG ? rankByWAR(mergeForMVP(nlH, nlP)) : rankFallback(nlH, nlP);
+
+    // ── 5. Cy Young: qualified starters only (≥ qualifiedIP), ERA/K/WHIP blend ─
+    const scoreCY = p => {
+      const s = p.stats;
+      const era  = parseFloat(s.earnedRunAverage) || 9;
+      const k    = parseInt(s.strikeouts) || 0;
+      const ip   = parseFloat(s.inningsPitched) || 0;
+      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 2;
+      const w    = parseInt(s.wins) || 0;
+      const warBonus = (p.war ?? 0) * 4;
+      return (4-era)*15 + k*0.3 + ip*0.15 + (1.5-whip)*20 + w*1.2 + warBonus;
+    };
+    const CY_VOTE_PTS = [15, 10, 7, 4, 1]; // BBWAA Cy Young is 5-voter, 5-place ballot
+    function simulateCYVotes(candidates) {
+      const votes = {};
+      candidates.forEach(p => { votes[p.id] = 0; });
+      for (let v = 0; v < 5; v++) {
+        [...candidates].sort((a,b) => scoreCY(b) - scoreCY(a) + (Math.random()-0.5)*6)
+          .slice(0,5).forEach((p,i) => { votes[p.id] = (votes[p.id]||0) + CY_VOTE_PTS[i]; });
+      }
+      return votes;
+    }
+    const rankCY = (pitchers) => {
+      const qualified = pitchers.filter(p => parseFloat(p.stats.inningsPitched||0) >= qualifiedIP);
+      const top10 = [...qualified].sort((a,b) => scoreCY(b)-scoreCY(a)).slice(0,10);
+      if (!top10.length) return [...pitchers].sort((a,b)=>scoreCY(b)-scoreCY(a)).slice(0,5); // fallback if season too early
+      const votes = simulateCYVotes(top10);
+      return top10.map(p => ({ ...p, voteTotal: votes[p.id]||0 }))
+        .sort((a,b) => b.voteTotal - a.voteTotal).slice(0,5);
+    };
+    const cyAL = rankCY(alP);
+    const cyNL = rankCY(nlP);
+
+    // ── 6. ROTY: rookies only, hitters + pitchers, ranked by WAR then stats ──
+    // MLB API has a playerPool=rookies param — fetch both groups
+    const [alRookH, nlRookH, alRookP, nlRookP] = await Promise.all([
+      fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging&season=${season}&sportId=1&limit=30&statGroup=hitting&leagueId=103&playerPool=rookies`).then(r=>r.json()).catch(()=>({leagueLeaders:[]})),
+      fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging&season=${season}&sportId=1&limit=30&statGroup=hitting&leagueId=104&playerPool=rookies`).then(r=>r.json()).catch(()=>({leagueLeaders:[]})),
+      fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched&season=${season}&sportId=1&limit=30&statGroup=pitching&leagueId=103&playerPool=rookies`).then(r=>r.json()).catch(()=>({leagueLeaders:[]})),
+      fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched&season=${season}&sportId=1&limit=30&statGroup=pitching&leagueId=104&playerPool=rookies`).then(r=>r.json()).catch(()=>({leagueLeaders:[]})),
+    ]);
+
+    const alRookHitters  = attachWAR(buildPool(alRookH), false);
+    const nlRookHitters  = attachWAR(buildPool(nlRookH), false);
+    const alRookPitchers = attachWAR(buildPool(alRookP), true);
+    const nlRookPitchers = attachWAR(buildPool(nlRookP), true);
+
+    const rotyAL = hasFG
+      ? rankByWAR(mergeForMVP(alRookHitters, alRookPitchers))
+      : rankFallback(alRookHitters, alRookPitchers);
+    const rotyNL = hasFG
+      ? rankByWAR(mergeForMVP(nlRookHitters, nlRookPitchers))
+      : rankFallback(nlRookHitters, nlRookPitchers);
+
+    // ── 7. Format stat display lines ─────────────────────────────────────────
+    function fmtMVP(p) {
+      const parts = [];
+      if (p.war !== null) parts.push(`<strong style="color:#f59e0b">${p.war.toFixed(1)} fWAR</strong>`);
+      const s = p.stats;
+      if (p.isPitcher) {
+        if (s.earnedRunAverage) parts.push(`<strong>${s.earnedRunAverage}</strong> ERA`);
+        if (s.strikeouts) parts.push(`<strong>${s.strikeouts}</strong> K`);
+        if (s.walksAndHitsPerInningPitched) parts.push(`<strong>${s.walksAndHitsPerInningPitched}</strong> WHIP`);
+      } else {
+        if (s.battingAverage) parts.push(`<strong>${s.battingAverage}</strong> AVG`);
+        if (s.homeRuns) parts.push(`<strong>${s.homeRuns}</strong> HR`);
+        if (s.runsBattedIn) parts.push(`<strong>${s.runsBattedIn}</strong> RBI`);
+        if (s.onBasePlusSlugging) parts.push(`<strong>${s.onBasePlusSlugging}</strong> OPS`);
+        if (s.stolenBases && parseInt(s.stolenBases) > 5) parts.push(`<strong>${s.stolenBases}</strong> SB`);
+      }
+      return parts.join(' · ');
+    }
+
+    function fmtCY(p) {
+      const parts = [];
+      if (p.war !== null) parts.push(`<strong style="color:#f59e0b">${p.war.toFixed(1)} fWAR</strong>`);
+      const s = p.stats;
+      if (s.earnedRunAverage) parts.push(`<strong>${s.earnedRunAverage}</strong> ERA`);
+      if (s.strikeouts) parts.push(`<strong>${s.strikeouts}</strong> K`);
+      if (s.wins) parts.push(`<strong>${s.wins}</strong> W`);
+      if (s.walksAndHitsPerInningPitched) parts.push(`<strong>${s.walksAndHitsPerInningPitched}</strong> WHIP`);
+      if (s.inningsPitched) parts.push(`<strong>${s.inningsPitched}</strong> IP`);
+      return parts.join(' · ');
+    }
+
+    function candidatesHtml(list, fmtFn) {
+      if (!list.length) return '<div style="color:#555;font-size:0.75rem;">Insufficient data — check back mid-season</div>';
+      const maxVotes = Math.max(...list.map(p => p.voteTotal || 0), 1);
+      return list.map((p, i) => {
+        const voteBar = p.voteTotal != null ? `
+          <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+            <div style="flex:1;height:3px;background:#1e1e2e;border-radius:2px;overflow:hidden">
+              <div style="height:100%;width:${Math.round((p.voteTotal/maxVotes)*100)}%;background:${i===0?'#f59e0b':i===1?'#94a3b8':'#78716c'};border-radius:2px;transition:width 0.4s"></div>
+            </div>
+            <span style="font-size:0.65rem;color:#666;font-variant-numeric:tabular-nums;min-width:28px;text-align:right">${p.voteTotal} pts</span>
+          </div>` : '';
+        return `
+        <div class="award-candidate">
+            <div class="award-rank r${i+1}">${['🥇','🥈','🥉','4','5'][i] || (i + 1)}</div>
+          <div class="award-cand-info">
+            <div class="award-cand-name">${teamLogo(p.team)} ${p.name}${p.isPitcher ? ' <span style="font-size:0.6rem;color:#60a5fa;font-weight:800">P</span>' : ''}</div>
+            <div class="award-cand-team">${p.team}</div>
+            <div class="award-cand-stats">${fmtFn(p)}</div>
+            ${voteBar}
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function awardBlock(leagueCls, leagueLabel, awardName, candidatesHtmlStr) {
+      return `<div class="award-block">
+        <div class="award-block-title">
+          <span class="lg-badge ${leagueCls}">${leagueLabel}</span>
+          ${awardName}
+        </div>
+        ${candidatesHtmlStr}
+      </div>`;
+    }
+
+    // ── 8. Silver Slugger — hitters ONLY, best OPS per position ──────────────
+    // Pitchers are NEVER eligible.
+    function normalizePos(pos) {
+      const map = { 'C':'C','1B':'1B','2B':'2B','3B':'3B','SS':'SS','LF':'LF','CF':'CF','RF':'RF','DH':'DH','TWP':'DH' };
+      return map[pos] || null;
+    }
+
+    async function buildSilverSluggers(leagueId) {
+      try {
+        const data = await fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,hits&season=${season}&sportId=1&limit=60&statGroup=hitting&leagueId=${leagueId}`).then(r=>r.json());
+        const pool = buildPool(data);
+        const withPos = await Promise.all(pool.map(async p => {
+          try {
+            const pd = await fetch(`${MLB_API}/people/${p.id}?hydrate=currentTeam`).then(r=>r.json());
+            const rawPos = pd.people?.[0]?.primaryPosition?.abbreviation || 'P';
+            const pos = normalizePos(rawPos);
+            return { ...p, pos };
+          } catch { return { ...p, pos: null }; }
+        }));
+
+        // Best OPS per eligible position
+        const byPos = {};
+        for (const p of withPos) {
+          if (!p.pos) continue;
+          const ops = parseFloat(p.stats.onBasePlusSlugging) || 0;
+          if (!byPos[p.pos] || ops > parseFloat(byPos[p.pos].stats.onBasePlusSlugging || 0)) {
+            byPos[p.pos] = p;
+          }
+        }
+        return byPos;
+      } catch(e) { return {}; }
+    }
+
+    const [ssAL, ssNL] = await Promise.all([buildSilverSluggers(103), buildSilverSluggers(104)]);
+
+    // ── 9. All-Star roster projection — 32 players: 20 bats, 12 pitchers ────
+    const MLB_TEAMS_BY_LEAGUE = {
+      AL: ['BAL','BOS','NYY','TB','TOR','CWS','CLE','DET','KC','MIN','HOU','LAA','OAK','SEA','TEX'],
+      NL: ['ATL','MIA','NYM','PHI','WSH','CHC','CIN','MIL','PIT','STL','ARI','COL','LAD','SD','SF']
+    };
+
+    const normalizeRosterPos = (pos) => {
+      if (['C','1B','2B','3B','SS','DH'].includes(pos)) return pos;
+      if (['LF','CF','RF','OF'].includes(pos)) return 'OF';
+      if (pos === 'TWP') return 'DH';
+      return null;
+    };
+
+    async function enrichPlayersForAllStar(players, isPitcher) {
+      const ids = players.map(p => p.id).filter(Boolean);
+      const meta = {};
+      const chunkSize = 80;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        try {
+          const pd = await fetch(`${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=currentTeam`).then(r => r.json());
+          (pd.people || []).forEach(person => { meta[person.id] = person; });
+        } catch {}
+      }
+      return players.map(p => {
+        const person = meta[p.id] || {};
+        const team = normalizeAbbr(person.currentTeam?.abbreviation || p.team || '?');
+        const rawPos = person.primaryPosition?.abbreviation || (isPitcher ? 'P' : null);
+        return { ...p, team, rawPos, rosterPos: isPitcher ? 'P' : normalizeRosterPos(rawPos) };
+      });
+    }
+
+    const allStarHitterScore = p => {
+      const s = p.stats || {};
+      const ops = parseFloat(s.onBasePlusSlugging) || 0;
+      const avg = parseFloat(s.battingAverage) || 0;
+      const hr = parseInt(s.homeRuns) || 0;
+      const rbi = parseInt(s.runsBattedIn) || 0;
+      const sb = parseInt(s.stolenBases) || 0;
+      const hits = parseInt(s.hits) || 0;
+      return (p.war ?? 0) * 100 + ops * 90 + avg * 35 + hr * 2 + rbi * 0.8 + sb * 0.45 + hits * 0.2;
+    };
+
+    const allStarPitcherScore = p => {
+      const s = p.stats || {};
+      const era = parseFloat(s.earnedRunAverage) || 9;
+      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 2;
+      const k = parseInt(s.strikeouts) || 0;
+      const ip = parseFloat(s.inningsPitched) || 0;
+      const w = parseInt(s.wins) || 0;
+      const sv = parseInt(s.saves) || 0;
+      const isReliever = sv >= 5 || ip < qualifiedIP * 0.55;
+      const runPrevention = (4.25 - era) * 16 + (1.35 - whip) * 22;
+      const roleBonus = isReliever ? sv * 2.4 : ip * 0.22 + w * 1.4;
+      return (p.war ?? 0) * 95 + runPrevention + k * 0.36 + roleBonus;
+    };
+
+    function uniqueById(players) {
+      const seen = new Set();
+      return players.filter(p => {
+        if (!p?.id || seen.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
+    }
+
+    function addBest(list, roster, count, label, predicate = () => true) {
+      const added = [];
+      for (const p of list) {
+        if (added.length >= count) break;
+        if (roster.some(r => r.id === p.id)) continue;
+        if (!predicate(p)) continue;
+        const pick = { ...p, rosterLabel: label };
+        roster.push(pick);
+        added.push(pick);
+      }
+      return added;
+    }
+
+    function buildAllStarRoster(hitters, pitchers, leagueCode) {
+      const scoredHitters = uniqueById(hitters)
+        .filter(p => p.rosterPos)
+        .map(p => ({ ...p, allStarScore: allStarHitterScore(p), isPitcher: false }))
+        .sort((a, b) => b.allStarScore - a.allStarScore);
+      const scoredPitchers = uniqueById(pitchers)
+        .map(p => {
+          const s = p.stats || {};
+          const ip = parseFloat(s.inningsPitched) || 0;
+          const sv = parseInt(s.saves) || 0;
+          const pitcherRole = (sv >= 5 || ip < qualifiedIP * 0.55) ? 'RP' : 'SP';
+          return { ...p, allStarScore: allStarPitcherScore(p), pitcherRole, isPitcher: true };
+        })
+        .sort((a, b) => b.allStarScore - a.allStarScore);
+
+      const positionPlayers = [];
+      ['C','1B','2B','3B','SS','DH'].forEach(pos => addBest(scoredHitters, positionPlayers, 1, `Starter ${pos}`, p => p.rosterPos === pos));
+      addBest(scoredHitters, positionPlayers, 3, 'Starter OF', p => p.rosterPos === 'OF');
+      ['C','1B','2B','3B','SS'].forEach(pos => addBest(scoredHitters, positionPlayers, 1, `Reserve ${pos}`, p => p.rosterPos === pos));
+      addBest(scoredHitters, positionPlayers, 3, 'Reserve OF', p => p.rosterPos === 'OF');
+      addBest(scoredHitters, positionPlayers, 20 - positionPlayers.length, 'Reserve bat');
+
+      const pitchersRoster = [];
+      addBest(scoredPitchers, pitchersRoster, 5, 'SP', p => p.pitcherRole === 'SP');
+      addBest(scoredPitchers, pitchersRoster, 3, 'RP', p => p.pitcherRole === 'RP');
+      addBest(scoredPitchers, pitchersRoster, 12 - pitchersRoster.length, 'Pitcher');
+
+      let roster = [...positionPlayers, ...pitchersRoster];
+      const requiredTeams = MLB_TEAMS_BY_LEAGUE[leagueCode] || [];
+      const represented = new Set(roster.map(p => normalizeAbbr(p.team)));
+      const allCandidates = [...scoredHitters, ...scoredPitchers].sort((a, b) => b.allStarScore - a.allStarScore);
+      for (const team of requiredTeams) {
+        if (represented.has(team)) continue;
+        const replacement = allCandidates.find(p => normalizeAbbr(p.team) === team && !roster.some(r => r.id === p.id));
+        if (!replacement) continue;
+        const poolType = replacement.isPitcher ? 'pitcher' : 'bat';
+        const removable = roster
+          .filter(p => (poolType === 'pitcher' ? p.isPitcher : !p.isPitcher) && !requiredTeams.some(t => t === normalizeAbbr(p.team) && roster.filter(r => normalizeAbbr(r.team) === t).length === 1))
+          .sort((a, b) => a.allStarScore - b.allStarScore)[0];
+        if (!removable) continue;
+        roster = roster.filter(p => p.id !== removable.id);
+        roster.push({ ...replacement, rosterLabel: 'Team rep' });
+        represented.add(team);
+      }
+
+      const starters = roster.filter(p => !p.isPitcher && /^Starter/.test(p.rosterLabel));
+      const selectedIds = new Set(roster.map(p => p.id));
+      const snubs = allCandidates
+        .filter(p => !selectedIds.has(p.id))
+        .slice(0, 10);
+      return {
+        starters,
+        reserves: roster.filter(p => !p.isPitcher && !/^Starter/.test(p.rosterLabel)).sort((a, b) => b.allStarScore - a.allStarScore),
+        pitchers: roster.filter(p => p.isPitcher).sort((a, b) => {
+          if (a.pitcherRole !== b.pitcherRole) return a.pitcherRole === 'SP' ? -1 : 1;
+          return b.allStarScore - a.allStarScore;
+        }),
+        roster,
+        snubs,
+        representedCount: new Set(roster.map(p => normalizeAbbr(p.team))).size
+      };
+    }
+
+    async function buildAllStarRosters() {
+      const [alHitAS, nlHitAS, alPitAS, nlPitAS] = await Promise.all([
+        fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases,hits&season=${season}&sportId=1&limit=250&statGroup=hitting&leagueId=103`).then(r=>r.json()),
+        fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases,hits&season=${season}&sportId=1&limit=250&statGroup=hitting&leagueId=104`).then(r=>r.json()),
+        fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins,saves&season=${season}&sportId=1&limit=250&statGroup=pitching&leagueId=103`).then(r=>r.json()),
+        fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins,saves&season=${season}&sportId=1&limit=250&statGroup=pitching&leagueId=104`).then(r=>r.json())
+      ]);
+      const [alHitMeta, nlHitMeta, alPitMeta, nlPitMeta] = await Promise.all([
+        enrichPlayersForAllStar(attachWAR(buildPool(alHitAS), false), false),
+        enrichPlayersForAllStar(attachWAR(buildPool(nlHitAS), false), false),
+        enrichPlayersForAllStar(attachWAR(buildPool(alPitAS), true), true),
+        enrichPlayersForAllStar(attachWAR(buildPool(nlPitAS), true), true)
+      ]);
+      return {
+        AL: buildAllStarRoster(alHitMeta, alPitMeta, 'AL'),
+        NL: buildAllStarRoster(nlHitMeta, nlPitMeta, 'NL')
+      };
+    }
+
+    const allStarRosters = await buildAllStarRosters();
+
+    function comparisonCard(title, leagueLabel, leagueCls, list, fmtFn, scoreFn) {
+      if (!list || list.length < 2) return '';
+      const [a, b] = list;
+      const scoreA = scoreFn ? scoreFn(a) : (a.voteTotal || 0);
+      const scoreB = scoreFn ? scoreFn(b) : (b.voteTotal || 0);
+      const gap = Math.abs(scoreA - scoreB);
+      const gapText = a.voteTotal != null && b.voteTotal != null
+        ? `${Math.abs((a.voteTotal || 0) - (b.voteTotal || 0))} vote pts`
+        : `${gap.toFixed(1)} model pts`;
+      const row = p => `<div class="race-compare-player">
+        <div class="race-compare-name">${teamLogo(p.team)} ${escapeHTML(p.name)} ${p.isPitcher ? '<span>P</span>' : ''}</div>
+        <div class="race-compare-team">${escapeHTML(p.team)}</div>
+        <div class="race-compare-stats">${fmtFn(p)}</div>
+      </div>`;
+      return `<article class="race-compare-card">
+        <div class="race-compare-title"><span class="lg-badge ${leagueCls}">${leagueLabel}</span> ${escapeHTML(title)} <em>${escapeHTML(gapText)} gap</em></div>
+        <div class="race-compare-grid">${row(a)}${row(b)}</div>
+      </article>`;
+    }
+
+    function comparisonSectionHtml() {
+      const cards = [
+        comparisonCard('MVP Close Race', 'AL', 'al', mvpAL, fmtMVP, mvpScore),
+        comparisonCard('MVP Close Race', 'NL', 'nl', mvpNL, fmtMVP, mvpScore),
+        comparisonCard('Cy Young Close Race', 'AL', 'al', cyAL, fmtCY, scoreCY),
+        comparisonCard('Cy Young Close Race', 'NL', 'nl', cyNL, fmtCY, scoreCY),
+        comparisonCard('Rookie Close Race', 'AL', 'al', rotyAL, fmtMVP, mvpScore),
+        comparisonCard('Rookie Close Race', 'NL', 'nl', rotyNL, fmtMVP, mvpScore)
+      ].filter(Boolean);
+      return `<div class="race-compare-section">
+        <div class="section-title" style="margin-bottom:8px">Close Race Comparisons</div>
+        <div class="race-compare-list">${cards.join('')}</div>
+      </div>`;
+    }
+
+    function allStarSnubWatchHtml(rosters) {
+      const rows = [
+        ...rosters.AL.snubs.map(p => ({ ...p, league: 'AL', leagueCls: 'al' })),
+        ...rosters.NL.snubs.map(p => ({ ...p, league: 'NL', leagueCls: 'nl' }))
+      ].sort((a, b) => (b.allStarScore || 0) - (a.allStarScore || 0)).slice(0, 12);
+      if (!rows.length) return '';
+      return `<div class="snub-watch-section">
+        <div class="section-title" style="margin-bottom:8px">All-Star Snub Watch</div>
+        <div style="font-size:0.68rem;color:#555;margin-bottom:12px">Best players outside the projected 32-man roster after position needs, pitching slots, and one-player-per-team representation are applied.</div>
+        <div class="snub-watch-grid">
+          ${rows.map((p, i) => `<div class="snub-card">
+            <div class="snub-rank">#${i + 1}</div>
+            <div class="snub-main">
+              <div class="snub-name"><span class="lg-badge ${p.leagueCls}">${p.league}</span> ${teamLogo(p.team)} ${escapeHTML(p.name)}</div>
+              <div class="snub-meta">${escapeHTML(p.team)} · ${escapeHTML(p.isPitcher ? (p.pitcherRole || 'P') : (p.rosterPos || 'BAT'))}</div>
+              <div class="snub-stats">${escapeHTML(fmtAllStarStats(p))}</div>
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>`;
+    }
+
+    // Field position coordinates (x%, y% from top-left of diagram)
+    const FIELD_POSITIONS = {
+      'CF':  { x: 50, y: 16 },
+      'LF':  { x: 22, y: 27 },
+      'RF':  { x: 78, y: 27 },
+      'SS':  { x: 37, y: 45 },
+      '2B':  { x: 63, y: 45 },
+      '3B':  { x: 20, y: 57 },
+      '1B':  { x: 80, y: 57 },
+      'C':   { x: 50, y: 76 },
+      'DH':  { x: 50, y: 91 },
+    };
+
+    function fieldDiagramHtml(sluggersByPos, leagueLabel) {
+      const fieldSvg = `<svg viewBox="0 0 200 180" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="100" cy="90" rx="95" ry="85" fill="#0d2010"/>
+        <ellipse cx="100" cy="108" rx="52" ry="44" fill="#1a1008"/>
+        <line x1="100" y1="135" x2="12" y2="28" stroke="#1e3a1e" stroke-width="1"/>
+        <line x1="100" y1="135" x2="188" y2="28" stroke="#1e3a1e" stroke-width="1"/>
+        <polygon points="100,95 118,113 100,131 82,113" fill="none" stroke="#2a4a2a" stroke-width="1"/>
+        <rect x="96" y="91" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.5" transform="rotate(45,100,95)"/>
+        <rect x="114" y="109" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.5" transform="rotate(45,118,113)"/>
+        <rect x="96" y="127" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.5" transform="rotate(45,100,131)"/>
+        <rect x="78" y="109" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.5" transform="rotate(45,82,113)"/>
+        <circle cx="100" cy="113" r="5" fill="#2a1f08" stroke="#3a2f18" stroke-width="0.5"/>
+        <polygon points="100,131 96,136 98,141 102,141 104,136" fill="#2a2a2a" stroke="#555" stroke-width="0.5"/>
+      </svg>`;
+
+      let players = '';
+      for (const [pos, coords] of Object.entries(FIELD_POSITIONS)) {
+        const p = sluggersByPos[pos];
+        const lastName = p ? (function(n) {
+          const SUFFIX = /^(Jr\.?|Sr\.?|II|III|IV|V)$/i;
+          const parts = n.split(' ');
+          // Find first non-suffix word from the end that we'd call "last name"
+          // Strategy: drop first name (index 0), keep everything else
+          // but if last token is a suffix, keep it attached
+          if (parts.length <= 1) return n;
+          // last name = everything after first name
+          const rest = parts.slice(1);
+          return rest.join(' ');
+        })(p.name) : '—';
+        const ops = p ? (p.stats.onBasePlusSlugging || '---') : '---';
+        const logoSrc = p ? `https://www.mlbstatic.com/team-logos/${TEAM_DATA[p.team]?.id || 0}.svg` : '';
+        players += `<div class="field-player${p ? '' : ' loading'}" style="left:${coords.x}%;top:${coords.y}%">
+          ${p ? `<img class="field-player-logo" src="${logoSrc}" onerror="this.style.display='none'">` : ''}
+          <div class="field-player-pos">${pos}</div>
+          <div class="field-player-name">${lastName}</div>
+          ${p ? `<div class="field-player-stat">${ops} OPS</div>` : ''}
+        </div>`;
+      }
+
+      return `<div class="ss-field-wrap">
+        <div class="ss-league-label">${leagueLabel}</div>
+        <div class="baseball-field">${fieldSvg}${players}</div>
+      </div>`;
+    }
+
+    function fmtAllStarStats(p) {
+      const s = p.stats || {};
+      const pieces = [];
+      if (p.war != null) pieces.push(`${p.war.toFixed(1)} fWAR`);
+      if (p.isPitcher) {
+        if (s.earnedRunAverage) pieces.push(`${s.earnedRunAverage} ERA`);
+        if (s.walksAndHitsPerInningPitched) pieces.push(`${s.walksAndHitsPerInningPitched} WHIP`);
+        if (s.strikeouts) pieces.push(`${s.strikeouts} K`);
+        if (s.saves) pieces.push(`${s.saves} SV`);
+        if (s.inningsPitched) pieces.push(`${s.inningsPitched} IP`);
+      } else {
+        if (s.onBasePlusSlugging) pieces.push(`${s.onBasePlusSlugging} OPS`);
+        if (s.homeRuns) pieces.push(`${s.homeRuns} HR`);
+        if (s.runsBattedIn) pieces.push(`${s.runsBattedIn} RBI`);
+        if (s.stolenBases) pieces.push(`${s.stolenBases} SB`);
+      }
+      return pieces.slice(0, 4).join(' · ');
+    }
+
+    function allStarPlayerRow(p) {
+      const tag = p.isPitcher ? (p.pitcherRole || 'P') : (p.rosterPos || '');
+      return `<div class="as-player">
+        <span class="as-pos">${escapeHTML(tag)}</span>
+        <span class="as-name">${teamLogo(p.team)} ${escapeHTML(p.name)} <em>${escapeHTML(p.team)}</em></span>
+        <span class="as-role">${escapeHTML(p.rosterLabel || '')}</span>
+        <span class="as-stats">${escapeHTML(fmtAllStarStats(p))}</span>
+      </div>`;
+    }
+
+    function allStarRosterHtml(roster, leagueLabel, leagueCls) {
+      const starterOrder = { C: 1, '1B': 2, '2B': 3, '3B': 4, SS: 5, OF: 6, DH: 9 };
+      const starters = [...roster.starters].sort((a, b) => (starterOrder[a.rosterPos] || 8) - (starterOrder[b.rosterPos] || 8));
+      const reserves = roster.reserves;
+      const pitchers = roster.pitchers;
+      return `<div class="as-roster-card">
+        <div class="as-roster-title"><span class="lg-badge ${leagueCls}">${leagueLabel}</span> Projected All-Star Roster <em>${roster.representedCount}/15 teams represented</em></div>
+        <div class="as-roster-grid">
+          <div>
+            <div class="as-group-title">Starters</div>
+            ${starters.map(allStarPlayerRow).join('')}
+          </div>
+          <div>
+            <div class="as-group-title">Position Reserves</div>
+            ${reserves.map(allStarPlayerRow).join('')}
+          </div>
+          <div>
+            <div class="as-group-title">Pitchers</div>
+            ${pitchers.map(allStarPlayerRow).join('')}
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // ── 9. RENDER ────────────────────────────────────────────────────────────
+    container.innerHTML = '';
+
+    const warNote = hasFG
+      ? '<div style="font-size:0.68rem;color:#555;margin-bottom:16px">Rankings simulate a 5-voter BBWAA panel using fWAR with an offensive tilt (+0.5 fWAR edge for position players). <span style="color:#f59e0b">fWAR</span> shown in gold.</div>'
+      : '<div style="font-size:0.68rem;color:#ef444488;margin-bottom:16px">⚠ Fangraphs WAR unavailable — using OPS/ERA blend as fallback (offense-weighted, vote-simulated). Rankings less accurate.</div>';
+
+    const mvpRow = document.createElement('div');
+    mvpRow.innerHTML = `<div class="section-title" style="margin-bottom:8px">MVP Race</div>${warNote}
+      <div class="awards-league-row">
+        ${awardBlock('al','AL','Most Valuable Player', candidatesHtml(mvpAL, fmtMVP))}
+        ${awardBlock('nl','NL','Most Valuable Player', candidatesHtml(mvpNL, fmtMVP))}
+      </div>`;
+    container.appendChild(mvpRow);
+
+    const cyRow = document.createElement('div');
+    cyRow.innerHTML = `<div class="section-title" style="margin-bottom:8px">Cy Young Race</div>
+      <div style="font-size:0.68rem;color:#555;margin-bottom:12px">Qualified starters only (≥${qualifiedIP} IP). Vote simulation using ERA/K/WHIP/WAR blend.</div>
+      <div class="awards-league-row">
+        ${awardBlock('al','AL','Cy Young Award', candidatesHtml(cyAL, fmtCY))}
+        ${awardBlock('nl','NL','Cy Young Award', candidatesHtml(cyNL, fmtCY))}
+      </div>`;
+    container.appendChild(cyRow);
+
+    const rotyRow = document.createElement('div');
+    rotyRow.innerHTML = `<div class="section-title" style="margin-bottom:8px">Rookie of the Year Race</div>
+      <div style="font-size:0.68rem;color:#555;margin-bottom:12px">Pitchers eligible. <span style="color:#60a5fa;font-weight:700">P</span> tag shown for pitcher candidates.</div>
+      <div class="awards-league-row">
+        ${awardBlock('al','AL','Rookie of the Year', candidatesHtml(rotyAL, fmtMVP))}
+        ${awardBlock('nl','NL','Rookie of the Year', candidatesHtml(rotyNL, fmtMVP))}
+      </div>`;
+    container.appendChild(rotyRow);
+
+    const compareSection = document.createElement('div');
+    compareSection.innerHTML = comparisonSectionHtml();
+    container.appendChild(compareSection);
+
+    const ssSection = document.createElement('div');
+    ssSection.className = 'ss-section';
+    ssSection.innerHTML = `<div class="section-title" style="margin-bottom:8px">🥇 Silver Slugger Predictions</div>
+      <div style="font-size:0.68rem;color:#555;margin-bottom:14px">Best OPS at each position among hitters. Pitchers are never eligible for Silver Slugger.</div>
+      <div class="ss-leagues">
+        ${fieldDiagramHtml(ssAL, 'American League')}
+        ${fieldDiagramHtml(ssNL, 'National League')}
+      </div>`;
+    container.appendChild(ssSection);
+
+    const asSection = document.createElement('div');
+    asSection.className = 'allstar-section';
+    asSection.innerHTML = `<div class="section-title" style="margin-bottom:8px">Projected All-Star Rosters</div>
+      <div style="font-size:0.68rem;color:#555;margin-bottom:14px">Stats-based 2026 projection using current All-Star construction: 32 per league, 20 position players, 12 pitchers, starters by position, reserve coverage, and every MLB club represented. This does not model fan ballot popularity or injury replacements.</div>
+      <div class="as-leagues">
+        ${allStarRosterHtml(allStarRosters.AL, 'AL', 'al')}
+        ${allStarRosterHtml(allStarRosters.NL, 'NL', 'nl')}
+      </div>`;
+    container.appendChild(asSection);
+
+    const snubSection = document.createElement('div');
+    snubSection.innerHTML = allStarSnubWatchHtml(allStarRosters);
+    container.appendChild(snubSection);
+
+  } catch(e) {
+    console.error('Award races failed:', e);
+    container.innerHTML = '<div class="empty-msg">Failed to load award races</div>';
+  }
+}
+
+
+// ─── HOME RUNS TAB ────────────────────────────────────────────────────────────
+// Spray chart coordinate conversion. Prefer Savant's feet coordinates because
+// they directly describe landing direction from home plate.
+function savantToSVG(hr) {
+  const plateX = 100;
+  const plateY = 155;
+  const ftScale = 0.32;
+  const xFt = parseFloat(hr.hc_x_ft);
+  const yFt = parseFloat(hr.hc_y_ft);
+  if (Number.isFinite(xFt) && Number.isFinite(yFt)) {
+    return {
+      x: Math.round(Math.max(12, Math.min(188, plateX + xFt * ftScale))),
+      y: Math.round(Math.max(10, Math.min(152, plateY - yFt * ftScale)))
+    };
+  }
+  const hcX = parseFloat(hr.hc_x || 125);
+  const hcY = parseFloat(hr.hc_y || 204);
+  return {
+    x: Math.round(Math.max(12, Math.min(188, plateX + (hcX - 125) * 0.72))),
+    y: Math.round(Math.max(10, Math.min(152, plateY - (204 - hcY) * 0.82)))
+  };
+}
+
+function parkCountLabel(n) {
+  if (n === null || n === undefined) return '—';
+  if (n === 0) return '0';
+  return `${n}/30`;
+}
+
+function evColor(ev) {
+  if (!ev) return '#888';
+  const v = parseFloat(ev);
+  if (v >= 110) return '#ef4444';
+  if (v >= 103) return '#f59e0b';
+  if (v >= 95)  return '#4ade80';
+  return '#60a5fa';
+}
+
+function hrRunLabel(rbi) {
+  const runs = Math.max(1, parseInt(rbi, 10) || 1);
+  return runs === 1 ? 'Solo HR' : `${runs}-run HR`;
+}
+
+function formatHomeRunScore(hr) {
+  if (!hr.scoreAfter) return hrRunLabel(hr.rbi);
+  const before = hr.scoreBefore ? `was ${hr.scoreBefore.away}-${hr.scoreBefore.home}` : null;
+  return `${hrRunLabel(hr.rbi)} to make it ${hr.team_batting} ${hr.scoreAfter.away}-${hr.scoreAfter.home}${before ? ` (${before})` : ''}`;
+}
+
+function formatWpa(hr) {
+  if (typeof hr.battingTeamWpa !== 'number') return 'WPA —';
+  const sign = hr.battingTeamWpa > 0 ? '+' : '';
+  return `WPA ${sign}${hr.battingTeamWpa.toFixed(1)} pts`;
+}
+
+function uniqueTop(list, sorter, limit = 3) {
+  const seen = new Set();
+  return [...list]
+    .filter(hr => {
+      const key = hr.play_id || `${hr.game_pk}-${hr.ab_number}-${hr.batter}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort(sorter)
+    .slice(0, limit);
+}
+
+function renderHomeRunCard(hr) {
+  const ev = parseFloat(hr.hit_speed || hr.launch_speed || 0);
+  const la = parseFloat(hr.hit_angle || hr.launch_angle || 0);
+  const dist = parseInt(hr.hit_distance || 0);
+  const parks = hr.contextMetrics?.homeRunBallparks ?? null;
+  const isNuke = ev >= 110;
+  const isBarrel = hr.is_barrel === 1;
+
+  const cardClass = isNuke ? 'hr-card nuke' : isBarrel ? 'hr-card barrel' : 'hr-card';
+  const inningLabel = hr.half_inning === 'top'
+    ? `▲ ${hr.inning}`
+    : `▼ ${hr.inning}`;
+
+  // Spray chart SVG
+  const pt = savantToSVG(hr);
+
+  const evVal = ev ? ev.toFixed(1) : '—';
+  const distVal = dist ? dist + ' ft' : '—';
+  const laVal = la ? la.toFixed(0) + '°' : '—';
+  const parksVal = parkCountLabel(parks);
+
+  // Pitch type display
+  const pitchName = hr.pitch_name || '';
+  const pitchSpeed = hr.start_speed ? ` ${Math.round(hr.start_speed)}mph` : '';
+  const pitchInfo = pitchName ? `${pitchName}${pitchSpeed}` : '';
+  const pitchSuffix = pitchInfo ? ' · ' + escapeHTML(pitchInfo) : '';
+  const scoreText = formatHomeRunScore(hr);
+  const wpaText = formatWpa(hr);
+
+  return `<div class="${cardClass}">
+    <div class="hr-matchup">
+      ${teamLogo(hr.team_batting)} <span style="font-weight:700;color:#ccc">${hr.team_batting}</span>
+      <span style="color:#444">vs</span>
+      ${teamLogo(hr.team_fielding)} <span>${hr.team_fielding}</span>
+      <span style="margin-left:auto;color:#555">${inningLabel}</span>
+    </div>
+    <div class="hr-hitter">${escapeHTML(hr.batter_name || '—')}${isNuke ? ' 💥' : isBarrel ? ' 🔥' : ''}</div>
+    <div class="hr-pitcher">off <span style="color:#ccc">${escapeHTML(hr.pitcher_name || '—')}</span>${pitchSuffix}</div>
+    <div class="hr-score-change">${escapeHTML(scoreText)} <span>${escapeHTML(wpaText)}</span></div>
+    <div class="hr-bottom-row">
+      <div>
+        <div class="hr-stats-row">
+          <div class="hr-stat ev">
+            <div class="hr-stat-val" style="color:${evColor(ev)}">${evVal}</div>
+            <div class="hr-stat-lbl">Exit Velo</div>
+          </div>
+          <div class="hr-stat dist">
+            <div class="hr-stat-val">${distVal}</div>
+            <div class="hr-stat-lbl">Distance</div>
+          </div>
+          <div class="hr-stat la">
+            <div class="hr-stat-val">${laVal}</div>
+            <div class="hr-stat-lbl">Launch °</div>
+          </div>
+          <div class="hr-stat parks">
+            <div class="hr-stat-val">${parksVal}</div>
+            <div class="hr-stat-lbl">Parks</div>
+          </div>
+        </div>
+      </div>
+      <div class="hr-spray-wrap">
+        <svg class="hr-spray-svg" viewBox="0 0 200 170" xmlns="http://www.w3.org/2000/svg">
+          <!-- Field outline -->
+          <ellipse cx="100" cy="80" rx="88" ry="80" fill="#0d2010"/>
+          <!-- Warning track circle hint -->
+          <ellipse cx="100" cy="80" rx="83" ry="75" fill="none" stroke="#1a2a1a" stroke-width="5"/>
+          <!-- Foul lines -->
+          <line x1="100" y1="155" x2="18" y2="8"  stroke="#1e3a1e" stroke-width="1"/>
+          <line x1="100" y1="155" x2="182" y2="8" stroke="#1e3a1e" stroke-width="1"/>
+          <!-- Infield diamond -->
+          <polygon points="100,105 120,125 100,145 80,125" fill="none" stroke="#2a4a2a" stroke-width="1.5"/>
+          <!-- Bases -->
+          <rect x="96" y="101" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.8" transform="rotate(45,100,105)"/>
+          <rect x="116" y="121" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.8" transform="rotate(45,120,125)"/>
+          <rect x="96" y="141" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.8" transform="rotate(45,100,145)"/>
+          <rect x="76" y="121" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.8" transform="rotate(45,80,125)"/>
+          <!-- Pitching rubber -->
+          <circle cx="100" cy="125" r="3" fill="#2a3a2a" stroke="#3a4a3a" stroke-width="0.5"/>
+          <!-- Home plate -->
+          <polygon points="100,147 96,152 98,156 102,156 104,152" fill="#2a2a2a" stroke="#555" stroke-width="0.5"/>
+          <!-- Landing spot -->
+          <circle cx="${pt.x}" cy="${pt.y}" r="7" fill="${evColor(ev)}33" stroke="${evColor(ev)}" stroke-width="2"/>
+          <circle cx="${pt.x}" cy="${pt.y}" r="3" fill="${evColor(ev)}"/>
+          <!-- Trajectory arc (rough bezier from plate to landing) -->
+          <path d="M100,147 Q${Math.round((100+pt.x)/2)},${Math.round(Math.min(pt.y, 147) - 35)} ${pt.x},${pt.y}" 
+                fill="none" stroke="${evColor(ev)}55" stroke-width="1.5" stroke-dasharray="4,2"/>
+        </svg>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function fetchAndRenderHomeRuns(games) {
+  const container = document.getElementById('homeruns-container');
+  if (!container) return;
+
+  // Only fetch for live/final games
+  const activePks = (games || [])
+    .filter(g => !/scheduled|pre-game|warmup|preview/i.test(g.gameState))
+    .map(g => g.gamePk);
+
+  if (activePks.length === 0) {
+    container.innerHTML = '<div class="empty-msg">No games in progress or completed yet today</div>';
+    return;
+  }
+
+  // Fetch all game HR feeds in parallel
+  const allHRArrays = await Promise.all(activePks.map(pk => fetchGameHRs(pk)));
+  const allHRs = allHRArrays.flat();
+
+  if (allHRs.length === 0) {
+    container.innerHTML = '<div class="empty-msg">No home runs yet today</div>';
+    return;
+  }
+
+  const withDistance = allHRs.filter(hr => parseInt(hr.hit_distance, 10) > 0);
+  const withEV = allHRs.filter(hr => parseFloat(hr.hit_speed || hr.launch_speed) > 0);
+  const withWpa = allHRs.filter(hr => typeof hr.battingTeamWpa === 'number');
+  const avgEV = withEV.length
+    ? (withEV.reduce((sum, hr) => sum + parseFloat(hr.hit_speed || hr.launch_speed || 0), 0) / withEV.length).toFixed(1)
+    : '—';
+  const maxDist = withDistance.length ? Math.max(...withDistance.map(hr => parseInt(hr.hit_distance, 10) || 0)) : 0;
+  const hardest = withEV.length ? uniqueTop(withEV, (a, b) => parseFloat(b.hit_speed || b.launch_speed) - parseFloat(a.hit_speed || a.launch_speed), 1)[0] : null;
+  const biggestWpa = withWpa.length ? uniqueTop(withWpa, (a, b) => Math.abs(b.battingTeamWpa) - Math.abs(a.battingTeamWpa), 1)[0] : null;
+  const teamCounts = allHRs.reduce((acc, hr) => {
+    const team = normalizeAbbr(hr.team_batting || '?');
+    acc[team] = (acc[team] || 0) + 1;
+    return acc;
+  }, {});
+  const teamLeaders = Object.entries(teamCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([team, count]) => `${teamLogo(team)} ${team} ${count}`)
+    .join(' · ');
+  const sections = [
+    { title: 'Shortest', note: 'Scrapers and wall-kissers', items: uniqueTop(withDistance, (a, b) => parseInt(a.hit_distance, 10) - parseInt(b.hit_distance, 10)) },
+    { title: 'Longest', note: 'True distance leaders', items: uniqueTop(withDistance, (a, b) => parseInt(b.hit_distance, 10) - parseInt(a.hit_distance, 10)) },
+    { title: 'Hardest Hit', note: 'Exit velocity leaders', items: uniqueTop(withEV, (a, b) => parseFloat(b.hit_speed || b.launch_speed) - parseFloat(a.hit_speed || a.launch_speed)) },
+    { title: 'Most Impactful', note: withWpa.length ? 'Ranked by real WPA swing' : 'WPA unavailable from MLB for these HRs', items: uniqueTop(withWpa, (a, b) => Math.abs(b.battingTeamWpa) - Math.abs(a.battingTeamWpa)) }
+  ];
+  const totalCount = allHRs.length;
+
+  container.innerHTML = `
+    <div class="hr-hero">
+      <div>
+        <div class="hr-hero-kicker">Home Run Command Center</div>
+        <div class="hr-hero-title">${totalCount} HR${totalCount !== 1 ? 's' : ''} today</div>
+        <div class="hr-hero-sub">Spray direction, score change, and real WPA are blended from Baseball Savant and MLB game feeds.</div>
+      </div>
+      <div class="hr-hero-stats">
+        <div><strong>${escapeHTML(avgEV)}</strong><span>avg EV</span></div>
+        <div><strong>${maxDist || '—'}</strong><span>longest ft</span></div>
+        <div><strong>${biggestWpa ? formatWpa(biggestWpa).replace('WPA ', '') : '—'}</strong><span>top WPA</span></div>
+        <div><strong>${hardest ? escapeHTML(hardest.batter_name || '—') : '—'}</strong><span>hardest hit</span></div>
+      </div>
+      ${teamLeaders ? `<div class="hr-team-leaders">${teamLeaders}</div>` : ''}
+    </div>
+    ${sections.map(section => `
+      <section class="hr-section">
+        <div class="hr-section-head">
+          <div>
+            <div class="hr-section-title">${section.title}</div>
+            <div class="hr-section-note">${section.note}</div>
+          </div>
+        </div>
+        ${section.items.length
+          ? `<div class="hr-grid">${section.items.map(hr => renderHomeRunCard(hr)).join('')}</div>`
+          : '<div class="empty-msg">No qualifying home runs in this category</div>'}
+      </section>
+    `).join('')}`;
+}
+
+async function fetchImpactPlays(gamePk) {
+  try {
+    const [feed, wpData] = await Promise.all([
+      fetchJson('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }),
+      fetchJson(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch(() => [])
+    ]);
+    const gd = feed.gameData?.teams || {};
+    const away = normalizeAbbr(gd.away?.abbreviation || 'Away');
+    const home = normalizeAbbr(gd.home?.abbreviation || 'Home');
+    const wpByAtBat = {};
+    if (Array.isArray(wpData)) wpData.forEach(p => {
+      const idx = p.atBatIndex ?? p.about?.atBatIndex;
+      if (idx != null) wpByAtBat[idx] = p;
+    });
+    const plays = feed.liveData?.plays?.allPlays || [];
+    let prevLeader = null;
+    return plays.map(p => {
+      const idx = p.about?.atBatIndex;
+      const wp = idx != null ? wpByAtBat[idx] : null;
+      const delta = typeof wp?.homeTeamWinProbabilityAdded === 'number' ? wp.homeTeamWinProbabilityAdded : null;
+      const awayScore = p.result?.awayScore ?? null;
+      const homeScore = p.result?.homeScore ?? null;
+      const leader = awayScore === homeScore ? 'tie' : awayScore > homeScore ? away : home;
+      const leadChange = prevLeader && leader !== prevLeader && leader !== 'tie';
+      if (awayScore != null && homeScore != null) prevLeader = leader;
+      const eventType = p.result?.eventType || '';
+      const desc = p.result?.description || '';
+      const basesLoaded = !!(p.playEvents || []).find(ev => ev.offense?.first && ev.offense?.second && ev.offense?.third);
+      const isSave = /save/i.test(desc);
+      const important = eventType === 'home_run' || leadChange || basesLoaded || isSave || (delta != null && Math.abs(delta) >= 5);
+      if (!important) return null;
+      return {
+        gamePk, away, home,
+        inn: p.about?.inning || '?',
+        half: p.about?.halfInning === 'top' ? '▲' : '▼',
+        desc,
+        score: awayScore != null && homeScore != null ? `${away} ${awayScore} · ${home} ${homeScore}` : '',
+        delta,
+        tags: [
+          eventType === 'home_run' ? 'HR' : null,
+          leadChange ? 'Lead change' : null,
+          basesLoaded ? 'Bases loaded' : null,
+          isSave ? 'Save' : null,
+          delta != null && Math.abs(delta) >= 5 ? 'WPA' : null
+        ].filter(Boolean),
+        sortKey: idx ?? 0
+      };
+    }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchAndRenderTicker(games) {
+  const container = document.getElementById('ticker-container');
+  if (!container) return;
+  const activePks = (games || [])
+    .filter(g => !/scheduled|pre-game|warmup|preview/i.test(g.gameState))
+    .map(g => g.gamePk);
+  if (!activePks.length) {
+    container.innerHTML = '<div class="empty-msg">No live or completed games to scan yet</div>';
+    return;
+  }
+  container.innerHTML = '<div class="empty-msg">Loading impact plays...</div>';
+  const plays = (await Promise.all(activePks.map(fetchImpactPlays))).flat()
+    .sort((a, b) => {
+      const aw = typeof a.delta === 'number' ? Math.abs(a.delta) : 0;
+      const bw = typeof b.delta === 'number' ? Math.abs(b.delta) : 0;
+      if (bw !== aw) return bw - aw;
+      return b.sortKey - a.sortKey;
+    })
+    .slice(0, 30);
+  if (!plays.length) {
+    container.innerHTML = '<div class="empty-msg">No high-impact plays yet</div>';
+    return;
+  }
+  container.innerHTML = `<div class="ticker-list">${plays.map(p => {
+    const sign = p.delta > 0 ? '+' : '';
+    return `<button class="ticker-item" onclick="openGameDrawer(${p.gamePk})">
+      <span class="ticker-inning">${p.half}${p.inn}</span>
+      <span class="ticker-main">
+        <strong>${teamLogo(p.away)} ${p.away} @ ${teamLogo(p.home)} ${p.home}</strong>
+        <span>${escapeHTML(p.desc)}</span>
+        <em>${escapeHTML(p.score)}</em>
+      </span>
+      <span class="ticker-tags">${p.tags.map(t => `<i>${escapeHTML(t)}</i>`).join('')}${typeof p.delta === 'number' ? `<b>${sign}${p.delta.toFixed(1)}</b>` : ''}</span>
+    </button>`;
+  }).join('')}</div>`;
+}
+
+// ─── POLLING ───────────────────────────────────────────────────────────────────
+let polling = false;
+let pollTimer = null;
+let pollCount = 0;
+let lastGames = null;
+let lastAuxRefresh = 0;
+let currentPollDelay = 15000;
+const FAST_POLL_MS = 15000;
+const PREGAME_POLL_MS = 60000;
+const IDLE_POLL_MS = 120000;
+const EMPTY_DAY_POLL_MS = 300000;
+
+function isGameLiveNow(game) {
+  return game && !/scheduled|pre-game|warmup|preview|final/i.test(`${game.gameState} ${game.inningStatus}`);
+}
+
+function nextPollDelayForGames(games) {
+  if (!games || games.length === 0) return EMPTY_DAY_POLL_MS;
+  if (games.some(isGameLiveNow)) return FAST_POLL_MS;
+  if (games.some(g => /scheduled|pre-game|warmup|preview/i.test(`${g.gameState} ${g.inningStatus}`))) return PREGAME_POLL_MS;
+  return IDLE_POLL_MS;
+}
+
+function scheduleNextPoll(games) {
+  if (!polling) return;
+  clearTimeout(pollTimer);
+  currentPollDelay = nextPollDelayForGames(games);
+  pollTimer = setTimeout(pollGames, currentPollDelay);
+  const mins = currentPollDelay >= 60000 ? `${Math.round(currentPollDelay / 60000)}m` : `${Math.round(currentPollDelay / 1000)}s`;
+  const updateEl = document.getElementById('last-update');
+  if (updateEl && updateEl.textContent) updateEl.textContent += ` · next ${mins}`;
+}
+
+function startPolling() {
+  document.getElementById('start-btn').disabled = true;
+  document.getElementById('stop-btn').disabled  = false;
+  document.getElementById('status-dot').classList.add('live');
+  polling = true;
+  clearTimeout(pollTimer);
+  fetchTeamRecords().then(() => pollGames());
+  fetchStatLeaders();
+  fetchFangraphsStarTiers(); // Update star tiers daily from Fangraphs WAR
+  // Re-render game cards 5s after start to pick up async pitcher stats
+  setTimeout(() => { if (lastGames) renderGames(lastGames); }, 5000);
+  setTimeout(() => { if (lastGames) renderGames(lastGames); }, 12000);
+}
+
+function stopPolling() {
+  polling = false;
+  clearTimeout(pollTimer);
+  document.getElementById('start-btn').disabled = false;
+  document.getElementById('stop-btn').disabled  = true;
+  document.getElementById('status-dot').classList.remove('live');
+}
+
+function hydratePreferenceControls() {
+  const dateInput = document.getElementById('game-date');
+  if (dateInput) dateInput.value = selectedDate;
+
+  document.querySelectorAll('[id^="sort-"]').forEach(b => b.classList.remove('active'));
+  const sortBtn = document.getElementById('sort-' + currentSort);
+  if (sortBtn) sortBtn.classList.add('active');
+
+  document.querySelectorAll('[id^="filter-"]').forEach(b => {
+    b.classList.remove('active');
+    b.classList.remove('active-blue');
+  });
+  if (currentFilter) {
+    const filterBtn = document.getElementById('filter-' + currentFilter);
+    if (filterBtn) filterBtn.classList.add(currentFilter === 'live' ? 'active-blue' : 'active');
+  }
+}
+
+async function pollGames() {
+  pollCount++;
+  try {
+    usedStaleData = false;
+    let games = await fetchLiveGamesData();
+    if (games.length) {
+      writeCache(`renderedGames:${selectedDate}`, games);
+    } else {
+      const cached = readCache(`renderedGames:${selectedDate}`);
+      if (cached?.data?.length) {
+        games = cached.data;
+        usedStaleData = true;
+      }
+    }
+    // Sort: active/preview games first by watchability, finished games at bottom
+    games.sort((a, b) => {
+      const aFinal = /final/i.test(a.gameState);
+      const bFinal = /final/i.test(b.gameState);
+      if (aFinal !== bFinal) return aFinal ? 1 : -1;
+      return b.watchabilityIndex - a.watchabilityIndex;
+    });
+    lastGames = games;
+    games.forEach(g => { gameDetailsByPk[g.gamePk] = g; });
+    checkFavoriteAlerts(games);
+    renderGames(games);
+    // If HR tab is active, refresh it; otherwise queue it
+    const hrTab = document.getElementById('tab-homeruns');
+    if (hrTab && hrTab.classList.contains('active')) {
+      fetchAndRenderHomeRuns(games);
+    }
+    const tickerTab = document.getElementById('tab-ticker');
+    if (tickerTab && tickerTab.classList.contains('active')) {
+      fetchAndRenderTicker(games);
+    }
+    document.getElementById('last-update').textContent =
+      (usedStaleData ? 'Stale data from cache · ' : 'Updated ') + new Date().toLocaleTimeString();
+    const auxRefreshMs = games.some(isGameLiveNow) ? 60000 : 300000;
+    if (Date.now() - lastAuxRefresh > auxRefreshMs) {
+      lastAuxRefresh = Date.now();
+      fetchStatLeaders();
+      fetchTeamRecords();
+      fetchPlayoffRaces(games);
+      fetchMilestones(games);
+    }
+    // First load: also fetch standings, milestones & award races
+    if (isFirstLoad) {
+      fetchPlayoffRaces(games);
+      fetchMilestones(games);
+      fetchAwardRaces();
+      fetchAndRenderHomeRuns(games); // pre-load HR data
+      fetchAndRenderTicker(games);
+      isFirstLoad = false;
+    }
+  } catch (e) {
+    console.error('Poll error:', e);
+  } finally {
+    scheduleNextPoll(lastGames);
+  }
+}
+
+hydratePreferenceControls();
+
