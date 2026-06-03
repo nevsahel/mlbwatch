@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MLB Watchability Index</title>
-<meta name="theme-color" content="#0a0a14">
+<meta name="theme-color" content="#0a1a13">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
@@ -35,7 +35,7 @@
     <div class="sidebar-section active" id="sb-stars">
       <p class="star-note">Star tiers update daily from Fangraphs fWAR. T1 = top 20 in fWAR league-wide, T2 = ranks 21–50, T3 = ranks 51–100. Hitters and pitchers compete on the same leaderboard. Fallback list used before live data loads.</p>
       <div id="sb-star-list">
-        <div style="color:#555;font-size:0.75rem;">Loading star list…</div>
+        <div style="color:var(--text-dim);font-size:0.75rem;">Loading star list…</div>
       </div>
     </div>
 
@@ -51,7 +51,7 @@
     <!-- FORMULA TAB -->
     <div class="sidebar-section" id="sb-formula">
       <div class="formula-block">
-        <div class="formula-title">🎯 Situation Component <span style="font-weight:400;color:#555">(max 50)</span></div>
+        <div class="formula-title">🎯 Situation Component <span style="font-weight:400;color:var(--text-dim)">(max 50)</span></div>
         <div class="formula-row"><span class="label">Tied game</span><span class="val">+20</span></div>
         <div class="formula-row"><span class="label">1-run game</span><span class="val">+15</span></div>
         <div class="formula-row"><span class="label">2-run game</span><span class="val">+9</span></div>
@@ -71,7 +71,7 @@
       </div>
 
       <div class="formula-block">
-        <div class="formula-title">⭐ Context Component <span style="font-weight:400;color:#555">(max 30)</span></div>
+        <div class="formula-title">⭐ Context Component <span style="font-weight:400;color:var(--text-dim)">(max 30)</span></div>
         <div class="formula-row"><span class="label">Tier 1 pitcher on mound</span><span class="val">+12</span></div>
         <div class="formula-row"><span class="label">Tier 2 pitcher on mound</span><span class="val">+7</span></div>
         <div class="formula-row"><span class="label">Tier 3 pitcher on mound</span><span class="val">+3</span></div>
@@ -232,5 +232,3 @@ if ('serviceWorker' in navigator) {
 </script>
 </body>
 </html>
-
-

@@ -131,7 +131,7 @@ function teamLogo(abbr) {
 }
 
 function teamColor(abbr) {
-  return TEAM_DATA[abbr]?.color || '#888';
+  return TEAM_DATA[abbr]?.color || 'var(--text-dim)';
 }
 
 // Build reverse lookup: team ID -> abbreviation
@@ -1018,6 +1018,45 @@ async function openSidePanel(gamePk) {
   } catch (e) {
     body.innerHTML = '<div class="expand-load-msg" style="color:#ef4444">Failed to load details</div>';
   }
+  // Desktop side panel
+  openSidePanel(gamePk);
+}
+
+async function openSidePanel(gamePk) {
+  activeGamePk = gamePk;
+  const panel = document.getElementById('side-panel');
+  const title = document.getElementById('side-panel-title');
+  const body = document.getElementById('side-panel-body');
+  const game = gameDetailsByPk[gamePk];
+  if (!panel || !title || !body) return;
+
+  // Highlight active card
+  document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
+  const card = document.querySelector(`.game-card[data-gpk="${gamePk}"]`);
+  if (card) card.classList.add('active-side');
+
+  title.textContent = game ? `${game.awayTeam} @ ${game.homeTeam}` : 'Game Details';
+  body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+
+  try {
+    const [feed, wpData] = await Promise.all([
+      requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
+    ]);
+    const data = parseExpandData(feed, wpData);
+    renderExpandPanel(body, data);
+  } catch (e) {
+    body.innerHTML = '<div class="expand-load-msg" style="color:var(--danger)">Failed to load details</div>';
+  }
+}
+
+function closeSidePanel() {
+  activeGamePk = null;
+  document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
+  const body = document.getElementById('side-panel-body');
+  const title = document.getElementById('side-panel-title');
+  if (title) title.textContent = 'Select a game';
+  if (body) body.innerHTML = '<div class="empty-msg">Click on any game card to view live box scores, play-by-play, and advanced metrics here.</div>';
 }
 
 function closeSidePanel() {
@@ -1053,7 +1092,7 @@ async function openGameDrawer(gamePk) {
     const data = parseExpandData(feed, wpData);
     renderExpandPanel(body, data);
   } catch (e) {
-    body.innerHTML = '<div class="expand-load-msg" style="color:#ef4444">Failed to load details</div>';
+    body.innerHTML = '<div class="expand-load-msg" style="color:var(--danger)">Failed to load details</div>';
   }
 }
 
@@ -1079,7 +1118,7 @@ async function loadExpandData(gamePk, panel) {
     expandCache[gamePk] = Object.assign({}, data, { fetchedAt: now });
     renderExpandPanel(panel, data);
   } catch(e) {
-    panel.innerHTML = '<div class="expand-load-msg" style="color:#ef4444">Failed to load details</div>';
+    panel.innerHTML = '<div class="expand-load-msg" style="color:var(--danger)">Failed to load details</div>';
   }
 }
 
@@ -1307,9 +1346,9 @@ function renderExpandPanel(panel, data) {
     html += '<div class="expand-pitcher-row header"><span>Pitcher</span><span>IP</span><span>H</span><span>R</span><span>BB</span><span>K</span><span>P</span></div>';
     function addRows(pitchers, abbr) {
       if (!pitchers || !pitchers.length) return;
-      html += '<div class="expand-pitcher-row" style="color:#555;font-size:0.6rem;font-style:italic"><span style="text-align:left">' + teamLogo(abbr) + ' ' + abbr + '</span><span></span><span></span><span></span><span></span><span></span><span></span></div>';
+      html += '<div class="expand-pitcher-row" style="color:var(--text-dim);font-size:0.6rem;font-style:italic"><span style="text-align:left">' + teamLogo(abbr) + ' ' + abbr + '</span><span></span><span></span><span></span><span></span><span></span><span></span></div>';
       pitchers.forEach(function(p) {
-        const noteHtml = p.note ? ' <span style="color:#f59e0b;font-weight:700">' + p.note + '</span>' : '';
+        const noteHtml = p.note ? ' <span style="color:var(--gold);font-weight:700">' + p.note + '</span>' : '';
         html += '<div class="expand-pitcher-row"><span>' + p.name + noteHtml + '</span><span>' + p.ip + '</span><span>' + p.h + '</span><span>' + p.r + '</span><span>' + p.bb + '</span><span>' + p.k + '</span><span>' + p.pit + '</span></div>';
       });
     }
@@ -1349,13 +1388,13 @@ function setFilter(f) {
   if (currentFilter === f) {
     currentFilter = null;
     savePrefs({ filter: null });
-    document.querySelectorAll('[id^="filter-"]').forEach(b => { b.classList.remove('active'); b.classList.remove('active-blue'); });
+    document.querySelectorAll('[id^="filter-"]').forEach(b => { b.classList.remove('active'); });
   } else {
     currentFilter = f;
     savePrefs({ filter: f });
-    document.querySelectorAll('[id^="filter-"]').forEach(b => { b.classList.remove('active'); b.classList.remove('active-blue'); });
+    document.querySelectorAll('[id^="filter-"]').forEach(b => { b.classList.remove('active'); });
     const btn = document.getElementById('filter-' + f);
-    if (btn) btn.classList.add(f === 'live' ? 'active-blue' : 'active');
+    if (btn) btn.classList.add('active');
   }
   if (lastGames) renderGames(lastGames);
 }
@@ -1420,6 +1459,19 @@ function renderGames(games) {
     return;
   }
 
+  // Use a map for quick lookup of existing cards
+  const existingCards = new Map();
+  Array.from(grid.children).forEach(child => {
+    if (child.hasAttribute('data-gpk')) {
+      existingCards.set(parseInt(child.getAttribute('data-gpk')), child);
+    }
+  });
+
+  // Create or update cards in the correct order
+  const fragment = document.createDocumentFragment();
+  filtered.forEach((game, index) => {
+    let card = existingCards.get(game.gamePk);
+    const wi = game.watchabilityIndex;
   // Remove empty message if it exists
   const emptyMsg = grid.querySelector('.empty-msg');
   if (emptyMsg) emptyMsg.remove();
@@ -1489,7 +1541,7 @@ function renderGames(games) {
     if (isSpoilered) {
       const spoilerHtml = `
         <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
-        <div class="inning-line" style="color:#555">${isScheduled ? game.inningStatus : isFinal ? 'FINAL' : 'Live'}</div>
+        <div class="inning-line" style="color:var(--text-dim)">${isScheduled ? game.inningStatus : isFinal ? 'FINAL' : 'Live'}</div>
         <div class="spoiler-mask" onclick="revealSpoiler(this, ${game.gamePk})">
           🙈 Spoiler Mode — tap to reveal
         </div>
@@ -1499,6 +1551,20 @@ function renderGames(games) {
       }
       card._fullGame = game;
     } else {
+      card.classList.remove('spoilered');
+      // Render full card info
+      renderSingleGameCard(card, game);
+      const homeColor = teamColor(game.homeTeam);
+      if (homeColor) {
+        card.style.borderLeft = `6px solid ${homeColor}`;
+        card.style.backgroundImage = `linear-gradient(to right, ${homeColor}11, transparent)`;
+      } else {
+        card.style.borderLeft = '';
+        card.style.backgroundImage = '';
+      }
+    }
+
+    fragment.appendChild(card);
       // Render full card info (this function will handle internal reconciliation)
       renderSingleGameCard(card, game);
     }
@@ -1845,9 +1911,9 @@ async function fetchPlayoffRaces(todayGames) {
           // Magic number: only show for div leader (i===0), show elimination number for others
           let mnDisplay = '-';
           if (i === 0 && t.magicNumber && t.magicNumber !== '-') {
-            mnDisplay = `<span style="color:#4ade80;font-weight:700">${t.magicNumber}</span>`;
+            mnDisplay = `<span style="color:var(--success);font-weight:700">${t.magicNumber}</span>`;
           } else if (i > 0 && t.eliminationNumber && t.eliminationNumber !== '-' && t.eliminationNumber !== 'E') {
-            mnDisplay = `<span style="color:#ef444488">E${t.eliminationNumber}</span>`;
+            mnDisplay = `<span style="color:var(--danger)88">E${t.eliminationNumber}</span>`;
           }
           html += `<tr class="${cls}"><td class="team-name">${teamLogo(t.abbr)} ${t.abbr}</td><td>${t.w}</td><td>${t.l}</td><td>${t.pct}</td><td class="gb">${t.gb}</td><td class="gb">${mnDisplay}</td><td>${l10Html(t.abbr)}</td><td>${streakHtml(t.abbr)}</td></tr>`;
         });
@@ -1864,9 +1930,9 @@ async function fetchPlayoffRaces(todayGames) {
           const cutline = i === 2 ? '<tr><td colspan="6" style="padding:0"><div class="wc-cutline"></div></td></tr>' : '';
           let wceDisplay = '-';
           if (i < 3 && t.magicNumber && t.magicNumber !== '-') {
-            wceDisplay = `<span style="color:#4ade80;font-weight:700">${t.magicNumber}</span>`;
+            wceDisplay = `<span style="color:var(--success);font-weight:700">${t.magicNumber}</span>`;
           } else if (i >= 3 && t.wildCardEliminationNumber && t.wildCardEliminationNumber !== '-' && t.wildCardEliminationNumber !== 'E') {
-            wceDisplay = `<span style="color:#ef444488">E${t.wildCardEliminationNumber}</span>`;
+            wceDisplay = `<span style="color:var(--danger)88">E${t.wildCardEliminationNumber}</span>`;
           }
           html += `<tr class="${cls}"><td>${t.wcRank}</td><td class="team-name">${teamLogo(t.abbr)} ${t.abbr}</td><td>${t.w}</td><td>${t.l}</td><td class="gb">${t.wcGB}</td><td class="gb">${wceDisplay}</td><td>${l10Html(t.abbr)}</td><td>${streakHtml(t.abbr)}</td></tr>${cutline}`;
         });
@@ -1950,10 +2016,10 @@ async function fetchPlayoffRaces(todayGames) {
           html += '<div style="margin-top:14px">';
           html += '<div class="standings-div-title" style="margin-bottom:8px">🔑 Key Games Today</div>';
           scoredGames.slice(0, 4).forEach(({ g, score, reasons }) => {
-            const pill = score >= 70 ? '#dc262688;border-color:#ef4444' : score >= 50 ? '#92400e88;border-color:#f59e0b' : '#1e3a5f88;border-color:#3b82f6';
+            const pill = score >= 70 ? 'var(--brick);border-color:var(--danger)' : score >= 50 ? 'rgba(146, 64, 14, 0.5);border-color:var(--gold)' : 'var(--ivy-lighter);border-color:var(--info)';
             html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:6px;background:${pill.split(';')[0]};border:1px solid ${pill.split(';')[1].split(':')[1]};margin-bottom:6px;font-size:0.78rem;">
               <span style="font-weight:700">${teamLogo(g.awayTeam)} ${g.awayTeam} @ ${teamLogo(g.homeTeam)} ${g.homeTeam}</span>
-              <span style="font-size:0.68rem;color:#aaa;margin-left:8px">${reasons.slice(0,2).join(' · ')}</span>
+              <span style="font-size:0.68rem;color:var(--text-dim);margin-left:8px">${reasons.slice(0,2).join(' · ')}</span>
             </div>`;
           });
           html += '</div>';
@@ -2474,7 +2540,7 @@ function renderSingleGameCard(card, game) {
   const b3 = game.onThird ? 'occupied' : '';
   const outsHtml = [0,1].map(i => `<div class="out-dot ${i < game.outs ? 'filled' : ''}"></div>`).join('');
   const scoreLine = isScheduled ? '' : `<div class="score-line">${game.awayScore} - ${game.homeScore}</div>`;
-  const inningColor = isFinal ? '#4ade80' : isScheduled ? '#888' : '#666';
+  const inningClass = isFinal ? 'inning-final' : isScheduled ? 'inning-scheduled' : 'inning-live';
   const showSituation = !isFinal && !isScheduled;
   const awayColor = teamColor(game.awayTeam);
   const homeColor = teamColor(game.homeTeam);
@@ -2491,13 +2557,13 @@ function renderSingleGameCard(card, game) {
   let batterLine = 'AB: <strong>TBD</strong>';
   if (game.currentBatter) {
     const b = game.currentBatter;
-    batterLine = `AB: <strong>${escapeHTML(b.name)}</strong> <span style="color:#888">(${escapeHTML(b.gameH)}-${escapeHTML(b.gameAB)} | ${escapeHTML(b.avg)}/${escapeHTML(b.obp)}/${escapeHTML(b.ops)})</span>`;
+    batterLine = `AB: <strong>${escapeHTML(b.name)}</strong> <span style="color:var(--text-dim)">(${escapeHTML(b.gameH)}-${escapeHTML(b.gameAB)} | ${escapeHTML(b.avg)}/${escapeHTML(b.obp)}/${escapeHTML(b.ops)})</span>`;
   }
   let pitcherLine = 'P: <strong>TBD</strong>';
   if (game.currentPitcher) {
     const p = game.currentPitcher;
     const kPart = p.gameK > 0 ? `, ${p.gameK} K` : '';
-    pitcherLine = `P: <strong>${escapeHTML(p.name)}</strong> <span style="color:#888">(${escapeHTML(p.gameIP)} IP, ${escapeHTML(p.gamePitches)} Pitches${kPart} | ${escapeHTML(p.era)} ERA)</span>`;
+    pitcherLine = `P: <strong>${escapeHTML(p.name)}</strong> <span style="color:var(--text-dim)">(${escapeHTML(p.gameIP)} IP, ${escapeHTML(p.gamePitches)} Pitches${kPart} | ${escapeHTML(p.era)} ERA)</span>`;
   }
 
   // Pre-game: fetch pitcher stats if needed (non-blocking)
@@ -2507,7 +2573,7 @@ function renderSingleGameCard(card, game) {
   }
 
   function spBlock(pp, side) {
-    if (!pp) return `<div class="pregame-sp"><div class="sp-label">${side} SP</div><div class="sp-name" style="color:#555">TBD</div></div>`;
+    if (!pp) return `<div class="pregame-sp"><div class="sp-label">${side} SP</div><div class="sp-name" style="color:var(--text-dim)">TBD</div></div>`;
     const stats = pitcherStatsCache[pp.id];
     const tierNum = PLAYER_TIER[pp.name];
     const tierHtml = tierNum <= 2 ? `<span class="sp-tier t${tierNum}">${tierNum === 1 ? '⭐' : '★'}</span>` : '';
@@ -2555,7 +2621,7 @@ function renderSingleGameCard(card, game) {
       if (fd.potg) {
         const p = fd.potg;
         const statLine = p.isPitcher ? p.pitcherLine : p.batterLine;
-        html += `<div style="margin-top:4px;color:#f59e0b;font-weight:700;font-size:0.75rem;">POTG: ${escapeHTML(p.name)} ${escapeHTML(statLine || '')}</div>`;
+        html += `<div style="margin-top:4px;color:var(--gold);font-weight:700;font-size:0.75rem;">POTG: ${escapeHTML(p.name)} ${escapeHTML(statLine || '')}</div>`;
       }
       html += '</div>';
       return html;
@@ -2566,10 +2632,10 @@ function renderSingleGameCard(card, game) {
     <div class="watch-bar-wrap">
       <div class="watch-bar-label">
         <span>Watchability</span>
-        <span class="score-num" style="color:${wi > 70 ? '#4ade80' : '#f59e0b'}">${wi}</span>
+        <span class="score-num" style="color:${wi > 70 ? 'var(--success)' : 'var(--gold)'}">${wi}</span>
       </div>
       <div class="watch-bar-bg">
-        <div class="watch-bar-fill" style="width:${wi}%;background:${wi > 70 ? '#4ade80' : '#f59e0b'}"></div>
+        <div class="watch-bar-fill" style="width:${wi}%;background:${wi > 70 ? 'var(--success)' : 'var(--gold)'}"></div>
       </div>
     </div>` : '';
 
@@ -2578,7 +2644,7 @@ function renderSingleGameCard(card, game) {
     ${badgeHtml}
     <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam}${teamRec(game.awayTeam)} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}${teamRec(game.homeTeam)}</div>
     ${scoreLine}
-    <div class="inning-line" style="color:${inningColor}">${game.inningStatus}</div>
+    <div class="inning-line ${inningClass}">${game.inningStatus}</div>
     ${watchBarHtml}
     ${renderWinProbSparkline(game)}
     ${renderScoreBreakdown(game)}
@@ -2625,13 +2691,13 @@ function renderStarList() {
     if (!names.length) continue;
     html += `<div class="star-tier-label ${info.cls}">
       <div class="tier-badge ${info.cls}">${t}</div>
-      ${info.label} <span style="font-size:0.6rem;color:#555;font-weight:400;margin-left:4px">${info.warbadge}</span>
+      ${info.label} <span style="font-size:0.6rem;color:var(--text-dim);font-weight:400;margin-left:4px">${info.warbadge}</span>
     </div>
     <div class="star-chips">
       ${names.map(n => `<div class="star-chip ${info.cls}">${escapeHTML(n)}</div>`).join('')}
     </div>`;
   }
-  container.innerHTML = html || '<div style="color:#555;font-size:0.75rem;">No players loaded yet. Press Start to fetch data.</div>';
+  container.innerHTML = html || '<div style="color:var(--text-dim);font-size:0.75rem;">No players loaded yet. Press Start to fetch data.</div>';
 }
 
 // ─── AWARD RACES ─────────────────────────────────────────────────────────────
@@ -2904,7 +2970,7 @@ async function fetchAwardRaces() {
     // ── 7. Format stat display lines ─────────────────────────────────────────
     function fmtMVP(p) {
       const parts = [];
-      if (p.war !== null) parts.push(`<strong style="color:#f59e0b">${p.war.toFixed(1)} fWAR</strong>`);
+      if (p.war !== null) parts.push(`<strong style="color:var(--gold)">${p.war.toFixed(1)} fWAR</strong>`);
       const s = p.stats;
       if (p.isPitcher) {
         if (s.earnedRunAverage) parts.push(`<strong>${s.earnedRunAverage}</strong> ERA`);
@@ -2922,7 +2988,7 @@ async function fetchAwardRaces() {
 
     function fmtCY(p) {
       const parts = [];
-      if (p.war !== null) parts.push(`<strong style="color:#f59e0b">${p.war.toFixed(1)} fWAR</strong>`);
+      if (p.war !== null) parts.push(`<strong style="color:var(--gold)">${p.war.toFixed(1)} fWAR</strong>`);
       const s = p.stats;
       if (s.earnedRunAverage) parts.push(`<strong>${s.earnedRunAverage}</strong> ERA`);
       if (s.strikeouts) parts.push(`<strong>${s.strikeouts}</strong> K`);
@@ -2933,15 +2999,15 @@ async function fetchAwardRaces() {
     }
 
     function candidatesHtml(list, fmtFn) {
-      if (!list.length) return '<div style="color:#555;font-size:0.75rem;">Insufficient data — check back mid-season</div>';
+      if (!list.length) return '<div style="color:var(--text-dim);font-size:0.75rem;">Insufficient data — check back mid-season</div>';
       const maxVotes = Math.max(...list.map(p => p.voteTotal || 0), 1);
       return list.map((p, i) => {
         const voteBar = p.voteTotal != null ? `
           <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
             <div style="flex:1;height:3px;background:#1e1e2e;border-radius:2px;overflow:hidden">
-              <div style="height:100%;width:${Math.round((p.voteTotal/maxVotes)*100)}%;background:${i===0?'#f59e0b':i===1?'#94a3b8':'#78716c'};border-radius:2px;transition:width 0.4s"></div>
+              <div style="height:100%;width:${Math.round((p.voteTotal/maxVotes)*100)}%;background:${i===0?'var(--gold)':i===1?'#94a3b8':'#78716c'};border-radius:2px;transition:width 0.4s"></div>
             </div>
-            <span style="font-size:0.65rem;color:#666;font-variant-numeric:tabular-nums;min-width:28px;text-align:right">${p.voteTotal} pts</span>
+            <span style="font-size:0.65rem;color:var(--text-dim);font-variant-numeric:tabular-nums;min-width:28px;text-align:right">${p.voteTotal} pts</span>
           </div>` : '';
         return `
         <div class="award-candidate">
@@ -3218,7 +3284,7 @@ async function fetchAwardRaces() {
       if (!rows.length) return '';
       return `<div class="snub-watch-section">
         <div class="section-title" style="margin-bottom:8px">All-Star Snub Watch</div>
-        <div style="font-size:0.68rem;color:#555;margin-bottom:12px">Best players outside the projected 32-man roster after position needs, pitching slots, and one-player-per-team representation are applied.</div>
+        <div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:12px">Best players outside the projected 32-man roster after position needs, pitching slots, and one-player-per-team representation are applied.</div>
         <div class="snub-watch-grid">
           ${rows.map((p, i) => `<div class="snub-card">
             <div class="snub-rank">#${i + 1}</div>
@@ -3252,12 +3318,12 @@ async function fetchAwardRaces() {
         <line x1="100" y1="135" x2="12" y2="28" stroke="#1e3a1e" stroke-width="1"/>
         <line x1="100" y1="135" x2="188" y2="28" stroke="#1e3a1e" stroke-width="1"/>
         <polygon points="100,95 118,113 100,131 82,113" fill="none" stroke="#2a4a2a" stroke-width="1"/>
-        <rect x="96" y="91" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.5" transform="rotate(45,100,95)"/>
-        <rect x="114" y="109" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.5" transform="rotate(45,118,113)"/>
-        <rect x="96" y="127" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.5" transform="rotate(45,100,131)"/>
-        <rect x="78" y="109" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.5" transform="rotate(45,82,113)"/>
+        <rect x="96" y="91" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.5" transform="rotate(45,100,95)"/>
+        <rect x="114" y="109" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.5" transform="rotate(45,118,113)"/>
+        <rect x="96" y="127" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.5" transform="rotate(45,100,131)"/>
+        <rect x="78" y="109" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.5" transform="rotate(45,82,113)"/>
         <circle cx="100" cy="113" r="5" fill="#2a1f08" stroke="#3a2f18" stroke-width="0.5"/>
-        <polygon points="100,131 96,136 98,141 102,141 104,136" fill="#2a2a2a" stroke="#555" stroke-width="0.5"/>
+        <polygon points="100,131 96,136 98,141 102,141 104,136" fill="#2a2a2a" stroke="var(--text-dim)" stroke-width="0.5"/>
       </svg>`;
 
       let players = '';
@@ -3347,8 +3413,8 @@ async function fetchAwardRaces() {
     container.innerHTML = '';
 
     const warNote = hasFG
-      ? '<div style="font-size:0.68rem;color:#555;margin-bottom:16px">Rankings simulate a 5-voter BBWAA panel using fWAR with an offensive tilt (+0.5 fWAR edge for position players). <span style="color:#f59e0b">fWAR</span> shown in gold.</div>'
-      : '<div style="font-size:0.68rem;color:#ef444488;margin-bottom:16px">⚠ Fangraphs WAR unavailable — using OPS/ERA blend as fallback (offense-weighted, vote-simulated). Rankings less accurate.</div>';
+      ? '<div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:16px">Rankings simulate a 5-voter BBWAA panel using fWAR with an offensive tilt (+0.5 fWAR edge for position players). <span style="color:var(--gold)">fWAR</span> shown in gold.</div>'
+      : '<div style="font-size:0.68rem;color:var(--danger)88;margin-bottom:16px">⚠ Fangraphs WAR unavailable — using OPS/ERA blend as fallback (offense-weighted, vote-simulated). Rankings less accurate.</div>';
 
     const mvpRow = document.createElement('div');
     mvpRow.innerHTML = `<div class="section-title" style="margin-bottom:8px">MVP Race</div>${warNote}
@@ -3360,7 +3426,7 @@ async function fetchAwardRaces() {
 
     const cyRow = document.createElement('div');
     cyRow.innerHTML = `<div class="section-title" style="margin-bottom:8px">Cy Young Race</div>
-      <div style="font-size:0.68rem;color:#555;margin-bottom:12px">Qualified starters only (≥${qualifiedIP} IP). Vote simulation using ERA/K/WHIP/WAR blend.</div>
+      <div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:12px">Qualified starters only (≥${qualifiedIP} IP). Vote simulation using ERA/K/WHIP/WAR blend.</div>
       <div class="awards-league-row">
         ${awardBlock('al','AL','Cy Young Award', candidatesHtml(cyAL, fmtCY))}
         ${awardBlock('nl','NL','Cy Young Award', candidatesHtml(cyNL, fmtCY))}
@@ -3369,7 +3435,7 @@ async function fetchAwardRaces() {
 
     const rotyRow = document.createElement('div');
     rotyRow.innerHTML = `<div class="section-title" style="margin-bottom:8px">Rookie of the Year Race</div>
-      <div style="font-size:0.68rem;color:#555;margin-bottom:12px">Pitchers eligible. <span style="color:#60a5fa;font-weight:700">P</span> tag shown for pitcher candidates.</div>
+      <div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:12px">Pitchers eligible. <span style="color:#60a5fa;font-weight:700">P</span> tag shown for pitcher candidates.</div>
       <div class="awards-league-row">
         ${awardBlock('al','AL','Rookie of the Year', candidatesHtml(rotyAL, fmtMVP))}
         ${awardBlock('nl','NL','Rookie of the Year', candidatesHtml(rotyNL, fmtMVP))}
@@ -3383,7 +3449,7 @@ async function fetchAwardRaces() {
     const ssSection = document.createElement('div');
     ssSection.className = 'ss-section';
     ssSection.innerHTML = `<div class="section-title" style="margin-bottom:8px">🥇 Silver Slugger Predictions</div>
-      <div style="font-size:0.68rem;color:#555;margin-bottom:14px">Best OPS at each position among hitters. Pitchers are never eligible for Silver Slugger.</div>
+      <div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:14px">Best OPS at each position among hitters. Pitchers are never eligible for Silver Slugger.</div>
       <div class="ss-leagues">
         ${fieldDiagramHtml(ssAL, 'American League')}
         ${fieldDiagramHtml(ssNL, 'National League')}
@@ -3393,7 +3459,7 @@ async function fetchAwardRaces() {
     const asSection = document.createElement('div');
     asSection.className = 'allstar-section';
     asSection.innerHTML = `<div class="section-title" style="margin-bottom:8px">Projected All-Star Rosters</div>
-      <div style="font-size:0.68rem;color:#555;margin-bottom:14px">Stats-based 2026 projection using current All-Star construction: 32 per league, 20 position players, 12 pitchers, starters by position, reserve coverage, and every MLB club represented. This does not model fan ballot popularity or injury replacements.</div>
+      <div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:14px">Stats-based 2026 projection using current All-Star construction: 32 per league, 20 position players, 12 pitchers, starters by position, reserve coverage, and every MLB club represented. This does not model fan ballot popularity or injury replacements.</div>
       <div class="as-leagues">
         ${allStarRosterHtml(allStarRosters.AL, 'AL', 'al')}
         ${allStarRosterHtml(allStarRosters.NL, 'NL', 'nl')}
@@ -3440,11 +3506,11 @@ function parkCountLabel(n) {
 }
 
 function evColor(ev) {
-  if (!ev) return '#888';
+  if (!ev) return 'var(--text-dim)';
   const v = parseFloat(ev);
-  if (v >= 110) return '#ef4444';
-  if (v >= 103) return '#f59e0b';
-  if (v >= 95)  return '#4ade80';
+  if (v >= 110) return 'var(--danger)';
+  if (v >= 103) return 'var(--gold)';
+  if (v >= 95)  return 'var(--success)';
   return '#60a5fa';
 }
 
@@ -3509,13 +3575,13 @@ function renderHomeRunCard(hr) {
 
   return `<div class="${cardClass}">
     <div class="hr-matchup">
-      ${teamLogo(hr.team_batting)} <span style="font-weight:700;color:#ccc">${hr.team_batting}</span>
+      ${teamLogo(hr.team_batting)} <span style="font-weight:700;color:var(--text-main)">${hr.team_batting}</span>
       <span style="color:#444">vs</span>
       ${teamLogo(hr.team_fielding)} <span>${hr.team_fielding}</span>
-      <span style="margin-left:auto;color:#555">${inningLabel}</span>
+      <span style="margin-left:auto;color:var(--text-dim)">${inningLabel}</span>
     </div>
     <div class="hr-hitter">${escapeHTML(hr.batter_name || '—')}${isNuke ? ' 💥' : isBarrel ? ' 🔥' : ''}</div>
-    <div class="hr-pitcher">off <span style="color:#ccc">${escapeHTML(hr.pitcher_name || '—')}</span>${pitchSuffix}</div>
+    <div class="hr-pitcher">off <span style="color:var(--text-main)">${escapeHTML(hr.pitcher_name || '—')}</span>${pitchSuffix}</div>
     <div class="hr-score-change">${escapeHTML(scoreText)} <span>${escapeHTML(wpaText)}</span></div>
     <div class="hr-bottom-row">
       <div>
@@ -3550,14 +3616,14 @@ function renderHomeRunCard(hr) {
           <!-- Infield diamond -->
           <polygon points="100,105 120,125 100,145 80,125" fill="none" stroke="#2a4a2a" stroke-width="1.5"/>
           <!-- Bases -->
-          <rect x="96" y="101" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.8" transform="rotate(45,100,105)"/>
-          <rect x="116" y="121" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.8" transform="rotate(45,120,125)"/>
-          <rect x="96" y="141" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.8" transform="rotate(45,100,145)"/>
-          <rect x="76" y="121" width="8" height="8" rx="1" fill="#4ade8033" stroke="#4ade80" stroke-width="0.8" transform="rotate(45,80,125)"/>
+          <rect x="96" y="101" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,100,105)"/>
+          <rect x="116" y="121" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,120,125)"/>
+          <rect x="96" y="141" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,100,145)"/>
+          <rect x="76" y="121" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,80,125)"/>
           <!-- Pitching rubber -->
           <circle cx="100" cy="125" r="3" fill="#2a3a2a" stroke="#3a4a3a" stroke-width="0.5"/>
           <!-- Home plate -->
-          <polygon points="100,147 96,152 98,156 102,156 104,152" fill="#2a2a2a" stroke="#555" stroke-width="0.5"/>
+          <polygon points="100,147 96,152 98,156 102,156 104,152" fill="#2a2a2a" stroke="var(--text-dim)" stroke-width="0.5"/>
           <!-- Landing spot -->
           <circle cx="${pt.x}" cy="${pt.y}" r="7" fill="${evColor(ev)}33" stroke="${evColor(ev)}" stroke-width="2"/>
           <circle cx="${pt.x}" cy="${pt.y}" r="3" fill="${evColor(ev)}"/>
@@ -3813,11 +3879,55 @@ function hydratePreferenceControls() {
 
   document.querySelectorAll('[id^="filter-"]').forEach(b => {
     b.classList.remove('active');
-    b.classList.remove('active-blue');
   });
   if (currentFilter) {
     const filterBtn = document.getElementById('filter-' + currentFilter);
-    if (filterBtn) filterBtn.classList.add(currentFilter === 'live' ? 'active-blue' : 'active');
+    if (filterBtn) filterBtn.classList.add('active');
+  }
+}
+
+let newswireItems = [];
+function updateNewswire(games) {
+  const track = document.getElementById('newswire-track');
+  if (!track) return;
+
+  const newItems = [];
+
+  // 1. Scoring Plays and Special Events
+  games.forEach(g => {
+    if (g.finalDetails?.potg) {
+      newItems.push(`🏆 FINAL: ${g.awayTeam} ${g.awayScore}, ${g.homeTeam} ${g.homeScore} | POTG: ${g.finalDetails.potg.name} ${g.finalDetails.potg.isPitcher ? g.finalDetails.potg.pitcherLine : g.finalDetails.potg.batterLine}`);
+    }
+    if (g.isNoHitter) newItems.push(`🚫 NO-HITTER ALERT: ${g.awayHits === 0 ? g.homeTeam : g.awayTeam} has no hits thru ${g.currentInning} innings!`);
+
+    // Recent scoring plays if available in game object (enriched earlier)
+    // We can't easily get all plays here without a lot of API calls, but we can use the ones we already found if we store them
+  });
+
+  // 2. Upcoming milestones (diff <= 2)
+  if (window.lastMilestones) {
+    window.lastMilestones.filter(m => m.diff <= 2).forEach(m => {
+      newItems.push(`🎯 MILESTONE WATCH: ${m.name} is ${m.diff} ${m.shortStat} away from ${m.next} ${m.stat}!`);
+    });
+  }
+
+  // 3. High Watchability
+  games.filter(g => g.watchabilityIndex >= 80 && !/final/i.test(g.gameState)).forEach(g => {
+    newItems.push(`🔥 HIGH INTENSITY: ${g.awayTeam} @ ${g.homeTeam} has a Watchability Index of ${g.watchabilityIndex}!`);
+  });
+
+  // If no items, keep a default
+  if (newItems.length === 0) {
+    newItems.push("Welcome to the MLB Watchability Index. Watching the diamond for high-stakes action...");
+  }
+
+  // Only update if changed to avoid restart animation
+  const newStr = newItems.join(' | ');
+  if (newStr !== track.getAttribute('data-current')) {
+    track.setAttribute('data-current', newStr);
+    track.innerHTML = newItems.map(item => `<div class="newswire-item">${item}</div>`).join('');
+    // Double the items for seamless loop if needed, or just let animation handle it
+    // For now, simple list.
   }
 }
 
