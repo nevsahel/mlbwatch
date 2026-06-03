@@ -157,6 +157,14 @@ function switchTab(tab) {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.getElementById('tab-' + tab).classList.add('active');
     document.querySelector(`.tab-btn[onclick*="'${tab}'"]`).classList.add('active');
+
+    // Lazy-load data for the active tab
+    if (lastGames) {
+      if (tab === 'homeruns') fetchAndRenderHomeRuns(lastGames);
+      if (tab === 'ticker') fetchAndRenderTicker(lastGames);
+      if (tab === 'playoffs') fetchPlayoffRaces(lastGames);
+      if (tab === 'milestones') fetchMilestones(lastGames);
+      if (tab === 'awards') fetchAwardRaces();
     // Lazy-load HR tab and playoffs (L10) when opened
     if (tab === 'homeruns' && lastGames) fetchAndRenderHomeRuns(lastGames);
     if (tab === 'playoffs' && lastGames) {
@@ -1008,8 +1016,47 @@ async function openSidePanel(gamePk) {
     const data = parseExpandData(feed, wpData);
     renderExpandPanel(body, data);
   } catch (e) {
+    body.innerHTML = '<div class="expand-load-msg" style="color:#ef4444">Failed to load details</div>';
+  }
+  // Desktop side panel
+  openSidePanel(gamePk);
+}
+
+async function openSidePanel(gamePk) {
+  activeGamePk = gamePk;
+  const panel = document.getElementById('side-panel');
+  const title = document.getElementById('side-panel-title');
+  const body = document.getElementById('side-panel-body');
+  const game = gameDetailsByPk[gamePk];
+  if (!panel || !title || !body) return;
+
+  // Highlight active card
+  document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
+  const card = document.querySelector(`.game-card[data-gpk="${gamePk}"]`);
+  if (card) card.classList.add('active-side');
+
+  title.textContent = game ? `${game.awayTeam} @ ${game.homeTeam}` : 'Game Details';
+  body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+
+  try {
+    const [feed, wpData] = await Promise.all([
+      requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
+    ]);
+    const data = parseExpandData(feed, wpData);
+    renderExpandPanel(body, data);
+  } catch (e) {
     body.innerHTML = '<div class="expand-load-msg" style="color:var(--danger)">Failed to load details</div>';
   }
+}
+
+function closeSidePanel() {
+  activeGamePk = null;
+  document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
+  const body = document.getElementById('side-panel-body');
+  const title = document.getElementById('side-panel-title');
+  if (title) title.textContent = 'Select a game';
+  if (body) body.innerHTML = '<div class="empty-msg">Click on any game card to view live box scores, play-by-play, and advanced metrics here.</div>';
 }
 
 function closeSidePanel() {
@@ -1425,6 +1472,39 @@ function renderGames(games) {
   filtered.forEach((game, index) => {
     let card = existingCards.get(game.gamePk);
     const wi = game.watchabilityIndex;
+  // Remove empty message if it exists
+  const emptyMsg = grid.querySelector('.empty-msg');
+  if (emptyMsg) emptyMsg.remove();
+
+  // Get current card elements in the DOM
+  const existingCards = new Map();
+  grid.querySelectorAll('.game-card').forEach(el => {
+    const pk = el.getAttribute('data-game-pk');
+    if (pk) existingCards.set(pk, el);
+  });
+
+  const fragment = document.createDocumentFragment();
+  const seenPks = new Set();
+
+  filtered.forEach((game, index) => {
+    const pkStr = String(game.gamePk);
+    seenPks.add(pkStr);
+    let card = existingCards.get(pkStr);
+    const wi = game.watchabilityIndex;
+    const targetClass = `game-card${wi > 75 ? ' fire' : wi > 55 ? ' hot' : ''}`;
+  // Use a map for quick lookup of existing cards
+  const existingCards = new Map();
+  Array.from(grid.children).forEach(child => {
+    if (child.hasAttribute('data-gpk')) {
+      existingCards.set(parseInt(child.getAttribute('data-gpk')), child);
+    }
+  });
+
+  // Create or update cards in the correct order
+  const fragment = document.createDocumentFragment();
+  filtered.forEach((game, index) => {
+    let card = existingCards.get(game.gamePk);
+    const wi = game.watchabilityIndex;
     const cardClass = `game-card${wi > 75 ? ' fire' : wi > 55 ? ' hot' : ''}${activeGamePk === game.gamePk ? ' active-side' : ''}`;
 
     if (!card) {
@@ -1440,20 +1520,64 @@ function renderGames(games) {
 
     const isFinal = /final/i.test(game.inningStatus);
     const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
+    const isSpoilered = (spoilerTeams.has(game.awayTeam) || spoilerTeams.has(game.homeTeam)) && !isFavoriteGame(game);
+
+    if (!card) {
+      card = document.createElement('div');
+      card.setAttribute('data-game-pk', pkStr);
+      card.addEventListener('click', (event) => {
+        if (event.target.closest('button') || event.target.closest('.card-expand-panel')) return;
+        openGameDrawer(game.gamePk);
+      });
+    }
+
+    // Update classes only if needed
+    if (card.className !== targetClass + (isSpoilered ? ' spoilered' : '')) {
+      card.className = targetClass + (isSpoilered ? ' spoilered' : '');
+    }
 
     // ── Spoiler Mode ──
     const isSpoilered = (spoilerTeams.has(game.awayTeam) || spoilerTeams.has(game.homeTeam)) && !isFavoriteGame(game) && !revealedGames.has(game.gamePk);
     if (isSpoilered) {
-      card.classList.add('spoilered');
-      card.innerHTML = `
+      const spoilerHtml = `
         <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
         <div class="inning-line" style="color:var(--text-dim)">${isScheduled ? game.inningStatus : isFinal ? 'FINAL' : 'Live'}</div>
         <div class="spoiler-mask" onclick="revealSpoiler(this, ${game.gamePk})">
           🙈 Spoiler Mode — tap to reveal
         </div>
       `;
+      if (card.innerHTML !== spoilerHtml) {
+        card.innerHTML = spoilerHtml;
+      }
       card._fullGame = game;
     } else {
+      card.classList.remove('spoilered');
+      // Render full card info
+      renderSingleGameCard(card, game);
+      const homeColor = teamColor(game.homeTeam);
+      if (homeColor) {
+        card.style.borderLeft = `6px solid ${homeColor}`;
+        card.style.backgroundImage = `linear-gradient(to right, ${homeColor}11, transparent)`;
+      } else {
+        card.style.borderLeft = '';
+        card.style.backgroundImage = '';
+      }
+    }
+
+    fragment.appendChild(card);
+      // Render full card info (this function will handle internal reconciliation)
+      renderSingleGameCard(card, game);
+    }
+
+    fragment.appendChild(card);
+  });
+
+  // Remove cards that are no longer in the filtered list
+  existingCards.forEach((el, pk) => {
+    if (!seenPks.has(pk)) el.remove();
+  });
+
+  // Re-append the grid in the correct order if order has changed
       card.classList.remove('spoilered');
       // Render full card info
       renderSingleGameCard(card, game);
@@ -2399,9 +2523,11 @@ function renderSingleGameCard(card, game) {
   const prev = prevScores[game.gamePk];
   if (prev && !isFirstLoad && (prev.away !== game.awayScore || prev.home !== game.homeScore)) {
     card.classList.add('score-flash');
+    setTimeout(() => card.classList.remove('score-flash'), 2000);
   }
   prevScores[game.gamePk] = { away: game.awayScore, home: game.homeScore };
   if (game.currentInning > 9 && !isFinal && !isScheduled) card.classList.add('extras-flash');
+  else card.classList.remove('extras-flash');
 
   let badgeHtml = '';
   if (isFavoriteGame(game)) badgeHtml += '<div class="badge favorite-badge">Favorite</div>';
@@ -2446,7 +2572,6 @@ function renderSingleGameCard(card, game) {
     if (game.homeProbablePitcher?.id) fetchProbablePitcherStats(game.homeProbablePitcher.id);
   }
 
-  // Build pregame pitcher block
   function spBlock(pp, side) {
     if (!pp) return `<div class="pregame-sp"><div class="sp-label">${side} SP</div><div class="sp-name" style="color:var(--text-dim)">TBD</div></div>`;
     const stats = pitcherStatsCache[pp.id];
@@ -2514,10 +2639,8 @@ function renderSingleGameCard(card, game) {
       </div>
     </div>` : '';
 
-  // Determine if this game supports expand (live or final — not pre-game)
   const canExpand = !isScheduled;
-
-  card.innerHTML = `
+  const newInner = `
     ${badgeHtml}
     <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam}${teamRec(game.awayTeam)} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}${teamRec(game.homeTeam)}</div>
     ${scoreLine}
@@ -2535,7 +2658,10 @@ function renderSingleGameCard(card, game) {
     </div>` : ''}
   `;
 
-  // If this card was previously expanded, reload its panel content
+  if (card.innerHTML !== newInner) {
+    card.innerHTML = newInner;
+  }
+
   if (canExpand && expandedCards.has(game.gamePk)) {
     const panel = card.querySelector('.card-expand-panel');
     if (panel) loadExpandData(game.gamePk, panel);
@@ -2915,16 +3041,23 @@ async function fetchAwardRaces() {
 
     async function buildSilverSluggers(leagueId) {
       try {
-        const data = await fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,hits&season=${season}&sportId=1&limit=60&statGroup=hitting&leagueId=${leagueId}`).then(r=>r.json());
+        const data = await requestPool.fetchDedup(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,hits&season=${season}&sportId=1&limit=60&statGroup=hitting&leagueId=${leagueId}`);
         const pool = buildPool(data);
-        const withPos = await Promise.all(pool.map(async p => {
-          try {
-            const pd = await fetch(`${MLB_API}/people/${p.id}?hydrate=currentTeam`).then(r=>r.json());
-            const rawPos = pd.people?.[0]?.primaryPosition?.abbreviation || 'P';
-            const pos = normalizePos(rawPos);
-            return { ...p, pos };
-          } catch { return { ...p, pos: null }; }
-        }));
+
+        // Fetch all person data in a single batch call instead of individual calls
+        const ids = pool.map(p => p.id).filter(Boolean);
+        const meta = {};
+        if (ids.length > 0) {
+          const pd = await requestPool.fetchDedup(`${MLB_API}/people?personIds=${ids.join(',')}&hydrate=currentTeam`);
+          (pd.people || []).forEach(person => { meta[person.id] = person; });
+        }
+
+        const withPos = pool.map(p => {
+          const person = meta[p.id];
+          const rawPos = person?.primaryPosition?.abbreviation || 'P';
+          const pos = normalizePos(rawPos);
+          return { ...p, pos };
+        });
 
         // Best OPS per eligible position
         const byPos = {};
@@ -2958,13 +3091,17 @@ async function fetchAwardRaces() {
       const ids = players.map(p => p.id).filter(Boolean);
       const meta = {};
       const chunkSize = 80;
+      const chunks = [];
       for (let i = 0; i < ids.length; i += chunkSize) {
-        const chunk = ids.slice(i, i + chunkSize);
+        chunks.push(ids.slice(i, i + chunkSize));
+      }
+
+      await Promise.all(chunks.map(async chunk => {
         try {
-          const pd = await fetch(`${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=currentTeam`).then(r => r.json());
+          const pd = await requestPool.fetchDedup(`${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=currentTeam`);
           (pd.people || []).forEach(person => { meta[person.id] = person; });
         } catch {}
-      }
+      }));
       return players.map(p => {
         const person = meta[p.id] || {};
         const team = normalizeAbbr(person.currentTeam?.abbreviation || p.team || '?');
@@ -3085,10 +3222,10 @@ async function fetchAwardRaces() {
 
     async function buildAllStarRosters() {
       const [alHitAS, nlHitAS, alPitAS, nlPitAS] = await Promise.all([
-        fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases,hits&season=${season}&sportId=1&limit=250&statGroup=hitting&leagueId=103`).then(r=>r.json()),
-        fetch(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases,hits&season=${season}&sportId=1&limit=250&statGroup=hitting&leagueId=104`).then(r=>r.json()),
-        fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins,saves&season=${season}&sportId=1&limit=250&statGroup=pitching&leagueId=103`).then(r=>r.json()),
-        fetch(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins,saves&season=${season}&sportId=1&limit=250&statGroup=pitching&leagueId=104`).then(r=>r.json())
+        requestPool.fetchDedup(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases,hits&season=${season}&sportId=1&limit=250&statGroup=hitting&leagueId=103`),
+        requestPool.fetchDedup(`${MLB_API}/stats/leaders?leaderCategories=homeRuns,runsBattedIn,battingAverage,onBasePlusSlugging,stolenBases,hits&season=${season}&sportId=1&limit=250&statGroup=hitting&leagueId=104`),
+        requestPool.fetchDedup(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins,saves&season=${season}&sportId=1&limit=250&statGroup=pitching&leagueId=103`),
+        requestPool.fetchDedup(`${MLB_API}/stats/leaders?leaderCategories=earnedRunAverage,strikeouts,inningsPitched,walksAndHitsPerInningPitched,wins,saves&season=${season}&sportId=1&limit=250&statGroup=pitching&leagueId=104`)
       ]);
       const [alHitMeta, nlHitMeta, alPitMeta, nlPitMeta] = await Promise.all([
         enrichPlayersForAllStar(attachWAR(buildPool(alHitAS), false), false),
@@ -3702,16 +3839,24 @@ function scheduleNextPoll(games) {
   if (updateEl && updateEl.textContent) updateEl.textContent += ` · next ${mins}`;
 }
 
-function startPolling() {
+async function startPolling() {
   document.getElementById('start-btn').disabled = true;
   document.getElementById('stop-btn').disabled  = false;
   document.getElementById('status-dot').classList.add('live');
   polling = true;
   clearTimeout(pollTimer);
-  fetchTeamRecords().then(() => pollGames());
-  fetchStatLeaders();
-  fetchFangraphsStarTiers(); // Update star tiers daily from Fangraphs WAR
-  // Re-render game cards 5s after start to pick up async pitcher stats
+
+  // Parallelize core data fetches to minimize time-to-first-render
+  // We wait for records and star tiers as they are critical for watchability scores
+  await Promise.all([
+    fetchTeamRecords(),
+    fetchFangraphsStarTiers(),
+    fetchStatLeaders()
+  ]);
+
+  pollGames();
+
+  // Re-render game cards as async pitcher stats trickle in
   setTimeout(() => { if (lastGames) renderGames(lastGames); }, 5000);
   setTimeout(() => { if (lastGames) renderGames(lastGames); }, 12000);
 }
@@ -3786,6 +3931,51 @@ function updateNewswire(games) {
   }
 }
 
+let newswireItems = [];
+function updateNewswire(games) {
+  const track = document.getElementById('newswire-track');
+  if (!track) return;
+
+  const newItems = [];
+
+  // 1. Scoring Plays and Special Events
+  games.forEach(g => {
+    if (g.finalDetails?.potg) {
+      newItems.push(`🏆 FINAL: ${g.awayTeam} ${g.awayScore}, ${g.homeTeam} ${g.homeScore} | POTG: ${g.finalDetails.potg.name} ${g.finalDetails.potg.isPitcher ? g.finalDetails.potg.pitcherLine : g.finalDetails.potg.batterLine}`);
+    }
+    if (g.isNoHitter) newItems.push(`🚫 NO-HITTER ALERT: ${g.awayHits === 0 ? g.homeTeam : g.awayTeam} has no hits thru ${g.currentInning} innings!`);
+
+    // Recent scoring plays if available in game object (enriched earlier)
+    // We can't easily get all plays here without a lot of API calls, but we can use the ones we already found if we store them
+  });
+
+  // 2. Upcoming milestones (diff <= 2)
+  if (window.lastMilestones) {
+    window.lastMilestones.filter(m => m.diff <= 2).forEach(m => {
+      newItems.push(`🎯 MILESTONE WATCH: ${m.name} is ${m.diff} ${m.shortStat} away from ${m.next} ${m.stat}!`);
+    });
+  }
+
+  // 3. High Watchability
+  games.filter(g => g.watchabilityIndex >= 80 && !/final/i.test(g.gameState)).forEach(g => {
+    newItems.push(`🔥 HIGH INTENSITY: ${g.awayTeam} @ ${g.homeTeam} has a Watchability Index of ${g.watchabilityIndex}!`);
+  });
+
+  // If no items, keep a default
+  if (newItems.length === 0) {
+    newItems.push("Welcome to the MLB Watchability Index. Watching the diamond for high-stakes action...");
+  }
+
+  // Only update if changed to avoid restart animation
+  const newStr = newItems.join(' | ');
+  if (newStr !== track.getAttribute('data-current')) {
+    track.setAttribute('data-current', newStr);
+    track.innerHTML = newItems.map(item => `<div class="newswire-item">${item}</div>`).join('');
+    // Double the items for seamless loop if needed, or just let animation handle it
+    // For now, simple list.
+  }
+}
+
 async function pollGames() {
   pollCount++;
   try {
@@ -3811,6 +4001,13 @@ async function pollGames() {
     games.forEach(g => { gameDetailsByPk[g.gamePk] = g; });
     checkFavoriteAlerts(games);
     renderGames(games);
+    // Refresh only the active tab if it's one of the live ones
+    const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+    if (activeTab === 'homeruns') fetchAndRenderHomeRuns(games);
+    if (activeTab === 'ticker') fetchAndRenderTicker(games);
+    if (activeTab === 'playoffs' && pollCount % 4 === 0) fetchPlayoffRaces(games);
+    if (activeTab === 'milestones' && pollCount % 4 === 0) fetchMilestones(games);
+
     updateNewswire(games);
     checkHighLeverageAlerts(games);
     // If HR tab is active, refresh it; otherwise queue it
@@ -3820,14 +4017,19 @@ async function pollGames() {
     }
     document.getElementById('last-update').textContent =
       (usedStaleData ? 'Stale data from cache · ' : 'Updated ') + new Date().toLocaleTimeString();
+
     const auxRefreshMs = games.some(isGameLiveNow) ? 60000 : 300000;
     if (Date.now() - lastAuxRefresh > auxRefreshMs) {
       lastAuxRefresh = Date.now();
       fetchStatLeaders();
       fetchTeamRecords();
-      fetchPlayoffRaces(games);
-      fetchMilestones(games);
+      // Only refresh secondary data if they are active
+      if (activeTab === 'playoffs') fetchPlayoffRaces(games);
+      if (activeTab === 'milestones') fetchMilestones(games);
     }
+
+    if (isFirstLoad) {
+      // Don't load secondary tabs on first poll to maximize startup speed
     // Refresh side panel if open
     if (activeGamePk) openSidePanel(activeGamePk);
     // First load: also fetch standings, milestones & award races
