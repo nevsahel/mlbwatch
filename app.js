@@ -309,8 +309,8 @@ async function fetchTeamRecords() {
     const season = currentSeason();
     const date = selectedDate || todayET();
     const [regData, wcData] = await Promise.all([
-      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${date}` }),
-      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${date}` })
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${date}`, ttl: 300000 }),
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${date}`, ttl: 300000 })
     ]);
     const rec = {};
     const ctx = {};
@@ -1604,7 +1604,7 @@ async function fetchLeaderGroup(defs, statGroup) {
       // stats/leaders endDate is unreliable for mid-season historical stats.
       // Use byDateRange for more accurate historical leaderboards.
       const url = `${MLB_API}/stats?stats=byDateRange&group=${statGroup}&startDate=${season}-01-01&endDate=${date}&leaderCategories=${def.api}&sportId=1&limit=1`;
-      const data = await requestPool.fetchDedup(url, { cacheKey: `leaders:${def.api}:${date}` });
+      const data = await requestPool.fetchDedup(url, { cacheKey: `leaders:${def.api}:${date}`, ttl: 300000 });
       const ldr = data.stats?.[0]?.splits?.[0];
       if (!ldr) return null;
       return {
@@ -1752,8 +1752,8 @@ async function fetchPlayoffRaces(todayGames) {
     const season = currentSeason();
     const date = selectedDate || todayET();
     const [regData, wcData] = await Promise.all([
-      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${date}` }),
-      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${date}` })
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${date}`, ttl: 300000 }),
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${date}`, ttl: 300000 })
     ]);
 
     // Build division map
@@ -2141,8 +2141,8 @@ async function fetchMilestones(todayGames) {
 
   try {
     const [pitPool, hitPool] = await Promise.all([
-      RequestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=50`, { ttl: 300000 }),
-      RequestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=50`, { ttl: 300000 })
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=50`, { ttl: 300000 }),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=50`, { ttl: 300000 })
     ]);
     const pitSplits = pitPool.stats?.[0]?.splits || [];
     for (const l of pitSplits) {
@@ -2228,8 +2228,8 @@ async function fetchMilestones(todayGames) {
           // NOTE: MLB API career stats don't seem to support endDate reliably in some testing,
           // but we include it anyway in case it works for some segments or future updates.
           const [hitData, pitData] = await Promise.all([
-            (await fetch(`${MLB_API}/people/${pid}/stats?stats=career&group=hitting&endDate=${date}`)).json(),
-            (await fetch(`${MLB_API}/people/${pid}/stats?stats=career&group=pitching&endDate=${date}`)).json()
+            batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/people/${pid}/stats?stats=career&group=hitting&endDate=${date}`, { ttl: 3600000 })),
+            batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/people/${pid}/stats?stats=career&group=pitching&endDate=${date}`, { ttl: 3600000 }))
           ]);
           const hitStat = hitData.stats?.[0]?.splits?.[0]?.stat;
           const pitStat = pitData.stats?.[0]?.splits?.[0]?.stat;
@@ -2765,8 +2765,8 @@ async function fetchFangraphsWAR(season) {
   let fgHitters = [], fgPitchers = [];
   try {
     const [fgH, fgP] = await Promise.all([
-      fetch(`https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=bat&lg=all&qual=0&season=${season}&season1=${season}&ind=0&team=0&rost=0&players=0&type=8&sortcol=2&sortdir=default&pagenum=1&pageitems=150`).then(r=>r.json()),
-      fetch(`https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=pit&lg=all&qual=0&season=${season}&season1=${season}&ind=0&team=0&rost=0&players=0&type=8&sortcol=2&sortdir=default&pagenum=1&pageitems=150`).then(r=>r.json()),
+      requestPool.fetchDedup(`https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=bat&lg=all&qual=0&season=${season}&season1=${season}&ind=0&team=0&rost=0&players=0&type=8&sortcol=2&sortdir=default&pagenum=1&pageitems=150`, { ttl: 900000 }),
+      requestPool.fetchDedup(`https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=pit&lg=all&qual=0&season=${season}&season1=${season}&ind=0&team=0&rost=0&players=0&type=8&sortcol=2&sortdir=default&pagenum=1&pageitems=150`, { ttl: 900000 }),
     ]);
     fgHitters  = (fgH?.data  || (Array.isArray(fgH)  ? fgH  : []));
     fgPitchers = (fgP?.data  || (Array.isArray(fgP)  ? fgP  : []));
@@ -2825,11 +2825,11 @@ async function fetchAwardRaces() {
     // ── 2. Fetch MLB API stats for display (traditional stats alongside WAR) ─
     // Using byDateRange for more accurate historical leaderboards
     const [alHit, nlHit, alPit, nlPit, alGames] = await Promise.all([
-      batchFetcher.add(() => fetch(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`).then(r=>r.json())),
-      batchFetcher.add(() => fetch(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`).then(r=>r.json())),
-      batchFetcher.add(() => fetch(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`).then(r=>r.json())),
-      batchFetcher.add(() => fetch(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`).then(r=>r.json())),
-      batchFetcher.add(() => fetch(`${MLB_API}/schedule?sportId=1&season=${season}&endDate=${date}&gameType=R&teamId=147`).then(r=>r.json()).catch(()=>null)),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/schedule?sportId=1&season=${season}&endDate=${date}&gameType=R&teamId=147`, { ttl: 900000 }).catch(()=>null)),
     ]);
 
     // ── 3. Build per-player stat pools from MLB API ──────────────────────────
@@ -3268,10 +3268,10 @@ async function fetchAwardRaces() {
 
     async function buildAllStarRosters() {
       const [alHitAS, nlHitAS, alPitAS, nlPitAS] = await Promise.all([
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`),
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`),
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`),
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`)
+        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`, { ttl: 900000 }),
+        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`, { ttl: 900000 }),
+        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`, { ttl: 900000 }),
+        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`, { ttl: 900000 })
       ]);
       const [alHitMeta, nlHitMeta, alPitMeta, nlPitMeta] = await Promise.all([
         enrichPlayersForAllStar(attachWAR(buildPool(alHitAS), false), false),
@@ -3999,7 +3999,7 @@ async function pollGames() {
     renderGames(games);
     // Refresh only the active tab if it's one of the live ones
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
-    if (activeTab === 'homeruns') fetchAndRenderHomeRuns(games);
+    // if (activeTab === 'homeruns') fetchAndRenderHomeRuns(games); // Redundant, handled below
     if (activeTab === 'ticker') fetchAndRenderTicker(games);
     if (activeTab === 'duel') fetchAndRenderDuel(games);
     if (activeTab === 'playoffs' && pollCount % 4 === 0) fetchPlayoffRaces(games);
