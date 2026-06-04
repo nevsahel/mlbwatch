@@ -107,11 +107,12 @@
     position: sticky;
     top: 100px;
     height: calc(100vh - 140px);
-    display: flex;
+    display: none;
     flex-direction: column;
     box-shadow: 0 4px 0 #0a1a13;
     overflow: hidden;
   }
+  .side-panel.open { display: flex; }
   .side-panel-header {
     padding: 16px;
     border-bottom: 1px solid #2a4a3a;
