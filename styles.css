@@ -47,6 +47,9 @@
     animation: scroll-left 40s linear infinite;
     padding-left: 20px;
   }
+  .newswire:hover .newswire-track {
+    animation-play-state: paused;
+  }
   .newswire-item {
     font-size: 0.85rem;
     padding-right: 60px;
