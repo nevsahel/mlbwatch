@@ -169,6 +169,7 @@ function switchTab(tab) {
       if (tab === 'playoffs') fetchPlayoffRaces(lastGames);
       if (tab === 'milestones') fetchMilestones(lastGames);
       if (tab === 'awards') fetchAwardRaces();
+      if (tab === 'duel') fetchAndRenderDuel(lastGames);
     }
   }, 'tab-' + tab, 'Tab failed to load');
 }
@@ -349,6 +350,7 @@ let isFirstLoad = true;
 const prevScores = {};
 const prevLeaders = {};
 const notifiedMilestones = new Set();
+const notifiedAtBats = new Set();
 const careerHRCache = {};
 
 const SEASON_HR_MILESTONES = [10, 20, 30, 40, 50, 60, 61, 62, 70];
@@ -900,6 +902,20 @@ async function fetchLiveGamesData() {
         currentBatter:  (function() {
           const bid = ls.offense?.batter?.id || plays?.currentPlay?.matchup?.batter?.id;
           const bname = ls.offense?.batter?.fullName || plays?.currentPlay?.matchup?.batter?.fullName || null;
+          if (bid && bname) {
+            // Check milestones
+            if (followedChases.size > 0) {
+              const myMilestones = (window.lastMilestones || []).filter(m => m.id === bid && followedChases.has(`${m.id}-${m.stat}`));
+              myMilestones.forEach(m => {
+                const atBatKey = `${g.gamePk}-${bid}-${m.stat}-${m.next}`;
+                if (!notifiedAtBats.has(atBatKey)) {
+                  showNotification(`FOLLOWED CHASE: ${bname} is at bat! (${m.diff} away from ${m.next} ${m.stat})`, 'milestone');
+                  notifiedAtBats.add(atBatKey);
+                  if (notifiedAtBats.size > 200) notifiedAtBats.clear();
+                }
+              });
+            }
+          }
           if (!bid || !bname) return null;
           const bx = feed.liveData.boxscore?.teams;
           const bp = bx?.home?.players?.['ID'+bid] || bx?.away?.players?.['ID'+bid];
@@ -1557,6 +1573,29 @@ const PITCHING_LEADER_DEFS = [
   { api: 'saves',                         label: 'SV' }
 ];
 
+// ─── ALL-TIME LEADERS CACHE ───────────────────────────────────────────────────
+let allTimeLeaders = {}; // category -> array of { rank, value, name }
+
+async function fetchAllTimeLeaders(category, group = 'hitting') {
+  if (allTimeLeaders[category]) return allTimeLeaders[category];
+  try {
+    const data = await requestPool.fetchDedup(
+      `${MLB_API}/stats/leaders?leaderCategories=${category}&statGroup=${group}&statType=career&limit=500`,
+      { cacheKey: `allTimeLeaders:${category}` }
+    );
+    const leaders = data.leagueLeaders?.[0]?.leaders || [];
+    allTimeLeaders[category] = leaders.map(l => ({
+      rank: l.rank,
+      value: parseInt(l.value),
+      name: l.person.fullName
+    }));
+    return allTimeLeaders[category];
+  } catch (e) {
+    console.warn(`All-time leaders fetch failed for ${category}:`, e);
+    return [];
+  }
+}
+
 async function fetchLeaderGroup(defs, statGroup) {
   const season = currentSeason();
   const date = selectedDate || todayET();
@@ -1966,6 +2005,14 @@ function setMilestoneFilter(filter) {
   if (window.lastMilestones) renderMilestoneBoard(window.lastMilestones);
 }
 
+const followedChases = new Set(loadPrefs().followedChases || []);
+function toggleFollowChase(playerKey) {
+  if (followedChases.has(playerKey)) followedChases.delete(playerKey);
+  else followedChases.add(playerKey);
+  savePrefs({ followedChases: [...followedChases] });
+  if (window.lastMilestones) renderMilestoneBoard(window.lastMilestones);
+}
+
 function milestoneImportance(m) {
   const meta = MILESTONE_META[m.stat] || {};
   if ((meta.historic || []).includes(Number(m.next))) return 'Historic';
@@ -2015,6 +2062,54 @@ function milestonePaceText(m) {
   if (diff <= 5) return 'series watch';
   if (diff <= 10) return 'week watch';
   return 'longer chase';
+}
+
+const playerHeatCache = {};
+async function fetchPlayerHeat(playerId, group) {
+  if (playerHeatCache[playerId]) return playerHeatCache[playerId];
+  try {
+    const season = currentSeason();
+    const data = await requestPool.fetchDedup(
+      `${MLB_API}/people/${playerId}/stats?stats=gameLog&group=${group}&season=${season}`,
+      { cacheKey: `heatLog:${playerId}:${season}` }
+    );
+    const logs = data.stats?.[0]?.splits || [];
+    // Last 10 games
+    const heat = logs.slice(-10).map(l => {
+      if (group === 'hitting') return parseInt(l.stat.hits) || 0;
+      if (group === 'pitching') return parseInt(l.stat.strikeOuts) || 0;
+      return 0;
+    });
+    playerHeatCache[playerId] = heat;
+    return heat;
+  } catch (e) {
+    return [];
+  }
+}
+
+let reachedMilestones = [];
+function checkReachedMilestones(milestones) {
+  const now = Date.now();
+  const today = todayET();
+  const reached = [];
+  milestones.forEach(m => {
+    // If current >= next, it's reached
+    if (parseFloat(m.current) >= parseFloat(m.next)) {
+      reached.push({ ...m, reachedAt: today });
+    }
+  });
+  // Also check if any were reached in previous days (using a persistent log)
+  let log = loadPrefs().reachedLog || [];
+  const existingKeys = new Set(log.map(l => `${l.id}-${l.stat}-${l.next}`));
+  reached.forEach(r => {
+    const key = `${r.id}-${r.stat}-${r.next}`;
+    if (!existingKeys.has(key)) {
+      log.unshift(r);
+    }
+  });
+  log = log.slice(0, 20); // Keep last 20
+  savePrefs({ reachedLog: log });
+  reachedMilestones = log;
 }
 
 async function fetchMilestones(todayGames) {
@@ -2186,14 +2281,39 @@ async function fetchMilestones(todayGames) {
       allMilestones.filter(m => m.diff <= 5).map(m => m.team)
     );
 
-    allMilestones.forEach(m => {
+    await Promise.all(allMilestones.map(async m => {
       m.importance = milestoneImportance(m);
       m.urgency = milestoneUrgency(m);
       m.priority = milestonePriority(m);
       m.progress = milestoneProgress(m);
       m.shortStat = MILESTONE_META[m.stat]?.short || m.stat;
       m.paceText = milestonePaceText(m);
-    });
+
+      // Chasing History
+      if (m.scope === 'career') {
+        const catMap = { 'Career HR': 'homeRuns', 'Career H': 'hits', 'Career RBI': 'runsBattedIn', 'Career K': 'strikeouts' };
+        const cat = catMap[m.stat];
+        if (cat) {
+          try {
+            const leaders = await fetchAllTimeLeaders(cat, m.stat === 'Career K' ? 'pitching' : 'hitting');
+            const myVal = parseInt(m.current);
+          // Find the player immediately ahead on the leaderboard (smallest value > myVal)
+          const nextLegend = [...leaders].reverse().find(l => l.value > myVal);
+            if (nextLegend) {
+              m.chasing = { name: nextLegend.name, rank: nextLegend.rank, diff: nextLegend.value - myVal };
+            }
+          } catch (e) {}
+        }
+      }
+
+      // Heat Map
+      try {
+        m.heat = await fetchPlayerHeat(m.id, m.type === 'pitcher' ? 'pitching' : 'hitting');
+      } catch (e) { m.heat = []; }
+    }));
+
+    checkReachedMilestones(allMilestones);
+
     allMilestones.sort((a, b) => b.priority - a.priority || a.diff - b.diff);
     window.lastMilestones = allMilestones;
 
@@ -2235,7 +2355,20 @@ function renderMilestoneBoard(allMilestones) {
     groups[m.urgency].push(m);
   });
 
+  const reachedHtml = reachedMilestones.length ? `
+    <div class="milestone-reached-wall">
+      <div class="milestone-reached-title">🏆 Recent Achievements (Last 48h)</div>
+      <div class="milestone-reached-list">
+        ${reachedMilestones.map(r => `
+          <div class="milestone-reached-item">
+            <strong>${escapeHTML(r.name)}</strong> reached <span>${r.next} ${r.stat}</span>!
+          </div>
+        `).join('')}
+      </div>
+    </div>` : '';
+
   container.innerHTML = `
+    ${reachedHtml}
     <div class="milestone-hero">
       <div class="milestone-hero-main">
         <div class="milestone-hero-kicker">Chase Board</div>
@@ -2279,18 +2412,38 @@ function renderMilestoneCard(m) {
   const diffLabel = Number(m.diff) === 1 ? `1 ${m.shortStat} away` : `${m.diff} ${m.shortStat} away`;
   const fav = isFavoriteTeam(m.team) ? '<span class="milestone-pill fav">Favorite</span>' : '';
   const live = m.playingNow ? '<span class="milestone-pill live">Live now</span>' : m.playingToday ? '<span class="milestone-pill today">Today</span>' : '';
+
+  const chaseHtml = m.chasing ? `
+    <div class="milestone-chase">
+      Passing <strong>${escapeHTML(m.chasing.name)}</strong> (#${m.chasing.rank} all-time) in ${m.chasing.diff} ${m.shortStat}
+    </div>` : '';
+
+  const heatHtml = m.heat && m.heat.length ? `
+    <div class="milestone-heat">
+      ${m.heat.map(val => `<div class="heat-bar ${val > 0 ? 'active' : ''}" title="${val} ${m.shortStat}"></div>`).join('')}
+    </div>` : '';
+
+  const playerKey = `${m.id}-${m.stat}`;
+  const isFollowed = followedChases.has(playerKey);
+  const followBtn = `<button class="milestone-follow ${isFollowed ? 'active' : ''}" onclick="toggleFollowChase('${playerKey}')">
+    ${isFollowed ? '★ Following' : '☆ Watch Chase'}
+  </button>`;
+
   return `<article class="milestone-card rich${statusClass}">
     <div class="milestone-topline">
       <span class="milestone-importance ${importanceClass}">${escapeHTML(m.importance)}</span>
       <span class="milestone-priority">${m.priority}</span>
+      ${followBtn}
     </div>
     <div class="milestone-player">${teamLogo(m.team)} ${escapeHTML(m.name)}</div>
     <div class="milestone-team">${escapeHTML(m.team)} · ${escapeHTML(m.stat)}</div>
+    ${chaseHtml}
     <div class="milestone-target">
       <strong>${escapeHTML(m.current)}</strong>
       <span>/ ${escapeHTML(m.next)} ${escapeHTML(m.shortStat)}</span>
     </div>
     <div class="milestone-progress"><div style="width:${m.progress}%"></div></div>
+    ${heatHtml}
     <div class="milestone-card-footer">
       <span>${escapeHTML(diffLabel)}</span>
       <em>${escapeHTML(m.paceText)}</em>
@@ -3848,6 +4001,7 @@ async function pollGames() {
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
     if (activeTab === 'homeruns') fetchAndRenderHomeRuns(games);
     if (activeTab === 'ticker') fetchAndRenderTicker(games);
+    if (activeTab === 'duel') fetchAndRenderDuel(games);
     if (activeTab === 'playoffs' && pollCount % 4 === 0) fetchPlayoffRaces(games);
     if (activeTab === 'milestones' && pollCount % 4 === 0) fetchMilestones(games);
 
@@ -3887,6 +4041,196 @@ async function pollGames() {
     console.error('Poll error:', e);
   } finally {
     scheduleNextPoll(lastGames);
+  }
+}
+
+// ─── THE DUEL: PITCHER VS BATTER ───────────────────────────────────────────────
+async function fetchAndRenderDuel(games) {
+  const container = document.getElementById('duel-container');
+  if (!container) return;
+
+  const liveGames = (games || []).filter(isGameLiveNow);
+
+  const selectorHtml = `
+    <div class="duel-selector-wrap">
+      <div class="duel-section-title">🔍 Custom Matchup Simulator</div>
+      <div class="duel-selector">
+         <input type="text" id="duel-batter-search" placeholder="Search Batter (e.g. Aaron Judge)">
+         <div class="duel-vs-circle">VS</div>
+         <input type="text" id="duel-pitcher-search" placeholder="Search Pitcher (e.g. Gerrit Cole)">
+         <button class="btn" onclick="runSimulatedDuel()">Simulate Duel 🎲</button>
+      </div>
+      <div id="duel-sim-result-container"></div>
+    </div>`;
+
+  if (!liveGames.length) {
+    container.innerHTML = `
+      <div class="duel-empty">
+        <div class="empty-msg">No games live right now.</div>
+        ${selectorHtml}
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = `${selectorHtml} <div class="duel-grid"></div>`;
+  const grid = container.querySelector('.duel-grid');
+
+  for (const g of liveGames) {
+    if (!g.currentBatter || !g.currentPitcher) continue;
+    const card = document.createElement('div');
+    card.className = 'duel-card';
+    card.innerHTML = `<div class="expand-load-msg">Loading matchup data...</div>`;
+    grid.appendChild(card);
+    renderLiveDuelCard(card, g);
+  }
+}
+
+async function renderLiveDuelCard(card, g) {
+  try {
+    const batterId = (await getPlayerIdByName(g.currentBatter.name)) || null;
+    const pitcherId = (await getPlayerIdByName(g.currentPitcher.name)) || null;
+
+    let statsHtml = '';
+    if (batterId && pitcherId) {
+      const data = await requestPool.fetchDedup(
+        `${MLB_API}/people/${batterId}/stats?stats=vsPlayer&group=hitting&opposingPlayerId=${pitcherId}`,
+        { cacheKey: `vs:${batterId}:${pitcherId}` }
+      );
+      const s = data.stats?.[0]?.splits?.[0]?.stat;
+      if (s && s.atBats > 0) {
+        statsHtml = `
+          <div class="duel-vs-stats">
+            <div class="duel-vs-main">${s.hits}-${s.atBats} (${s.avg})</div>
+            <div class="duel-vs-sub">${s.homeRuns} HR · ${s.strikeOuts} K · ${s.ops} OPS</div>
+          </div>`;
+      } else {
+        statsHtml = `<div class="duel-vs-none">No head-to-head history. <br> <span onclick="runSimulatedDuel(${batterId}, ${pitcherId}, this.parentElement)">Simulate At-Bat 🎲</span></div>`;
+      }
+    }
+
+    card.innerHTML = `
+      <div class="duel-header">
+        <div class="duel-team-bg" style="background:${teamColor(g.awayTeam)}"></div>
+        <div class="duel-team-bg" style="background:${teamColor(g.homeTeam)}"></div>
+        <div class="duel-title">${g.awayTeam} @ ${g.homeTeam}</div>
+      </div>
+      <div class="duel-matchup">
+        <div class="duel-player batter">
+          <div class="duel-player-name">${g.currentBatter.name}</div>
+          <div class="duel-player-stats">${g.currentBatter.avg}/${g.currentBatter.ops}</div>
+        </div>
+        <div class="duel-vs">VS</div>
+        <div class="duel-player pitcher">
+          <div class="duel-player-name">${g.currentPitcher.name}</div>
+          <div class="duel-player-stats">${g.currentPitcher.era} ERA</div>
+        </div>
+      </div>
+      ${statsHtml}
+    `;
+  } catch (e) {
+    card.innerHTML = `<div class="empty-msg">Matchup unavailable</div>`;
+  }
+}
+
+async function getPlayerIdByName(name) {
+  // Simple search or lookup in existing tiers
+  // For now, let's try searching the API
+  try {
+    const data = await requestPool.fetchDedup(`${MLB_API}/people/search?names=${encodeURIComponent(name)}`);
+    return data.people?.[0]?.id;
+  } catch { return null; }
+}
+
+async function runSimulatedDuel(bId, pId, container) {
+  if (!bId || !pId) {
+    const bName = document.getElementById('duel-batter-search')?.value;
+    const pName = document.getElementById('duel-pitcher-search')?.value;
+    if (!bName || !pName) {
+      showNotification('Please enter both a batter and a pitcher name.', 'info');
+      return;
+    }
+    bId = await getPlayerIdByName(bName);
+    pId = await getPlayerIdByName(pName);
+    container = document.getElementById('duel-sim-result-container');
+  }
+  if (!bId || !pId) {
+    showNotification('Player not found. Try a full name.', 'info');
+    return;
+  }
+
+  if (container) container.innerHTML = '<div class="expand-load-msg">Simulating matchup...</div>';
+
+  try {
+    const [bData, pData, bCareer, pCareer] = await Promise.all([
+      requestPool.fetchDedup(`${MLB_API}/people/${bId}/stats?stats=season&group=hitting`),
+      requestPool.fetchDedup(`${MLB_API}/people/${pId}/stats?stats=season&group=pitching`),
+      requestPool.fetchDedup(`${MLB_API}/people/${bId}/stats?stats=career&group=hitting`),
+      requestPool.fetchDedup(`${MLB_API}/people/${pId}/stats?stats=career&group=pitching`)
+    ]);
+    const b = bData.stats?.[0]?.splits?.[0]?.stat || {};
+    const p = pData.stats?.[0]?.splits?.[0]?.stat || {};
+    const bc = bCareer.stats?.[0]?.splits?.[0]?.stat || {};
+    const pc = pCareer.stats?.[0]?.splits?.[0]?.stat || {};
+
+    // Simulation engine using weighted blend of Season (70%) and Career (30%)
+    const getWeighted = (sVal, cVal, def) => {
+      const s = parseFloat(sVal);
+      const c = parseFloat(cVal);
+      if (isNaN(s) && isNaN(c)) return def;
+      if (isNaN(s)) return c;
+      if (isNaN(c)) return s;
+      return (s * 0.7) + (c * 0.3);
+    };
+
+    const ops = getWeighted(b.ops, bc.ops, 0.750);
+    const baa = getWeighted(p.avg, pc.avg, 0.250);
+    const k9 = getWeighted(p.strikeoutsPer9Inn, pc.strikeoutsPer9Inn, 8.0);
+    const hrRate = getWeighted(b.homeRuns / (b.atBats || 1), bc.homeRuns / (bc.atBats || 1), 0.04);
+    const walkRate = getWeighted((b.baseOnBalls || 0) / (b.atBats || 1), (bc.baseOnBalls || 0) / (bc.atBats || 1), 0.08);
+
+    // Probability Logic
+    // Base hit chance: Blend of OPS and BAA
+    const hitProb = (ops / 3.0) * 0.5 + (baa * 1.0) * 0.5;
+    const kProb = (k9 / 27.0); // Rough K per PA
+    const bbProb = walkRate;
+
+    const rand = Math.random();
+    let result = "Out";
+    let subResult = "";
+
+    if (rand < kProb) {
+      result = "Strikeout ⚾";
+    } else if (rand < kProb + bbProb) {
+      result = "Walk 🚶";
+    } else if (rand < kProb + bbProb + hitProb) {
+      const hrRand = Math.random();
+      if (hrRand < hrRate * 4) { // Multiplier to balance HR vs hits
+        result = "HOME RUN! 💥";
+      } else if (hrRand < 0.3) {
+        result = "Double 🚀";
+      } else {
+        result = "Single ⚾";
+      }
+    } else {
+      const outRand = Math.random();
+      if (outRand < 0.4) result = "Groundout";
+      else if (outRand < 0.8) result = "Flyout";
+      else result = "Lineout";
+    }
+
+    const msg = `
+      <div class="sim-result">
+        <div class="sim-label">SIMULATED OUTCOME</div>
+        <div class="sim-val">${result}</div>
+        <div class="sim-odds">
+          <span>Matchup Strength: <strong>${(ops*1000).toFixed(0)} OPS</strong> vs <strong>${(baa*1000).toFixed(0)} BAA</strong></span>
+          <br>Projected Hit Rate: ${(hitProb * 100).toFixed(1)}%
+        </div>
+      </div>`;
+    if (container) container.innerHTML = msg;
+    else showNotification(`Simulated Result: ${result}`, 'info');
+  } catch (e) {
+    if (container) container.innerHTML = 'Simulation failed';
   }
 }
 

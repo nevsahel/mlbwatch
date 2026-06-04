@@ -862,6 +862,274 @@
     display: none; margin-top: 10px;
     border-top: 1px solid #1e1e2e; padding-top: 10px;
   }
+
+  /* Milestone Additions */
+  .milestone-reached-wall {
+    background: linear-gradient(135deg, #1b3328, #0a1a0f);
+    border: 2px solid #f59e0b44;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(245, 158, 11, 0.1);
+  }
+  .milestone-reached-title {
+    font-family: 'Georgia', serif;
+    font-size: 0.9rem;
+    font-weight: 900;
+    color: #f59e0b;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .milestone-reached-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .milestone-reached-item {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    color: #ddd;
+  }
+  .milestone-reached-item strong { color: #fff; }
+  .milestone-reached-item span { color: #f59e0b; font-weight: 700; }
+
+  .milestone-chase {
+    font-size: 0.7rem;
+    color: #888;
+    background: #0a1a0f;
+    padding: 6px 10px;
+    border-radius: 4px;
+    margin: 8px 0;
+    border-left: 3px solid #f59e0b;
+  }
+  .milestone-chase strong { color: #f59e0b; }
+
+  .milestone-heat {
+    display: flex;
+    gap: 3px;
+    margin-top: 10px;
+    height: 4px;
+  }
+  .heat-bar {
+    flex: 1;
+    background: #2a4a3a;
+    border-radius: 2px;
+  }
+  .heat-bar.active {
+    background: #4ade80;
+    box-shadow: 0 0 4px #4ade80;
+  }
+
+  .milestone-follow {
+    background: none;
+    border: 1px solid #2a4a3a;
+    color: #7a9e8d;
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  .milestone-follow:hover { border-color: #f5e6be; color: #f5e6be; }
+  .milestone-follow.active {
+    background: #f59e0b18;
+    border-color: #f59e0b;
+    color: #f59e0b;
+  }
+
+  /* The Duel Styles */
+  .duel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 20px;
+  }
+  .duel-card {
+    background: #1b3328;
+    border: 2px solid #2a4a3a;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 0 #0a1a13;
+  }
+  .duel-header {
+    height: 40px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .duel-team-bg {
+    flex: 1;
+    height: 100%;
+    opacity: 0.2;
+  }
+  .duel-title {
+    position: absolute;
+    font-size: 0.75rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #fff;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    background: rgba(0,0,0,0.4);
+    padding: 2px 10px;
+    border-radius: 4px;
+  }
+  .duel-matchup {
+    display: flex;
+    align-items: center;
+    padding: 20px;
+    gap: 15px;
+    background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.2));
+  }
+  .duel-player {
+    flex: 1;
+    text-align: center;
+  }
+  .duel-player-name {
+    font-family: 'Georgia', serif;
+    font-size: 0.95rem;
+    font-weight: 900;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+  .duel-player-stats {
+    font-size: 0.7rem;
+    color: #7a9e8d;
+    font-weight: 700;
+  }
+  .duel-vs {
+    font-family: 'Georgia', serif;
+    font-style: italic;
+    font-weight: 900;
+    color: #8b2635;
+    font-size: 1.2rem;
+  }
+  .duel-vs-stats {
+    padding: 15px;
+    background: rgba(0,0,0,0.2);
+    text-align: center;
+    border-top: 1px solid #2a4a3a;
+  }
+  .duel-vs-main {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #f59e0b;
+    margin-bottom: 4px;
+  }
+  .duel-vs-sub {
+    font-size: 0.7rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .duel-vs-none {
+    padding: 15px;
+    text-align: center;
+    font-size: 0.75rem;
+    color: #555;
+    border-top: 1px solid #2a4a3a;
+  }
+  .duel-vs-none span {
+    color: #f59e0b;
+    cursor: pointer;
+    text-decoration: underline;
+    font-weight: 700;
+  }
+
+  .sim-result {
+    padding: 15px;
+    background: #0a1a0f;
+    text-align: center;
+    border-top: 2px solid #f59e0b;
+    animation: slideInUp 0.3s ease-out;
+  }
+  .sim-label {
+    font-size: 0.6rem;
+    font-weight: 900;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  .sim-val {
+    font-family: 'Georgia', serif;
+    font-size: 1.4rem;
+    font-weight: 900;
+    color: #fff;
+    margin-bottom: 6px;
+  }
+  .sim-odds {
+    font-size: 0.65rem;
+    color: #4ade80;
+    font-weight: 700;
+  }
+
+  .duel-empty {
+    text-align: center;
+    padding: 20px 0;
+  }
+  .duel-selector-wrap {
+    background: #0f0f1a;
+    border: 1px solid #2a4a3a;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .duel-section-title {
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #f59e0b;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 15px;
+    text-align: center;
+  }
+  .duel-selector {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .duel-vs-circle {
+    width: 32px;
+    height: 32px;
+    background: #8b2635;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 900;
+    color: #fff;
+    border: 2px solid #a62c2b;
+  }
+  .duel-selector input {
+    background: #0a1a0f;
+    border: 1px solid #2a4a3a;
+    color: #fff;
+    padding: 10px 15px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    flex: 1;
+    min-width: 220px;
+    transition: border-color 0.2s;
+  }
+  .duel-selector input:focus {
+    border-color: #f59e0b;
+    outline: none;
+  }
+
+  @keyframes slideInUp {
+    from { transform: translateY(10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
   .card-expand-panel.open { display: block; }
 
   /* box score mini table */
