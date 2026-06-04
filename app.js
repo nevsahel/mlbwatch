@@ -3933,45 +3933,6 @@ function hydratePreferenceControls() {
   }
 }
 
-let newswireItems = [];
-function updateNewswire(games) {
-  const track = document.getElementById('newswire-track');
-  if (!track) return;
-
-  const newItems = [];
-
-  // 1. Scoring Plays and Special Events
-  games.forEach(g => {
-    if (g.finalDetails?.potg) {
-      newItems.push(`🏆 FINAL: ${g.awayTeam} ${g.awayScore}, ${g.homeTeam} ${g.homeScore} | POTG: ${g.finalDetails.potg.name} ${g.finalDetails.potg.isPitcher ? g.finalDetails.potg.pitcherLine : g.finalDetails.potg.batterLine}`);
-    }
-    if (g.isNoHitter) newItems.push(`🚫 NO-HITTER ALERT: ${g.awayHits === 0 ? g.homeTeam : g.awayTeam} has no hits thru ${g.currentInning} innings!`);
-  });
-
-  // 2. Upcoming milestones (diff <= 2)
-  if (window.lastMilestones) {
-    window.lastMilestones.filter(m => m.diff <= 2).forEach(m => {
-      newItems.push(`🎯 MILESTONE WATCH: ${m.name} is ${m.diff} ${m.shortStat} away from ${m.next} ${m.stat}!`);
-    });
-  }
-
-  // 3. High Watchability
-  games.filter(g => g.watchabilityIndex >= 80 && !/final/i.test(g.gameState)).forEach(g => {
-    newItems.push(`🔥 HIGH INTENSITY: ${g.awayTeam} @ ${g.homeTeam} has a Watchability Index of ${g.watchabilityIndex}!`);
-  });
-
-  // If no items, keep a default
-  if (newItems.length === 0) {
-    newItems.push("Welcome to the MLB Watchability Index. Watching the diamond for high-stakes action...");
-  }
-
-  // Only update if changed to avoid restart animation
-  const newStr = newItems.join(' | ');
-  if (newStr !== track.getAttribute('data-current')) {
-    track.setAttribute('data-current', newStr);
-    track.innerHTML = newItems.map(item => `<div class="newswire-item">${item}</div>`).join('');
-  }
-}
 
 async function pollGames() {
   pollCount++;
@@ -4006,7 +3967,6 @@ async function pollGames() {
     if (activeTab === 'playoffs' && pollCount % 4 === 0) fetchPlayoffRaces(games);
     if (activeTab === 'milestones' && pollCount % 4 === 0) fetchMilestones(games);
 
-    updateNewswire(games);
     checkHighLeverageAlerts(games);
     // If HR tab is active, refresh it; otherwise queue it
     const hrTab = document.getElementById('tab-homeruns');
