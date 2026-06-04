@@ -997,6 +997,7 @@ function toggleExpandCard(gamePk, btn) {
   if (panel) {
     const open = panel.classList.toggle('open');
     btn.classList.toggle('open', open);
+    btn.setAttribute('aria-expanded', open);
     if (open) {
       expandedCards.add(gamePk);
       loadExpandData(gamePk, panel);
@@ -2697,8 +2698,8 @@ function renderSingleGameCard(card, game) {
     ${renderScoreBreakdown(game)}
     <div class="reasons"></div>
     ${playerHtml}
-    ${canExpand ? `<button class="card-expand-toggle${expandedCards.has(game.gamePk) ? ' open' : ''}" onclick="toggleExpandCard(${game.gamePk}, this)">
-      <span>Details</span> <span class="toggle-arrow">▾</span>
+    ${canExpand ? `<button class="card-expand-toggle${expandedCards.has(game.gamePk) ? ' open' : ''}" onclick="toggleExpandCard(${game.gamePk}, this)" aria-label="Toggle details for ${escapeHTML(game.awayTeam)} @ ${escapeHTML(game.homeTeam)}" aria-expanded="${expandedCards.has(game.gamePk)}">
+      <span>Details</span> <span class="toggle-arrow" aria-hidden="true">▾</span>
     </button>
     <div class="card-expand-panel${expandedCards.has(game.gamePk) ? ' open' : ''}" data-gpk="${game.gamePk}">
       <div class="expand-load-msg">Click to expand</div>
