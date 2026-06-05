@@ -1,5 +1,7 @@
 import { requestPool, batchFetcher, renderWithErrorBoundary } from "./utils/performance.js";
-import { todayET, escapeHTML, loadPrefs, savePrefs, readCache, writeCache, showNotification } from "./utils/core.js";
+import { todayET, escapeHTML, loadPrefs, savePrefs, readCache, writeCache, showNotification, usedStaleData } from "./utils/core.js";
+
+export { todayET };
 import { MLB_API, WATCHABILITY_CONFIG, TEAM_DATA, RIVALRY_PAIRS } from "./js/constants.js";
 
 ﻿/* ───────────────────────────────────────────────────────────────────────────
@@ -3854,7 +3856,7 @@ export function hydratePreferenceControls() {
 export async function pollGames() {
   pollCount++;
   try {
-    usedStaleData = false;
+    usedStaleData.value = false;
     let games = await fetchLiveGamesData();
     if (games.length) {
       writeCache(`renderedGames:${selectedDate}`, games);
@@ -3862,7 +3864,7 @@ export async function pollGames() {
       const cached = readCache(`renderedGames:${selectedDate}`);
       if (cached?.data?.length) {
         games = cached.data;
-        usedStaleData = true;
+        usedStaleData.value = true;
       }
     }
     // Sort: active/preview games first by watchability, finished games at bottom
@@ -3891,7 +3893,7 @@ export async function pollGames() {
       fetchAndRenderHomeRuns(games);
     }
     document.getElementById('last-update').textContent =
-      (usedStaleData ? 'Stale data from cache · ' : 'Updated ') + new Date().toLocaleTimeString();
+      (usedStaleData.value ? 'Stale data from cache · ' : 'Updated ') + new Date().toLocaleTimeString();
 
     const auxRefreshMs = games.some(isGameLiveNow) ? 60000 : 300000;
     if (Date.now() - lastAuxRefresh > auxRefreshMs) {
