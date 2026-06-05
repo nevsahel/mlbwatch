@@ -1282,24 +1282,23 @@ function applySortFilter(games) {
   if (currentFilter === 'fire') g = g.filter(x => x.watchabilityIndex >= 75);
   if (currentFilter === 'live') g = g.filter(x => !/final|scheduled|pre-game|warmup|preview/i.test(x.gameState));
 
-  // Always put finals at the bottom
-  const isFinalFn = x => /final/i.test(x.inningStatus);
+  // Priority: Live (0) > Scheduled (1) > Final (2)
   const favoriteRank = x => isFavoriteGame(x) ? 1 : 0;
 
   if (currentSort === 'watchability') {
     g.sort((a, b) => {
       const fav = favoriteRank(b) - favoriteRank(a);
       if (fav) return fav;
-      const af = isFinalFn(a), bf = isFinalFn(b);
-      if (af !== bf) return af ? 1 : -1;
+      const ap = getGameStatusPriority(a), bp = getGameStatusPriority(b);
+      if (ap !== bp) return ap - bp;
       return b.watchabilityIndex - a.watchabilityIndex;
     });
   } else if (currentSort === 'score') {
     g.sort((a, b) => {
       const fav = favoriteRank(b) - favoriteRank(a);
       if (fav) return fav;
-      const af = isFinalFn(a), bf = isFinalFn(b);
-      if (af !== bf) return af ? 1 : -1;
+      const ap = getGameStatusPriority(a), bp = getGameStatusPriority(b);
+      if (ap !== bp) return ap - bp;
       const ad = Math.abs(a.awayScore - a.homeScore);
       const bd = Math.abs(b.awayScore - b.homeScore);
       return ad - bd; // closest first
@@ -1308,8 +1307,8 @@ function applySortFilter(games) {
     g.sort((a, b) => {
       const fav = favoriteRank(b) - favoriteRank(a);
       if (fav) return fav;
-      const af = isFinalFn(a), bf = isFinalFn(b);
-      if (af !== bf) return af ? 1 : -1;
+      const ap = getGameStatusPriority(a), bp = getGameStatusPriority(b);
+      if (ap !== bp) return ap - bp;
       return (b.currentInning || 0) - (a.currentInning || 0);
     });
   }
@@ -3794,6 +3793,13 @@ function isGameLiveNow(game) {
   return game && !/scheduled|pre-game|warmup|preview|final/i.test(`${game.gameState} ${game.inningStatus}`);
 }
 
+function getGameStatusPriority(g) {
+  const status = `${g.gameState} ${g.inningStatus}`.toLowerCase();
+  if (/final|game over|completed/i.test(status)) return 2;
+  if (/scheduled|pre-game|warmup|preview|postponed|tbd|et$/i.test(status)) return 1;
+  return 0; // Ongoing
+}
+
 function nextPollDelayForGames(games) {
   if (!games || games.length === 0) return EMPTY_DAY_POLL_MS;
   if (games.some(isGameLiveNow)) return FAST_POLL_MS;
@@ -3873,11 +3879,10 @@ async function pollGames() {
         usedStaleData.value = true;
       }
     }
-    // Sort: active/preview games first by watchability, finished games at bottom
+    // Sort: Live (0) > Scheduled (1) > Final (2), then by watchability
     games.sort((a, b) => {
-      const aFinal = /final/i.test(a.gameState);
-      const bFinal = /final/i.test(b.gameState);
-      if (aFinal !== bFinal) return aFinal ? 1 : -1;
+      const ap = getGameStatusPriority(a), bp = getGameStatusPriority(b);
+      if (ap !== bp) return ap - bp;
       return b.watchabilityIndex - a.watchabilityIndex;
     });
     lastGames = games;
