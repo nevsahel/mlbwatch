@@ -6,7 +6,7 @@ const APP_PREFS_KEY = 'mlbWatchPrefsV1';
 const DATA_CACHE_PREFIX = 'mlbWatchCache:';
 let usedStaleData = false;
 
-function escapeHTML(value) {
+export function escapeHTML(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;',
     '<': '&lt;',
@@ -16,30 +16,30 @@ function escapeHTML(value) {
   }[ch]));
 }
 
-function loadPrefs() {
+export function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(APP_PREFS_KEY) || '{}'); }
   catch { return {}; }
 }
 
-function savePrefs(next = {}) {
+export function savePrefs(next = {}) {
   try {
     const merged = { ...loadPrefs(), ...next };
     localStorage.setItem(APP_PREFS_KEY, JSON.stringify(merged));
   } catch {}
 }
 
-function readCache(key) {
+export function readCache(key) {
   try { return JSON.parse(localStorage.getItem(DATA_CACHE_PREFIX + key) || 'null'); }
   catch { return null; }
 }
 
-function writeCache(key, data) {
+export function writeCache(key, data) {
   try {
     localStorage.setItem(DATA_CACHE_PREFIX + key, JSON.stringify({ savedAt: Date.now(), data }));
   } catch {}
 }
 
-async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}) {
+export async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -61,7 +61,7 @@ async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}) {
   }
 }
 
-function showNotification(message, type = 'info') {
+export function showNotification(message, type = 'info') {
   const container = document.getElementById('notification-container');
   const notif = document.createElement('div');
   notif.className = `notification ${type}`;
@@ -73,7 +73,7 @@ function showNotification(message, type = 'info') {
   }, 10000);
 }
 
-function todayET() {
+export function todayET() {
   const now = new Date();
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const y = et.getFullYear();

@@ -222,13 +222,33 @@
   </aside>
 </main>
 
-<script src="utils/core.js"></script>
-<script src="utils/performance.js"></script>
-<script src="app.js"></script>
-<script>
+<script type="module">
+import {
+  openSidebar, closeSidebar, switchSidebarTab, clearAllFavorites,
+  clearAllSpoilers, startPolling, stopPolling, setGameDate,
+  todayET, closeGameDrawer, switchTab, setSort, setFilter,
+  closeSidePanel, runSimulatedDuel, revealSpoiler
+} from "./app.js";
+
+window.openSidebar = openSidebar;
+window.closeSidebar = closeSidebar;
+window.switchSidebarTab = switchSidebarTab;
+window.clearAllFavorites = clearAllFavorites;
+window.clearAllSpoilers = clearAllSpoilers;
+window.startPolling = startPolling;
+window.stopPolling = stopPolling;
+window.setGameDate = setGameDate;
+window.todayET = todayET;
+window.closeGameDrawer = closeGameDrawer;
+window.switchTab = switchTab;
+window.setSort = setSort;
+window.setFilter = setFilter;
+window.closeSidePanel = closeSidePanel;
+window.runSimulatedDuel = runSimulatedDuel;
+window.revealSpoiler = revealSpoiler;
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(() => {}));
 }
 </script>
-</body>
-</html>
+</body></html>
