@@ -1,10 +1,9 @@
-import { fetchJson, escapeHTML, todayET } from './core.js';
 /* ───────────────────────────────────────────────────────────────────────────
    PERFORMANCE & REQUEST MANAGEMENT UTILITIES
    ─────────────────────────────────────────────────────────────────────────── */
 
 // Request deduplication pool - prevents duplicate simultaneous API calls
-export class RequestPool {
+class RequestPool {
   constructor() {
     this.pending = new Map();
     this.metrics = {
@@ -78,10 +77,10 @@ export class RequestPool {
   }
 }
 
-export const requestPool = new RequestPool();
+const requestPool = new RequestPool();
 
 // Performance timing utility
-export class PerfTimer {
+class PerfTimer {
   constructor() {
     this.marks = {};
     this.measures = {};
@@ -121,10 +120,10 @@ export class PerfTimer {
   }
 }
 
-export const perfTimer = new PerfTimer();
+const perfTimer = new PerfTimer();
 
 // Error boundary wrapper for safe rendering
-export function renderWithErrorBoundary(fn, containerId, fallbackMsg = 'Failed to load content') {
+function renderWithErrorBoundary(fn, containerId, fallbackMsg = 'Failed to load content') {
   try {
     fn();
   } catch (e) {
@@ -148,7 +147,7 @@ export function renderWithErrorBoundary(fn, containerId, fallbackMsg = 'Failed t
 }
 
 // Batch API calls with intelligent queuing
-export class BatchFetcher {
+class BatchFetcher {
   constructor(maxParallel = 5) {
     this.maxParallel = maxParallel;
     this.queue = [];
@@ -194,10 +193,10 @@ export class BatchFetcher {
   }
 }
 
-export const batchFetcher = new BatchFetcher(5);
+const batchFetcher = new BatchFetcher(5);
 
 // Persistent cache layer (localStorage + memory with TTL support)
-export class PersistentCache {
+class PersistentCache {
   constructor(prefix = 'mlbWatch:') {
     this.prefix = prefix;
     this.memory = new Map();
@@ -298,10 +297,10 @@ export class PersistentCache {
   }
 }
 
-export const persistentCache = new PersistentCache('mlbWatch:');
+const persistentCache = new PersistentCache('mlbWatch:');
 
 // Keyboard shortcut registry
-export class KeyboardShortcuts {
+class KeyboardShortcuts {
   constructor() {
     this.shortcuts = new Map();
     this.registerDefaults();
@@ -329,7 +328,8 @@ export class KeyboardShortcuts {
       if (startBtn && !startBtn.disabled) {
         startBtn.click();
       } else {
-        document.getElementById('stop-btn').click();
+        const stopBtn = document.getElementById('stop-btn');
+        if (stopBtn) stopBtn.click();
       }
     });
     this.register('r', true, false, () => {
@@ -338,4 +338,4 @@ export class KeyboardShortcuts {
   }
 }
 
-export const keyboardShortcuts = new KeyboardShortcuts();
+const keyboardShortcuts = new KeyboardShortcuts();
