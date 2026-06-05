@@ -248,11 +248,31 @@ const notifiedMilestones = new Set();
 const notifiedAtBats = new Set();
 const careerHRCache = {};
 
-const SEASON_HR_MILESTONES = [10, 20, 30, 40, 50, 60, 61, 62, 70];
-const SEASON_RBI_MILESTONES = [25, 50, 75, 100, 120, 130, 140, 150];
-const SEASON_K_MILESTONES = [25, 50, 75, 100, 150, 200, 250, 300, 310, 320, 330, 340, 350];
-const CAREER_HR_MILESTONES = [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
-const SEASON_SV_MILESTONES = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65];
+const SEASON_HR_MILESTONES = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 61, 62, 70, 73];
+const SEASON_H_MILESTONES = [50, 100, 150, 175, 200, 210, 220, 225, 250, 262];
+const SEASON_RBI_MILESTONES = [50, 75, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200];
+const SEASON_SB_MILESTONES = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130];
+const SEASON_2B_MILESTONES = [30, 40, 50, 60, 67];
+const SEASON_3B_MILESTONES = [5, 10, 15, 20, 25, 30, 36];
+const SEASON_R_MILESTONES = [80, 100, 120, 130, 140, 150, 160, 177, 190, 192, 196, 198];
+const SEASON_BB_MILESTONES = [60, 80, 100, 120, 140, 150, 160, 170, 200, 232];
+
+const SEASON_K_MILESTONES = [100, 150, 200, 225, 250, 275, 300, 325, 350, 375, 383, 400];
+const SEASON_SV_MILESTONES = [20, 30, 35, 40, 45, 50, 55, 60, 62];
+const SEASON_W_MILESTONES = [10, 15, 18, 20, 22, 24, 25, 30, 31];
+
+const CAREER_H_MS =   [1000, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000, 4100, 4189, 4190, 4191, 4256];
+const CAREER_HR_MS =  [100, 200, 300, 400, 500, 600, 700, 714, 755, 762];
+const CAREER_RBI_MS = [1000, 1500, 1800, 2000, 2214, 2297];
+const CAREER_SB_MS =  [200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1406];
+const CAREER_2B_MS =  [300, 400, 500, 600, 700, 792, 793];
+const CAREER_3B_MS =  [50, 100, 150, 200, 250, 300, 309, 312];
+const CAREER_R_MS =   [1000, 1500, 2000, 2246, 2295];
+const CAREER_BB_MS =  [1000, 1500, 2000, 2500, 2555];
+const CAREER_W_MS =   [100, 150, 200, 250, 300, 350, 400, 450, 500, 511];
+const CAREER_K_MS =   [1000, 1500, 2000, 2500, 3000, 3500, 4000, 4136, 4500, 5000, 5714];
+const CAREER_SV_MS =  [200, 300, 400, 500, 600, 652];
+const CAREER_IP_MS =  [1000, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 7356];
 
 function checkAndNotify(name, statLabel, value, milestones) {
   if (!milestones.includes(value)) return;
@@ -265,12 +285,25 @@ function checkAndNotify(name, statLabel, value, milestones) {
       'Season HR':  `${name} has hit season home run #${value}!`,
       'Season RBI': `${name} has reached ${value} RBIs this season!`,
       'Season SB':  `${name} has stolen base #${value} this season!`,
+      'Season 2B':  `${name} has hit season double #${value}!`,
+      'Season 3B':  `${name} has hit season triple #${value}!`,
+      'Season R':   `${name} has scored ${value} runs this season!`,
+      'Season BB':  `${name} has reached ${value} walks this season!`,
       'Season K':   `${name} has ${value} strikeouts this season!`,
       'Season SV':  `${name} has recorded season save #${value}!`,
+      'Season W':   `${name} has recorded season win #${value}!`,
       'Career H':   `${name} has reached ${value} career hits!`,
       'Career HR':  `${name} has hit career home run #${value}!`,
       'Career RBI': `${name} has reached ${value} career RBIs!`,
-      'Career K':   `${name} has reached ${value} career strikeouts!`
+      'Career SB':  `${name} has reached ${value} career stolen bases!`,
+      'Career 2B':  `${name} has reached ${value} career doubles!`,
+      'Career 3B':  `${name} has reached ${value} career triples!`,
+      'Career R':   `${name} has reached ${value} career runs scored!`,
+      'Career BB':  `${name} has reached ${value} career walks!`,
+      'Career W':   `${name} has reached ${value} career wins!`,
+      'Career K':   `${name} has reached ${value} career strikeouts!`,
+      'Career SV':  `${name} has reached ${value} career saves!`,
+      'Career IP':  `${name} has reached ${value} career innings pitched!`
     };
     showNotification(msgs[statLabel] || `${name}: ${value} ${statLabel}`, 'milestone');
   }
@@ -288,39 +321,79 @@ function checkBoxscoreMilestones(feed) {
       if (!name) continue;
       const sBat = player.seasonStats?.batting;
       if (sBat) {
-        checkAndNotify(name, 'Season H',   parseInt(sBat.hits) || 0,       [10, 25, 50, 100, 150, 200]);
+        checkAndNotify(name, 'Season H',   parseInt(sBat.hits) || 0,       SEASON_H_MILESTONES);
         checkAndNotify(name, 'Season HR',  parseInt(sBat.homeRuns) || 0,   SEASON_HR_MILESTONES);
         checkAndNotify(name, 'Season RBI', parseInt(sBat.rbi) || 0,        SEASON_RBI_MILESTONES);
-        checkAndNotify(name, 'Season SB',  parseInt(sBat.stolenBases) || 0,[5, 10, 15, 20, 25, 30, 40, 50, 60, 70]);
+        checkAndNotify(name, 'Season SB',  parseInt(sBat.stolenBases) || 0,SEASON_SB_MILESTONES);
+        checkAndNotify(name, 'Season 2B',  parseInt(sBat.doubles) || 0,    SEASON_2B_MILESTONES);
+        checkAndNotify(name, 'Season 3B',  parseInt(sBat.triples) || 0,    SEASON_3B_MILESTONES);
+        checkAndNotify(name, 'Season R',   parseInt(sBat.runs) || 0,       SEASON_R_MILESTONES);
+        checkAndNotify(name, 'Season BB',  parseInt(sBat.baseOnBalls) || 0,SEASON_BB_MILESTONES);
       }
       const sPit = player.seasonStats?.pitching;
       if (sPit) {
         checkAndNotify(name, 'Season K',  parseInt(sPit.strikeOuts) || 0, SEASON_K_MILESTONES);
         checkAndNotify(name, 'Season SV', parseInt(sPit.saves) || 0,      SEASON_SV_MILESTONES);
+        checkAndNotify(name, 'Season W',  parseInt(sPit.wins) || 0,       SEASON_W_MILESTONES);
       }
       const gBat = player.stats?.batting;
-      if (gBat && pid && (parseInt(gBat.homeRuns) || 0) > 0) {
-        checkCareerHR(pid, name, parseInt(gBat.homeRuns) || 0);
+      if (gBat && pid && (
+        (parseInt(gBat.hits) || 0) > 0 ||
+        (parseInt(gBat.homeRuns) || 0) > 0 ||
+        (parseInt(gBat.rbi) || 0) > 0 ||
+        (parseInt(gBat.stolenBases) || 0) > 0 ||
+        (parseInt(gBat.doubles) || 0) > 0 ||
+        (parseInt(gBat.triples) || 0) > 0 ||
+        (parseInt(gBat.runs) || 0) > 0 ||
+        (parseInt(gBat.baseOnBalls) || 0) > 0
+      )) {
+        checkCareerStats(pid, name, 'hitting');
+      }
+      const gPit = player.stats?.pitching;
+      if (gPit && pid && (
+        (parseInt(gPit.strikeOuts) || 0) > 0 ||
+        (parseInt(gPit.saves) || 0) > 0 ||
+        (parseInt(gPit.wins) || 0) > 0 ||
+        (parseFloat(gPit.inningsPitched) || 0) > 0
+      )) {
+        checkCareerStats(pid, name, 'pitching');
       }
     }
   }
 }
 
-async function checkCareerHR(playerId, playerName, currentGameHR) {
-  const cached = careerHRCache[playerId];
-  if (cached && cached.gameHR === currentGameHR) return;
+const careerStatsCache = {}; // id -> { group, timestamp }
+async function checkCareerStats(playerId, playerName, group) {
+  const now = Date.now();
+  const cached = careerStatsCache[playerId + group];
+  if (cached && (now - cached.timestamp) < 3600000) return; // 1hr cache
+
   try {
     const date = selectedDate || todayET();
     const data = await requestPool.fetchDedup(
-      `${MLB_API}/people/${playerId}/stats?stats=career&group=hitting&endDate=${date}`,
-      { cacheKey: `careerHR:${date}:${playerId}` }
+      `${MLB_API}/people/${playerId}/stats?stats=career&group=${group}&endDate=${date}`,
+      { cacheKey: `careerStats:${date}:${playerId}:${group}`, ttl: 3600000 }
     );
     const stat = data.stats?.[0]?.splits?.[0]?.stat;
     if (!stat) return;
-    const careerHR = parseInt(stat.homeRuns) || 0;
-    careerHRCache[playerId] = { gameHR: currentGameHR, careerHR };
-    checkAndNotify(playerName, 'Career HR', careerHR, CAREER_HR_MILESTONES);
-  } catch (e) { console.warn('Career HR fetch failed:', e); }
+    careerStatsCache[playerId + group] = { timestamp: now };
+
+    if (group === 'hitting') {
+      checkAndNotify(playerName, 'Career HR',  parseInt(stat.homeRuns) || 0,  CAREER_HR_MS);
+      checkAndNotify(playerName, 'Career H',   parseInt(stat.hits) || 0,      CAREER_H_MS);
+      checkAndNotify(playerName, 'Career RBI', parseInt(stat.rbi) || 0,       CAREER_RBI_MS);
+      checkAndNotify(playerName, 'Career SB',  parseInt(stat.stolenBases) || 0, CAREER_SB_MS);
+      checkAndNotify(playerName, 'Career 2B',  parseInt(stat.doubles) || 0,   CAREER_2B_MS);
+      checkAndNotify(playerName, 'Career 3B',  parseInt(stat.triples) || 0,   CAREER_3B_MS);
+      checkAndNotify(playerName, 'Career R',   parseInt(stat.runs) || 0,      CAREER_R_MS);
+      checkAndNotify(playerName, 'Career BB',  parseInt(stat.baseOnBalls) || 0, CAREER_BB_MS);
+    } else {
+      checkAndNotify(playerName, 'Career K',   parseInt(stat.strikeOuts) || 0, CAREER_K_MS);
+      checkAndNotify(playerName, 'Career W',   parseInt(stat.wins) || 0,       CAREER_W_MS);
+      checkAndNotify(playerName, 'Career SV',  parseInt(stat.saves) || 0,      CAREER_SV_MS);
+      checkAndNotify(playerName, 'Career IP',  Math.floor(parseFloat(stat.inningsPitched) || 0), CAREER_IP_MS);
+    }
+  } catch (e) { console.warn('Career stats check failed:', e); }
 }
 
 // ─── DATE HELPERS ──────────────────────────────────────────────────────────────
@@ -816,7 +889,7 @@ async function fetchLiveGamesData() {
           const bp = bx?.home?.players?.['ID'+bid] || bx?.away?.players?.['ID'+bid];
           const gb = bp?.stats?.batting || {};
           const sb = bp?.seasonStats?.batting || {};
-          return { name: bname, gameH: gb.hits ?? '-', gameAB: gb.atBats ?? '-', avg: sb.avg || '---', obp: sb.obp || '---', ops: sb.ops || '---' };
+          return { id: bid, name: bname, gameH: gb.hits ?? '-', gameAB: gb.atBats ?? '-', avg: sb.avg || '---', obp: sb.obp || '---', ops: sb.ops || '---' };
         })(),
         currentPitcher: (function() {
           const pid = ls.defense?.pitcher?.id || plays?.currentPlay?.matchup?.pitcher?.id;
@@ -826,7 +899,7 @@ async function fetchLiveGamesData() {
           const pp = bx?.home?.players?.['ID'+pid] || bx?.away?.players?.['ID'+pid];
           const gp = pp?.stats?.pitching || {};
           const sp = pp?.seasonStats?.pitching || {};
-          return { name: pname, gameIP: gp.inningsPitched || '0.0', gamePitches: gp.pitchesThrown ?? gp.numberOfPitches ?? 0, gameK: parseInt(gp.strikeOuts) || 0, era: sp.era || '-.--' };
+          return { id: pid, name: pname, gameIP: gp.inningsPitched || '0.0', gamePitches: gp.pitchesThrown ?? gp.numberOfPitches ?? 0, gameK: parseInt(gp.strikeOuts) || 0, era: sp.era || '-.--' };
         })(),
         awayHits: awayH,
         homeHits: homeH,
@@ -1892,33 +1965,66 @@ async function fetchPlayoffRaces(todayGames) {
 
 // ─── MILESTONES TAB ─────────────────────────────────────────────────────────
 const MILESTONE_DEFS = [
-  { api: 'hits',           group: 'hitting',  label: 'Season H',  milestones: [10, 25, 50, 100, 150, 200] },
-  { api: 'homeRuns',       group: 'hitting',  label: 'Season HR', milestones: [10, 20, 30, 40, 50, 60, 61, 62, 70] },
-  { api: 'runsBattedIn',   group: 'hitting',  label: 'Season RBI',milestones: [25, 50, 75, 100, 120, 130, 140, 150] },
-  { api: 'stolenBases',    group: 'hitting',  label: 'Season SB', milestones: [5, 10, 15, 20, 25, 30, 40, 50, 60, 70] },
-  { api: 'strikeouts',     group: 'pitching', label: 'Season K',  milestones: [25, 50, 75, 100, 150, 200, 250, 300, 310, 320, 330, 340, 350] },
-  { api: 'saves',          group: 'pitching', label: 'Season SV', milestones: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65] },
-  { api: 'inningsPitched', group: 'pitching', label: 'Season IP', milestones: [50, 100, 150, 200, 250], isFloat: true }
+  { api: 'hits',           group: 'hitting',  label: 'Season H',   milestones: SEASON_H_MILESTONES },
+  { api: 'homeRuns',       group: 'hitting',  label: 'Season HR',  milestones: SEASON_HR_MILESTONES },
+  { api: 'runsBattedIn',   group: 'hitting',  label: 'Season RBI', milestones: SEASON_RBI_MILESTONES },
+  { api: 'stolenBases',    group: 'hitting',  label: 'Season SB',  milestones: SEASON_SB_MILESTONES },
+  { api: 'doubles',        group: 'hitting',  label: 'Season 2B',  milestones: SEASON_2B_MILESTONES },
+  { api: 'triples',        group: 'hitting',  label: 'Season 3B',  milestones: SEASON_3B_MILESTONES },
+  { api: 'runs',           group: 'hitting',  label: 'Season R',   milestones: SEASON_R_MILESTONES },
+  { api: 'baseOnBalls',    group: 'hitting',  label: 'Season BB',  milestones: SEASON_BB_MILESTONES },
+  { api: 'strikeouts',     group: 'pitching', label: 'Season K',   milestones: SEASON_K_MILESTONES },
+  { api: 'saves',          group: 'pitching', label: 'Season SV',  milestones: SEASON_SV_MILESTONES },
+  { api: 'wins',           group: 'pitching', label: 'Season W',   milestones: SEASON_W_MILESTONES },
+  { api: 'inningsPitched', group: 'pitching', label: 'Season IP',  milestones: [100, 150, 180, 200, 220, 250], isFloat: true }
 ];
 
-const CAREER_HR_MS =  [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
-const CAREER_H_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
-const CAREER_RBI_MS = [10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000];
-const CAREER_K_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
+const CAREER_STATS_MAP = {
+  'hitting': [
+    { label: 'Career H',   ms: CAREER_H_MS,   api: 'hits' },
+    { label: 'Career HR',  ms: CAREER_HR_MS,  api: 'homeRuns' },
+    { label: 'Career RBI', ms: CAREER_RBI_MS, api: 'rbi' },
+    { label: 'Career SB',  ms: CAREER_SB_MS,  api: 'stolenBases' },
+    { label: 'Career 2B',  ms: CAREER_2B_MS,  api: 'doubles' },
+    { label: 'Career 3B',  ms: CAREER_3B_MS,  api: 'triples' },
+    { label: 'Career R',   ms: CAREER_R_MS,   api: 'runs' },
+    { label: 'Career BB',  ms: CAREER_BB_MS,  api: 'baseOnBalls' }
+  ],
+  'pitching': [
+    { label: 'Career K',   ms: CAREER_K_MS,   api: 'strikeOuts' },
+    { label: 'Career W',   ms: CAREER_W_MS,   api: 'wins' },
+    { label: 'Career SV',  ms: CAREER_SV_MS,  api: 'saves' },
+    { label: 'Career IP',  ms: CAREER_IP_MS,  api: 'inningsPitched' }
+  ]
+};
+
 let milestoneFilter = loadPrefs().milestoneFilter || 'all';
 
 const MILESTONE_META = {
-  'Season H': { short: 'H', type: 'hitter', scope: 'season', major: [100,150,200], historic: [200] },
-  'Season HR': { short: 'HR', type: 'hitter', scope: 'season', major: [30,40,50,60], historic: [60,61,62,70] },
-  'Season RBI': { short: 'RBI', type: 'hitter', scope: 'season', major: [100,120,130,140,150], historic: [150] },
-  'Season SB': { short: 'SB', type: 'hitter', scope: 'season', major: [30,40,50,60,70], historic: [50,60,70] },
-  'Season K': { short: 'K', type: 'pitcher', scope: 'season', major: [150,200,250,300], historic: [300] },
-  'Season SV': { short: 'SV', type: 'pitcher', scope: 'season', major: [30,40,50], historic: [50,60] },
-  'Season IP': { short: 'IP', type: 'pitcher', scope: 'season', major: [150,200,250], historic: [250] },
-  'Career H': { short: 'H', type: 'hitter', scope: 'career', major: [1000,1500,2000,2500,3000], historic: [3000] },
-  'Career HR': { short: 'HR', type: 'hitter', scope: 'career', major: [300,400,500], historic: [500] },
-  'Career RBI': { short: 'RBI', type: 'hitter', scope: 'career', major: [1000,1500,2000], historic: [1500,2000] },
-  'Career K': { short: 'K', type: 'pitcher', scope: 'career', major: [1000,2000,3000], historic: [3000] }
+  'Season H': { short: 'H', type: 'hitter', scope: 'season', major: [150,175,200], historic: [200,250,262] },
+  'Season HR': { short: 'HR', type: 'hitter', scope: 'season', major: [30,40,50], historic: [60,61,62,70,73] },
+  'Season RBI': { short: 'RBI', type: 'hitter', scope: 'season', major: [100,120,140], historic: [150,175,200] },
+  'Season SB': { short: 'SB', type: 'hitter', scope: 'season', major: [40,50,60], historic: [70,80,90,100,130] },
+  'Season 2B': { short: '2B', type: 'hitter', scope: 'season', major: [40,50], historic: [60,67] },
+  'Season 3B': { short: '3B', type: 'hitter', scope: 'season', major: [10,15], historic: [20,30,36] },
+  'Season R': { short: 'R', type: 'hitter', scope: 'season', major: [100,120], historic: [150,177,198] },
+  'Season BB': { short: 'BB', type: 'hitter', scope: 'season', major: [100,120], historic: [170,200,232] },
+  'Season K': { short: 'K', type: 'pitcher', scope: 'season', major: [200,250,300], historic: [300,350,383,400] },
+  'Season SV': { short: 'SV', type: 'pitcher', scope: 'season', major: [30,40,50], historic: [50,60,62] },
+  'Season W': { short: 'W', type: 'pitcher', scope: 'season', major: [15,20], historic: [25,30,31] },
+  'Season IP': { short: 'IP', type: 'pitcher', scope: 'season', major: [180,200], historic: [220,250] },
+  'Career H': { short: 'H', type: 'hitter', scope: 'career', major: [2000,2500,3000], historic: [3000,3500,4000,4256] },
+  'Career HR': { short: 'HR', type: 'hitter', scope: 'career', major: [300,400,500], historic: [500,600,700,762] },
+  'Career RBI': { short: 'RBI', type: 'hitter', scope: 'career', major: [1500,1800,2000], historic: [2000,2297] },
+  'Career SB': { short: 'SB', type: 'hitter', scope: 'career', major: [300,500,700], historic: [800,1000,1406] },
+  'Career 2B': { short: '2B', type: 'hitter', scope: 'career', major: [400,500,600], historic: [700,793] },
+  'Career 3B': { short: '3B', type: 'hitter', scope: 'career', major: [100,150,200], historic: [250,312] },
+  'Career R': { short: 'R', type: 'hitter', scope: 'career', major: [1500,2000], historic: [2246,2295] },
+  'Career BB': { short: 'BB', type: 'hitter', scope: 'career', major: [1500,2000], historic: [2500,2555] },
+  'Career W': { short: 'W', type: 'pitcher', scope: 'career', major: [200,250,300], historic: [300,400,511] },
+  'Career K': { short: 'K', type: 'pitcher', scope: 'career', major: [2000,3000], historic: [3000,4000,5000,5714] },
+  'Career SV': { short: 'SV', type: 'pitcher', scope: 'career', major: [300,400,500], historic: [600,652] },
+  'Career IP': { short: 'IP', type: 'pitcher', scope: 'career', major: [3000,4000,5000], historic: [6000,7356] }
 };
 
 function setMilestoneFilter(filter) {
@@ -1987,22 +2093,30 @@ function milestonePaceText(m) {
 }
 
 const playerHeatCache = {};
-async function fetchPlayerHeat(playerId, group) {
-  if (playerHeatCache[playerId]) return playerHeatCache[playerId];
+async function fetchPlayerHeat(playerId, group, statKey) {
+  const cacheKey = `${playerId}:${group}:${statKey}`;
+  if (playerHeatCache[cacheKey]) return playerHeatCache[cacheKey];
   try {
     const season = currentSeason();
     const data = await requestPool.fetchDedup(
       `${MLB_API}/people/${playerId}/stats?stats=gameLog&group=${group}&season=${season}`,
-      { cacheKey: `heatLog:${playerId}:${season}` }
+      { cacheKey: `heatLogRaw:${playerId}:${season}:${group}`, ttl: 1800000 }
     );
     const logs = data.stats?.[0]?.splits || [];
+
+    const statMap = {
+      'H': 'hits', 'HR': 'homeRuns', 'RBI': 'rbi', 'SB': 'stolenBases',
+      '2B': 'doubles', '3B': 'triples', 'R': 'runs', 'BB': 'baseOnBalls',
+      'K': 'strikeOuts', 'SV': 'saves', 'W': 'wins', 'IP': 'inningsPitched'
+    };
+    const apiStatKey = statMap[statKey] || statKey;
+
     // Last 10 games
     const heat = logs.slice(-10).map(l => {
-      if (group === 'hitting') return parseInt(l.stat.hits) || 0;
-      if (group === 'pitching') return parseInt(l.stat.strikeOuts) || 0;
-      return 0;
+      const val = parseFloat(l.stat[apiStatKey]) || 0;
+      return val > 0 ? 1 : 0;
     });
-    playerHeatCache[playerId] = heat;
+    playerHeatCache[cacheKey] = heat;
     return heat;
   } catch (e) {
     return [];
@@ -2163,8 +2277,8 @@ async function fetchMilestones(todayGames) {
           const playingToday = todayTeams.has(tAbbr);
 
           const tryCareer = (val, ms, statLabel, forGroup) => {
-            if (!val) return;
-            // Fix 3: skip career hitting milestones for pitchers (and vice versa), Ohtani exempt
+            if (val === undefined || val === null) return;
+            // skip career hitting milestones for pitchers (and vice versa), Ohtani exempt
             if (pid !== OHTANI_ID) {
               if (forGroup === 'hitting' && pitcherIds.has(pid)) return;
               if (forGroup === 'pitching' && !pitcherIds.has(pid)) return;
@@ -2172,7 +2286,7 @@ async function fetchMilestones(todayGames) {
             const next = ms.find(m => m > val);
             if (!next) return;
             const diff = next - val;
-            if (diff > 20) return;
+            if (diff > 25) return; // Increased threshold for career milestones
             allMilestones.push({
               id: pid,
               name,
@@ -2190,12 +2304,18 @@ async function fetchMilestones(todayGames) {
           };
 
           if (hitStat) {
-            tryCareer(parseInt(hitStat.homeRuns) || 0,  CAREER_HR_MS,  'Career HR', 'hitting');
-            tryCareer(parseInt(hitStat.hits) || 0,       CAREER_H_MS,   'Career H',  'hitting');
-            tryCareer(parseInt(hitStat.rbi) || 0,        CAREER_RBI_MS, 'Career RBI','hitting');
+            CAREER_STATS_MAP.hitting.forEach(mDef => {
+              const val = parseInt(hitStat[mDef.api]) || 0;
+              tryCareer(val, mDef.ms, mDef.label, 'hitting');
+            });
           }
           if (pitStat) {
-            tryCareer(parseInt(pitStat.strikeOuts) || 0, CAREER_K_MS,   'Career K',  'pitching');
+            CAREER_STATS_MAP.pitching.forEach(mDef => {
+              let val;
+              if (mDef.api === 'inningsPitched') val = Math.floor(parseFloat(pitStat[mDef.api]) || 0);
+              else val = parseInt(pitStat[mDef.api]) || 0;
+              tryCareer(val, mDef.ms, mDef.label, 'pitching');
+            });
           }
         } catch(e) {}
       }));
@@ -2216,16 +2336,25 @@ async function fetchMilestones(todayGames) {
 
       // Chasing History
       if (m.scope === 'career') {
-        const catMap = { 'Career HR': 'homeRuns', 'Career H': 'hits', 'Career RBI': 'runsBattedIn', 'Career K': 'strikeouts' };
+        const catMap = {
+          'Career HR': 'homeRuns', 'Career H': 'hits', 'Career RBI': 'runsBattedIn',
+          'Career K': 'strikeouts', 'Career SB': 'stolenBases', 'Career 2B': 'doubles',
+          'Career 3B': 'triples', 'Career R': 'runs', 'Career BB': 'baseOnBalls',
+          'Career W': 'wins', 'Career SV': 'saves'
+        };
         const cat = catMap[m.stat];
         if (cat) {
           try {
-            const leaders = await fetchAllTimeLeaders(cat, m.stat === 'Career K' ? 'pitching' : 'hitting');
+            const leaders = await fetchAllTimeLeaders(cat, m.type === 'pitcher' ? 'pitching' : 'hitting');
             const myVal = parseInt(m.current);
-          // Find the player immediately ahead on the leaderboard (smallest value > myVal)
-          const nextLegend = [...leaders].reverse().find(l => l.value > myVal);
+            // Find the player immediately ahead on the leaderboard (smallest value > myVal)
+            const nextLegend = [...leaders].reverse().find(l => l.value > myVal);
             if (nextLegend) {
-              m.chasing = { name: nextLegend.name, rank: nextLegend.rank, diff: nextLegend.value - myVal };
+              const legendDiff = nextLegend.value - myVal;
+              const threshold = (m.stat === 'Career K') ? 25 : 10;
+              if (legendDiff <= threshold) {
+                m.chasing = { name: nextLegend.name, rank: nextLegend.rank, diff: legendDiff };
+              }
             }
           } catch (e) {}
         }
@@ -2233,7 +2362,7 @@ async function fetchMilestones(todayGames) {
 
       // Heat Map
       try {
-        m.heat = await fetchPlayerHeat(m.id, m.type === 'pitcher' ? 'pitching' : 'hitting');
+        m.heat = await fetchPlayerHeat(m.id, m.type === 'pitcher' ? 'pitching' : 'hitting', m.shortStat);
       } catch (e) { m.heat = []; }
     }));
 
@@ -2264,23 +2393,36 @@ function renderMilestoneBoard(allMilestones) {
     historic: m => m.importance === 'Historic' || m.importance === 'Major',
     hitters: m => m.type === 'hitter',
     pitchers: m => m.type === 'pitcher',
-    career: m => m.scope === 'career'
+    career: m => m.scope === 'career',
+    achievements: m => false // Handled separately below
   };
-  const filterFn = filterFns[milestoneFilter] || filterFns.all;
-  const filtered = allMilestones.filter(filterFn);
+  let filtered = allMilestones.filter(filterFns[milestoneFilter] || filterFns.all);
+
+  if (milestoneFilter === 'achievements') {
+    // When filtering by achievements, we show the reached ones as cards
+    filtered = reachedMilestones.map(r => ({
+      ...r,
+      urgency: 'Recently Reached',
+      importance: 'Achievement',
+      diff: 0,
+      shortStat: r.stat,
+      priority: 100,
+      reached: true
+    }));
+  }
   const liveCount = allMilestones.filter(m => m.playingNow).length;
   const todayCount = allMilestones.filter(m => m.playingToday).length;
   const historicCount = allMilestones.filter(m => m.importance === 'Historic' || m.importance === 'Major').length;
   const favCount = allMilestones.filter(m => isFavoriteTeam(m.team)).length;
 
-  const urgencyOrder = ['Could happen today', 'This series', 'This week', 'Longer watch'];
+  const urgencyOrder = ['Recently Reached', 'Could happen today', 'This series', 'This week', 'Longer watch'];
   const groups = {};
   filtered.forEach(m => {
     if (!groups[m.urgency]) groups[m.urgency] = [];
     groups[m.urgency].push(m);
   });
 
-  const reachedHtml = reachedMilestones.length ? `
+  const reachedHtml = (reachedMilestones.length && milestoneFilter === 'all') ? `
     <div class="milestone-reached-wall">
       <div class="milestone-reached-title">🏆 Recent Achievements (Last 48h)</div>
       <div class="milestone-reached-list">
@@ -2316,7 +2458,8 @@ function renderMilestoneBoard(allMilestones) {
         ['historic','Major'],
         ['hitters','Hitters'],
         ['pitchers','Pitchers'],
-        ['career','Career']
+        ['career','Career'],
+        ['achievements', 'Achievements']
       ].map(([id,label]) => `<button class="milestone-filter${milestoneFilter === id ? ' active' : ''}" onclick="setMilestoneFilter('${id}')">${label}</button>`).join('')}
     </div>
     <div class="milestone-board">
@@ -2334,7 +2477,7 @@ function renderMilestoneBoard(allMilestones) {
 function renderMilestoneCard(m) {
   const statusClass = m.playingNow ? ' now' : m.playingToday ? ' today' : '';
   const importanceClass = (m.importance || '').toLowerCase().replace(/\s+/g, '-');
-  const diffLabel = Number(m.diff) === 1 ? `1 ${m.shortStat} away` : `${m.diff} ${m.shortStat} away`;
+  const diffLabel = m.reached ? 'Reached!' : (Number(m.diff) === 1 ? `1 ${m.shortStat} away` : `${m.diff} ${m.shortStat} away`);
   const fav = isFavoriteTeam(m.team) ? '<span class="milestone-pill fav">Favorite</span>' : '';
   const live = m.playingNow ? '<span class="milestone-pill live">Live now</span>' : m.playingToday ? '<span class="milestone-pill today">Today</span>' : '';
 
@@ -2357,7 +2500,6 @@ function renderMilestoneCard(m) {
   return `<article class="milestone-card rich${statusClass}">
     <div class="milestone-topline">
       <span class="milestone-importance ${importanceClass}">${escapeHTML(m.importance)}</span>
-      <span class="milestone-priority">${m.priority}</span>
       ${followBtn}
     </div>
     <div class="milestone-player">${teamLogo(m.team)} ${escapeHTML(m.name)}</div>
@@ -2373,7 +2515,7 @@ function renderMilestoneCard(m) {
       <span>${escapeHTML(diffLabel)}</span>
       <em>${escapeHTML(m.paceText)}</em>
     </div>
-    <div class="milestone-pills">${live}${fav}<span class="milestone-pill">${escapeHTML(m.scope)}</span></div>
+    <div class="milestone-pills">${live}${fav}</div>
   </article>`;
 }
 
@@ -2503,6 +2645,13 @@ function renderSingleGameCard(card, game) {
 
   let badgeHtml = '';
   if (isFavoriteGame(game)) badgeHtml += '<div class="badge favorite-badge">Favorite</div>';
+
+  const followedBatter = game.currentBatter && Array.from(followedChases).some(key => key.startsWith(`${game.currentBatter.id}-`));
+  const followedPitcher = game.currentPitcher && Array.from(followedChases).some(key => key.startsWith(`${game.currentPitcher.id}-`));
+  if (followedBatter || followedPitcher) {
+    badgeHtml += '<div class="badge followed-badge">WATCHING</div>';
+  }
+
   if (isRivalry(game.awayTeam, game.homeTeam)) badgeHtml += '<div class="badge rivalry">Rivalry</div>';
   if (game.isPerfectGame && !isFinal) badgeHtml += '<div class="badge perfect">PERFECT GAME ALERT</div>';
   else if (game.isNoHitter && !isFinal) badgeHtml += '<div class="badge nohitter">NO HITTER ALERT</div>';
