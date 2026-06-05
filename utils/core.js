@@ -4,9 +4,9 @@
 
 const APP_PREFS_KEY = 'mlbWatchPrefsV1';
 const DATA_CACHE_PREFIX = 'mlbWatchCache:';
-export let usedStaleData = { value: false };
+let usedStaleData = { value: false };
 
-export function escapeHTML(value) {
+function escapeHTML(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;',
     '<': '&lt;',
@@ -16,30 +16,30 @@ export function escapeHTML(value) {
   }[ch]));
 }
 
-export function loadPrefs() {
+function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(APP_PREFS_KEY) || '{}'); }
   catch { return {}; }
 }
 
-export function savePrefs(next = {}) {
+function savePrefs(next = {}) {
   try {
     const merged = { ...loadPrefs(), ...next };
     localStorage.setItem(APP_PREFS_KEY, JSON.stringify(merged));
   } catch {}
 }
 
-export function readCache(key) {
+function readCache(key) {
   try { return JSON.parse(localStorage.getItem(DATA_CACHE_PREFIX + key) || 'null'); }
   catch { return null; }
 }
 
-export function writeCache(key, data) {
+function writeCache(key, data) {
   try {
     localStorage.setItem(DATA_CACHE_PREFIX + key, JSON.stringify({ savedAt: Date.now(), data }));
   } catch {}
 }
 
-export async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}) {
+async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -61,8 +61,9 @@ export async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}
   }
 }
 
-export function showNotification(message, type = 'info') {
+function showNotification(message, type = 'info') {
   const container = document.getElementById('notification-container');
+  if (!container) return;
   const notif = document.createElement('div');
   notif.className = `notification ${type}`;
   notif.textContent = message;
@@ -73,7 +74,7 @@ export function showNotification(message, type = 'info') {
   }, 10000);
 }
 
-export function todayET() {
+function todayET() {
   const now = new Date();
   const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const y = et.getFullYear();

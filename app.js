@@ -1,62 +1,54 @@
-import { requestPool, batchFetcher, renderWithErrorBoundary } from "./utils/performance.js";
-import { todayET, escapeHTML, loadPrefs, savePrefs, readCache, writeCache, showNotification, usedStaleData } from "./utils/core.js";
-
-export { todayET };
-import { MLB_API, WATCHABILITY_CONFIG, TEAM_DATA, RIVALRY_PAIRS } from "./js/constants.js";
-
-﻿/* ───────────────────────────────────────────────────────────────────────────
-   MLB WATCHABILITY INDEX — FULL IMPLEMENTATION
-   Uses the public MLB Stats API (statsapi.mlb.com)
+/*    Uses the public MLB Stats API (statsapi.mlb.com)
    ─────────────────────────────────────────────────────────────────────────── */
 
 
 
-export const favoriteTeams = new Set(loadPrefs().favoriteTeams || []);
-export const favoriteAlerts = {};
-export const gameDetailsByPk = {};
-export const revealedGames = new Set();
+const favoriteTeams = new Set(loadPrefs().favoriteTeams || []);
+const favoriteAlerts = {};
+const gameDetailsByPk = {};
+const revealedGames = new Set();
 
 
 
 // ─── RIVALRY PAIRS ─────────────────────────────────────────────────────────────
 
 
-export function isRivalry(a, b) {
+function isRivalry(a, b) {
   return RIVALRY_PAIRS.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
 }
 
 // ─── TEAM DATA (logos + colors) ───────────────────────────────────────────────
 
 
-export function teamLogo(abbr) {
+function teamLogo(abbr) {
   const t = TEAM_DATA[abbr];
   if (!t) return '';
   return `<img class="team-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" alt="" onerror="this.style.display='none'">`;
 }
 
-export function teamColor(abbr) {
+function teamColor(abbr) {
   return TEAM_DATA[abbr]?.color || 'var(--text-dim)';
 }
 
 // Build reverse lookup: team ID -> abbreviation
-export const TEAM_ID_TO_ABBR = {};
+const TEAM_ID_TO_ABBR = {};
 for (const [abbr, data] of Object.entries(TEAM_DATA)) {
   TEAM_ID_TO_ABBR[data.id] = abbr;
 }
-export const ALL_TEAM_ABBRS = Object.keys(TEAM_DATA).filter(a => a !== 'ATH').sort();
+const ALL_TEAM_ABBRS = Object.keys(TEAM_DATA).filter(a => a !== 'ATH').sort();
 
-export function teamAbbrFromId(id) {
+function teamAbbrFromId(id) {
   return normalizeAbbr(TEAM_ID_TO_ABBR[id] || '?');
 }
 
 // Some MLB API endpoints return non-standard abbreviations — normalize them here
-export const ABBR_ALIASES = { 'AZ': 'ARI', 'CWS': 'CWS', 'WSH': 'WSH', 'ATH': 'OAK' };
-export function normalizeAbbr(abbr) {
+const ABBR_ALIASES = { 'AZ': 'ARI', 'CWS': 'CWS', 'WSH': 'WSH', 'ATH': 'OAK' };
+function normalizeAbbr(abbr) {
   return ABBR_ALIASES[abbr] || abbr;
 }
 
 // ─── TABS ────────────────────────────────────────────────────────────────────
-export function switchTab(tab) {
+function switchTab(tab) {
   renderWithErrorBoundary(() => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -78,14 +70,14 @@ export function switchTab(tab) {
 }
 
 // ─── TEAM RECORDS CACHE ─────────────────────────────────────────────────────
-export let teamRecords = {}; // abbr -> { w, l }
-export let playoffContext = {}; // abbr -> { divRank, wcRank, wcGB, pct }
-export let milestoneWatchTeams = new Set(); // teams with a player near a milestone
+let teamRecords = {}; // abbr -> { w, l }
+let playoffContext = {}; // abbr -> { divRank, wcRank, wcGB, pct }
+let milestoneWatchTeams = new Set(); // teams with a player near a milestone
 
 // ─── STAR POWER TABLE ──────────────────────────────────────────────────────
 // Dynamically populated from Fangraphs WAR leaderboard daily.
 // Fallback static list used until live data loads.
-export const STAR_TIERS_FALLBACK = {
+const STAR_TIERS_FALLBACK = {
   1: ['Shohei Ohtani','Aaron Judge','Mookie Betts','Fernando Tatis Jr.','Ronald Acuña Jr.',
       'Freddie Freeman','Bryce Harper','Juan Soto','Corbin Carroll','Gunnar Henderson',
       'Bobby Witt Jr.','Julio Rodríguez','Elly De La Cruz','Paul Skenes','Spencer Strider',
@@ -99,8 +91,8 @@ export const STAR_TIERS_FALLBACK = {
 };
 
 // Build reverse lookup: name -> tier (mutable, gets updated by fetchFangraphsStarTiers)
-export const PLAYER_TIER = {};
-export function rebuildPlayerTier(tiers) {
+const PLAYER_TIER = {};
+function rebuildPlayerTier(tiers) {
   for (const k of Object.keys(PLAYER_TIER)) delete PLAYER_TIER[k];
   for (const [tier, names] of Object.entries(tiers)) {
     for (const n of names) PLAYER_TIER[n] = parseInt(tier);
@@ -109,9 +101,9 @@ export function rebuildPlayerTier(tiers) {
 rebuildPlayerTier(STAR_TIERS_FALLBACK);
 
 // Cache key for season-based refresh
-export let fangraphsStarLastSeason = null;
+let fangraphsStarLastSeason = null;
 
-export async function fetchFangraphsStarTiers() {
+async function fetchFangraphsStarTiers() {
   const season = currentSeason();
   if (fangraphsStarLastSeason === season) return;
   try {
@@ -162,7 +154,7 @@ export async function fetchFangraphsStarTiers() {
   }
 }
 
-export function getStarPowerScore(game) {
+function getStarPowerScore(game) {
   let score = 0;
   // Check pitcher
   if (game.currentPitcher) {
@@ -181,7 +173,7 @@ export function getStarPowerScore(game) {
   return score;
 }
 
-export function getTeamQualityScore(abbr) {
+function getTeamQualityScore(abbr) {
   const r = teamRecords[abbr];
   if (!r) return 0;
   const games = r.w + r.l;
@@ -194,7 +186,7 @@ export function getTeamQualityScore(abbr) {
   return 0;
 }
 
-export function getPlayoffImportanceScore(abbr) {
+function getPlayoffImportanceScore(abbr) {
   const ctx = playoffContext[abbr];
   if (!ctx) return 0;
   const wcGB = parseFloat(ctx.wcGB) || 0;
@@ -207,7 +199,7 @@ export function getPlayoffImportanceScore(abbr) {
   return 0;
 }
 
-export async function fetchTeamRecords() {
+async function fetchTeamRecords() {
   try {
     const season = currentSeason();
     const date = selectedDate || todayET();
@@ -243,26 +235,26 @@ export async function fetchTeamRecords() {
   } catch (e) { console.warn('Records fetch failed:', e); }
 }
 
-export function teamRec(abbr) {
+function teamRec(abbr) {
   const r = teamRecords[abbr];
   return r ? ` (${r.w}-${r.l})` : '';
 }
 
 // ─── NOTIFICATIONS & TRACKING ────────────────────────────────────────────────
-export let isFirstLoad = true;
-export const prevScores = {};
-export const prevLeaders = {};
-export const notifiedMilestones = new Set();
-export const notifiedAtBats = new Set();
-export const careerHRCache = {};
+let isFirstLoad = true;
+const prevScores = {};
+const prevLeaders = {};
+const notifiedMilestones = new Set();
+const notifiedAtBats = new Set();
+const careerHRCache = {};
 
-export const SEASON_HR_MILESTONES = [10, 20, 30, 40, 50, 60, 61, 62, 70];
-export const SEASON_RBI_MILESTONES = [25, 50, 75, 100, 120, 130, 140, 150];
-export const SEASON_K_MILESTONES = [25, 50, 75, 100, 150, 200, 250, 300, 310, 320, 330, 340, 350];
-export const CAREER_HR_MILESTONES = [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
-export const SEASON_SV_MILESTONES = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65];
+const SEASON_HR_MILESTONES = [10, 20, 30, 40, 50, 60, 61, 62, 70];
+const SEASON_RBI_MILESTONES = [25, 50, 75, 100, 120, 130, 140, 150];
+const SEASON_K_MILESTONES = [25, 50, 75, 100, 150, 200, 250, 300, 310, 320, 330, 340, 350];
+const CAREER_HR_MILESTONES = [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
+const SEASON_SV_MILESTONES = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65];
 
-export function checkAndNotify(name, statLabel, value, milestones) {
+function checkAndNotify(name, statLabel, value, milestones) {
   if (!milestones.includes(value)) return;
   const key = `${name}-${statLabel}-${value}`;
   if (notifiedMilestones.has(key)) return;
@@ -284,7 +276,7 @@ export function checkAndNotify(name, statLabel, value, milestones) {
   }
 }
 
-export function checkBoxscoreMilestones(feed) {
+function checkBoxscoreMilestones(feed) {
   if (!feed?.liveData?.boxscore) return;
   const bs = feed.liveData.boxscore.teams;
   for (const side of ['home', 'away']) {
@@ -314,7 +306,7 @@ export function checkBoxscoreMilestones(feed) {
   }
 }
 
-export async function checkCareerHR(playerId, playerName, currentGameHR) {
+async function checkCareerHR(playerId, playerName, currentGameHR) {
   const cached = careerHRCache[playerId];
   if (cached && cached.gameHR === currentGameHR) return;
   try {
@@ -333,11 +325,11 @@ export async function checkCareerHR(playerId, playerName, currentGameHR) {
 
 // ─── DATE HELPERS ──────────────────────────────────────────────────────────────
 
-export let selectedDate = loadPrefs().selectedDate || todayET();
+let selectedDate = loadPrefs().selectedDate || todayET();
 
-export function currentSeason() { return parseInt((selectedDate || todayET()).slice(0, 4), 10) || new Date().getFullYear(); }
+function currentSeason() { return parseInt((selectedDate || todayET()).slice(0, 4), 10) || new Date().getFullYear(); }
 
-export function formatGameTime(iso) {
+function formatGameTime(iso) {
   try {
     return new Date(iso).toLocaleTimeString('en-US', {
       hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York'
@@ -345,7 +337,7 @@ export function formatGameTime(iso) {
   } catch { return 'TBD'; }
 }
 
-export function setGameDate(date) {
+function setGameDate(date) {
   selectedDate = date || todayET();
   savePrefs({ selectedDate });
   const input = document.getElementById('game-date');
@@ -367,7 +359,7 @@ export function setGameDate(date) {
 //   Total      0–80  raw → mapped to 0–100 via a gentle curve
 //   100 requires: tied extras with runners loaded + T1 stars + playoff race + rivalry
 //
-export function calculateWatchabilityBreakdown(g) {
+function calculateWatchabilityBreakdown(g) {
   const cfg = WATCHABILITY_CONFIG;
   const isFinal   = /final|game over|completed/i.test(g.gameState);
   const isPreview = /scheduled|pre-game|warmup|preview|postponed/i.test(g.gameState);
@@ -453,14 +445,14 @@ export function calculateWatchabilityBreakdown(g) {
   return { score: clamp(raw), situation: sit, context, parts: [{ label: 'Situation', value: sit }, ...parts] };
 }
 
-export function calculateWatchability(g) {
+function calculateWatchability(g) {
   return calculateWatchabilityBreakdown(g).score;
 }
 
-export function clamp(v) { return Math.min(100, Math.max(0, Math.round(v))); }
+function clamp(v) { return Math.min(100, Math.max(0, Math.round(v))); }
 
 // ─── EXTRACT FINAL GAME DETAILS (WP/LP/SV/POTG) ────────────────────────────
-export function extractFinalDetails(feed) {
+function extractFinalDetails(feed) {
   try {
     const decisions = feed.liveData?.decisions || {};
     const bx = feed.liveData?.boxscore?.teams;
@@ -558,10 +550,10 @@ export function extractFinalDetails(feed) {
 }
 
 // ─── PROBABLE PITCHER STATS CACHE ─────────────────────────────────────────────
-export const pitcherStatsCache = {}; // id -> { era, whip, wins, losses, k9, ip, kTotal }
-export const pitcherStatsFetching = new Set();
+const pitcherStatsCache = {}; // id -> { era, whip, wins, losses, k9, ip, kTotal }
+const pitcherStatsFetching = new Set();
 
-export async function fetchProbablePitcherStats(pitcherId) {
+async function fetchProbablePitcherStats(pitcherId) {
   if (!pitcherId || pitcherStatsCache[pitcherId] || pitcherStatsFetching.has(pitcherId)) return;
   pitcherStatsFetching.add(pitcherId);
   try {
@@ -583,11 +575,11 @@ export async function fetchProbablePitcherStats(pitcherId) {
 }
 
 // ─── HOME RUN FEED CACHE ──────────────────────────────────────────────────────
-export let hrFeedCache = {}; // gamePk -> array of HR events
-export let hrFeedLastFetch = {}; // gamePk -> timestamp
-export const HR_FEED_TTL = 45000; // 45s
+let hrFeedCache = {}; // gamePk -> array of HR events
+let hrFeedLastFetch = {}; // gamePk -> timestamp
+const HR_FEED_TTL = 45000; // 45s
 
-export async function fetchGameHRs(gamePk) {
+async function fetchGameHRs(gamePk) {
   const now = Date.now();
   if (hrFeedCache[gamePk] && (now - (hrFeedLastFetch[gamePk] || 0)) < HR_FEED_TTL) {
     return hrFeedCache[gamePk];
@@ -618,7 +610,7 @@ export async function fetchGameHRs(gamePk) {
   }
 }
 
-export function enrichHomeRunEvent(hr, hrPlays, wpByAtBat) {
+function enrichHomeRunEvent(hr, hrPlays, wpByAtBat) {
   const atBatIndex = Number.isFinite(parseInt(hr.ab_number, 10)) ? parseInt(hr.ab_number, 10) - 1 : null;
   const play = hrPlays.find(p => p.about?.atBatIndex === atBatIndex)
     || hrPlays.find(p =>
@@ -647,14 +639,14 @@ export function enrichHomeRunEvent(hr, hrPlays, wpByAtBat) {
   };
 }
 
-export function countRunsFromDescription(desc = '') {
+function countRunsFromDescription(desc = '') {
   const lower = desc.toLowerCase();
   const runners = (lower.match(/ scores/g) || []).length;
   return Math.max(1, runners + 1);
 }
 
 // ─── FETCH LIVE GAME DATA ──────────────────────────────────────────────────────
-export async function fetchLiveGamesData() {
+async function fetchLiveGamesData() {
   const date = selectedDate || todayET();
   let schedData;
   try {
@@ -860,14 +852,14 @@ export async function fetchLiveGamesData() {
 }
 
 // ─── EXPAND PANEL ─────────────────────────────────────────────────────────────
-export const expandedCards = new Set();
-export const expandCache   = {};
-export const EXPAND_TTL    = 30000;
+const expandedCards = new Set();
+const expandCache   = {};
+const EXPAND_TTL    = 30000;
 
-export let activeGamePk = null;
-export let lastAlertedPk = null;
+let activeGamePk = null;
+let lastAlertedPk = null;
 
-export function checkHighLeverageAlerts(games) {
+function checkHighLeverageAlerts(games) {
   const alertEl = document.getElementById('high-leverage-alert');
   const msgEl = document.getElementById('hl-alert-msg');
   const btnEl = document.getElementById('hl-alert-btn');
@@ -894,7 +886,7 @@ export function checkHighLeverageAlerts(games) {
   }
 }
 
-export function toggleExpandCard(gamePk, btn) {
+function toggleExpandCard(gamePk, btn) {
   // Mobile/Legacy expand
   const panel = document.querySelector('.card-expand-panel[data-gpk="' + gamePk + '"]');
   if (panel) {
@@ -912,7 +904,7 @@ export function toggleExpandCard(gamePk, btn) {
   openSidePanel(gamePk);
 }
 
-export async function openSidePanel(gamePk) {
+async function openSidePanel(gamePk) {
   activeGamePk = gamePk;
   const panel = document.getElementById('side-panel');
   panel?.classList.add('open');
@@ -941,7 +933,7 @@ export async function openSidePanel(gamePk) {
   }
 }
 
-export function closeSidePanel() {
+function closeSidePanel() {
   activeGamePk = null;
   document.getElementById('side-panel')?.classList.remove('open');
   document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
@@ -951,7 +943,7 @@ export function closeSidePanel() {
   if (body) body.innerHTML = '<div class="empty-msg">Click on any game card to view live box scores, play-by-play, and advanced metrics here.</div>';
 }
 
-export async function openGameDrawer(gamePk) {
+async function openGameDrawer(gamePk) {
   // Check if we should use side panel (desktop) or drawer (mobile)
   if (window.innerWidth > 1000) {
     openSidePanel(gamePk);
@@ -979,12 +971,12 @@ export async function openGameDrawer(gamePk) {
   }
 }
 
-export function closeGameDrawer() {
+function closeGameDrawer() {
   document.getElementById('game-drawer')?.classList.remove('open');
   document.getElementById('drawer-overlay')?.classList.remove('open');
 }
 
-export async function loadExpandData(gamePk, panel) {
+async function loadExpandData(gamePk, panel) {
   const now = Date.now();
   const cached = expandCache[gamePk];
   if (cached && (now - cached.fetchedAt) < EXPAND_TTL) {
@@ -1005,7 +997,7 @@ export async function loadExpandData(gamePk, panel) {
   }
 }
 
-export function parseExpandData(feed, wpData = []) {
+function parseExpandData(feed, wpData = []) {
   const ls    = feed.liveData && feed.liveData.linescore || {};
   const plays = feed.liveData && feed.liveData.plays     || {};
   const bx    = feed.liveData && feed.liveData.boxscore && feed.liveData.boxscore.teams || {};
@@ -1129,7 +1121,7 @@ export function parseExpandData(feed, wpData = []) {
   return { boxRows, scoringPlays, awayPitching, homePitching, awayAbbr, homeAbbr, topWpaPlays, homeRuns, lineup, bullpen };
 }
 
-export function renderExpandPanel(panel, data) {
+function renderExpandPanel(panel, data) {
   const boxRows      = data.boxRows;
   const scoringPlays = data.scoringPlays;
   const awayPitching = data.awayPitching;
@@ -1255,10 +1247,10 @@ export function renderExpandPanel(panel, data) {
 }
 
 // ─── SORT / FILTER STATE ──────────────────────────────────────────────────────
-export let currentSort   = loadPrefs().sort || 'watchability'; // 'watchability' | 'score' | 'inning'
-export let currentFilter = loadPrefs().filter || null;          // null | 'hot' | 'fire' | 'live'
+let currentSort   = loadPrefs().sort || 'watchability'; // 'watchability' | 'score' | 'inning'
+let currentFilter = loadPrefs().filter || null;          // null | 'hot' | 'fire' | 'live'
 
-export function setSort(s) {
+function setSort(s) {
   currentSort = s;
   savePrefs({ sort: s });
   document.querySelectorAll('[id^="sort-"]').forEach(b => b.classList.remove('active'));
@@ -1267,7 +1259,7 @@ export function setSort(s) {
   if (lastGames) renderGames(lastGames);
 }
 
-export function setFilter(f) {
+function setFilter(f) {
   if (currentFilter === f) {
     currentFilter = null;
     savePrefs({ filter: null });
@@ -1282,7 +1274,7 @@ export function setFilter(f) {
   if (lastGames) renderGames(lastGames);
 }
 
-export function applySortFilter(games) {
+function applySortFilter(games) {
   let g = [...games];
 
   // Filter
@@ -1326,7 +1318,7 @@ export function applySortFilter(games) {
 }
 
 // ─── RENDER GAMES ──────────────────────────────────────────────────────────────
-export function renderGames(games) {
+function renderGames(games) {
   const grid = document.getElementById('games-grid');
   const filtered = applySortFilter(games);
 
@@ -1424,7 +1416,7 @@ export function renderGames(games) {
   grid.appendChild(fragment);
 }
 
-export function renderScoreBreakdown(game) {
+function renderScoreBreakdown(game) {
   const breakdown = game.watchabilityBreakdown;
   if (!breakdown?.parts?.length) return '';
   const chips = breakdown.parts
@@ -1435,7 +1427,7 @@ export function renderScoreBreakdown(game) {
   return chips ? `<div class="score-breakdown">${chips}</div>` : '';
 }
 
-export function renderWinProbSparkline(game) {
+function renderWinProbSparkline(game) {
   const series = game.winProbSeries || [];
   if (series.length < 2) return '';
   const points = series.slice(-36);
@@ -1456,7 +1448,7 @@ export function renderWinProbSparkline(game) {
   </div>`;
 }
 
-export function checkFavoriteAlerts(games) {
+function checkFavoriteAlerts(games) {
   if (isFirstLoad || favoriteTeams.size === 0) return;
   games.filter(isFavoriteGame).forEach(game => {
     const prev = favoriteAlerts[game.gamePk];
@@ -1471,7 +1463,7 @@ export function checkFavoriteAlerts(games) {
 }
 
 // ─── STAT LEADERS ──────────────────────────────────────────────────────────────
-export const BATTING_LEADER_DEFS = [
+const BATTING_LEADER_DEFS = [
   { api: 'hits',                  label: 'Hits' },
   { api: 'homeRuns',              label: 'HR' },
   { api: 'runsBattedIn',          label: 'RBI' },
@@ -1480,7 +1472,7 @@ export const BATTING_LEADER_DEFS = [
   { api: 'stolenBases',           label: 'SB' }
 ];
 
-export const PITCHING_LEADER_DEFS = [
+const PITCHING_LEADER_DEFS = [
   { api: 'inningsPitched',                label: 'IP' },
   { api: 'strikeouts',                    label: 'K' },
   { api: 'earnedRunAverage',              label: 'ERA' },
@@ -1490,9 +1482,9 @@ export const PITCHING_LEADER_DEFS = [
 ];
 
 // ─── ALL-TIME LEADERS CACHE ───────────────────────────────────────────────────
-export let allTimeLeaders = {}; // category -> array of { rank, value, name }
+let allTimeLeaders = {}; // category -> array of { rank, value, name }
 
-export async function fetchAllTimeLeaders(category, group = 'hitting') {
+async function fetchAllTimeLeaders(category, group = 'hitting') {
   if (allTimeLeaders[category]) return allTimeLeaders[category];
   try {
     const data = await requestPool.fetchDedup(
@@ -1512,7 +1504,7 @@ export async function fetchAllTimeLeaders(category, group = 'hitting') {
   }
 }
 
-export async function fetchLeaderGroup(defs, statGroup) {
+async function fetchLeaderGroup(defs, statGroup) {
   const season = currentSeason();
   const date = selectedDate || todayET();
   const promises = defs.map(async def => {
@@ -1534,7 +1526,7 @@ export async function fetchLeaderGroup(defs, statGroup) {
   return (await Promise.all(promises)).filter(Boolean);
 }
 
-export function renderLeaderRow(results, container) {
+function renderLeaderRow(results, container) {
   const row = document.createElement('div');
   row.className = 'leaders-row';
   results.forEach(l => {
@@ -1558,7 +1550,7 @@ export function renderLeaderRow(results, container) {
   container.appendChild(row);
 }
 
-export async function fetchStatLeaders() {
+async function fetchStatLeaders() {
   const container = document.getElementById('leaders-container');
   container.innerHTML = '<div class="empty-msg">Loading stat leaders...</div>';
 
@@ -1592,15 +1584,15 @@ export async function fetchStatLeaders() {
 }
 
 // ─── PLAYOFF RACES ──────────────────────────────────────────────────────────
-export const DIV_NAMES = { 200: 'AL West', 201: 'AL East', 202: 'AL Central', 203: 'NL West', 204: 'NL East', 205: 'NL Central' };
-export const AL_DIVS = [201, 202, 200];
-export const NL_DIVS = [204, 205, 203];
+const DIV_NAMES = { 200: 'AL West', 201: 'AL East', 202: 'AL Central', 203: 'NL West', 204: 'NL East', 205: 'NL Central' };
+const AL_DIVS = [201, 202, 200];
+const NL_DIVS = [204, 205, 203];
 
 // ─── TEAM L10 FORM CACHE ──────────────────────────────────────────────────────
-export const teamL10Cache = {}; // abbr -> { w, l, streak, streakDir }
-export let l10LastFetchDate = null;
+const teamL10Cache = {}; // abbr -> { w, l, streak, streakDir }
+let l10LastFetchDate = null;
 
-export async function fetchAllTeamL10() {
+async function fetchAllTeamL10() {
   const date = selectedDate || todayET();
   if (l10LastFetchDate === date && Object.keys(teamL10Cache).length > 0) return;
   const allAbbrs = Object.keys(TEAM_DATA).filter(a => a !== 'ATH');
@@ -1645,21 +1637,21 @@ export async function fetchAllTeamL10() {
   l10LastFetchDate = date;
 }
 
-export function l10Html(abbr) {
+function l10Html(abbr) {
   const d = teamL10Cache[abbr];
   if (!d || d.games < 5) return '<span class="l10-cell even">—</span>';
   const cls = d.w >= 7 ? 'hot' : d.w <= 3 ? 'cold' : 'even';
   return `<span class="l10-cell ${cls}">${d.w}-${d.l}</span>`;
 }
 
-export function streakHtml(abbr) {
+function streakHtml(abbr) {
   const d = teamL10Cache[abbr];
   if (!d || !d.streakDir) return '<span class="streak-cell">—</span>';
   const cls = d.streakDir === 'W' ? 'win' : 'loss';
   return `<span class="streak-cell ${cls}">${d.streakDir}${d.streakCount}</span>`;
 }
 
-export async function fetchPlayoffRaces(todayGames) {
+async function fetchPlayoffRaces(todayGames) {
   const container = document.getElementById('playoffs-container');
   container.innerHTML = '<div class="empty-msg">Loading standings...</div>';
   try {
@@ -1885,7 +1877,7 @@ export async function fetchPlayoffRaces(todayGames) {
 }
 
 // ─── MILESTONES TAB ─────────────────────────────────────────────────────────
-export const MILESTONE_DEFS = [
+const MILESTONE_DEFS = [
   { api: 'hits',           group: 'hitting',  label: 'Season H',  milestones: [10, 25, 50, 100, 150, 200] },
   { api: 'homeRuns',       group: 'hitting',  label: 'Season HR', milestones: [10, 20, 30, 40, 50, 60, 61, 62, 70] },
   { api: 'runsBattedIn',   group: 'hitting',  label: 'Season RBI',milestones: [25, 50, 75, 100, 120, 130, 140, 150] },
@@ -1895,13 +1887,13 @@ export const MILESTONE_DEFS = [
   { api: 'inningsPitched', group: 'pitching', label: 'Season IP', milestones: [50, 100, 150, 200, 250], isFloat: true }
 ];
 
-export const CAREER_HR_MS =  [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
-export const CAREER_H_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
-export const CAREER_RBI_MS = [10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000];
-export const CAREER_K_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
-export let milestoneFilter = loadPrefs().milestoneFilter || 'all';
+const CAREER_HR_MS =  [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
+const CAREER_H_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
+const CAREER_RBI_MS = [10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000];
+const CAREER_K_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
+let milestoneFilter = loadPrefs().milestoneFilter || 'all';
 
-export const MILESTONE_META = {
+const MILESTONE_META = {
   'Season H': { short: 'H', type: 'hitter', scope: 'season', major: [100,150,200], historic: [200] },
   'Season HR': { short: 'HR', type: 'hitter', scope: 'season', major: [30,40,50,60], historic: [60,61,62,70] },
   'Season RBI': { short: 'RBI', type: 'hitter', scope: 'season', major: [100,120,130,140,150], historic: [150] },
@@ -1915,21 +1907,21 @@ export const MILESTONE_META = {
   'Career K': { short: 'K', type: 'pitcher', scope: 'career', major: [1000,2000,3000], historic: [3000] }
 };
 
-export function setMilestoneFilter(filter) {
+function setMilestoneFilter(filter) {
   milestoneFilter = filter;
   savePrefs({ milestoneFilter: filter });
   if (window.lastMilestones) renderMilestoneBoard(window.lastMilestones);
 }
 
-export const followedChases = new Set(loadPrefs().followedChases || []);
-export function toggleFollowChase(playerKey) {
+const followedChases = new Set(loadPrefs().followedChases || []);
+function toggleFollowChase(playerKey) {
   if (followedChases.has(playerKey)) followedChases.delete(playerKey);
   else followedChases.add(playerKey);
   savePrefs({ followedChases: [...followedChases] });
   if (window.lastMilestones) renderMilestoneBoard(window.lastMilestones);
 }
 
-export function milestoneImportance(m) {
+function milestoneImportance(m) {
   const meta = MILESTONE_META[m.stat] || {};
   if ((meta.historic || []).includes(Number(m.next))) return 'Historic';
   if ((meta.major || []).includes(Number(m.next))) return 'Major';
@@ -1937,7 +1929,7 @@ export function milestoneImportance(m) {
   return 'Round number';
 }
 
-export function milestoneUrgency(m) {
+function milestoneUrgency(m) {
   if (m.playingNow && m.diff <= 2) return 'Could happen today';
   if (m.diff <= 1) return 'Could happen today';
   if (m.playingToday && m.diff <= 3) return 'Could happen today';
@@ -1946,7 +1938,7 @@ export function milestoneUrgency(m) {
   return 'Longer watch';
 }
 
-export function milestonePriority(m) {
+function milestonePriority(m) {
   const importance = milestoneImportance(m);
   let score = 100 - Math.min(m.diff, 20) * 3;
   if (m.playingNow) score += 22;
@@ -1958,18 +1950,18 @@ export function milestonePriority(m) {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-export function isFavoriteTeam(team) {
+function isFavoriteTeam(team) {
   return favoriteTeams.has(normalizeAbbr(team));
 }
 
-export function milestoneProgress(m) {
+function milestoneProgress(m) {
   const current = parseFloat(m.current) || 0;
   const next = parseFloat(m.next) || 1;
   const pct = Math.max(0, Math.min(100, (current / next) * 100));
   return Math.round(pct);
 }
 
-export function milestonePaceText(m) {
+function milestonePaceText(m) {
   const current = parseFloat(m.current) || 0;
   const diff = parseFloat(m.diff) || 0;
   if (m.playingNow && diff <= 2) return 'live watch';
@@ -1980,8 +1972,8 @@ export function milestonePaceText(m) {
   return 'longer chase';
 }
 
-export const playerHeatCache = {};
-export async function fetchPlayerHeat(playerId, group) {
+const playerHeatCache = {};
+async function fetchPlayerHeat(playerId, group) {
   if (playerHeatCache[playerId]) return playerHeatCache[playerId];
   try {
     const season = currentSeason();
@@ -2003,8 +1995,8 @@ export async function fetchPlayerHeat(playerId, group) {
   }
 }
 
-export let reachedMilestones = [];
-export function checkReachedMilestones(milestones) {
+let reachedMilestones = [];
+function checkReachedMilestones(milestones) {
   const now = Date.now();
   const today = todayET();
   const reached = [];
@@ -2028,7 +2020,7 @@ export function checkReachedMilestones(milestones) {
   reachedMilestones = log;
 }
 
-export async function fetchMilestones(todayGames) {
+async function fetchMilestones(todayGames) {
   const container = document.getElementById('milestones-container');
   container.innerHTML = '<div class="empty-msg">Loading milestones...</div>';
   const season = currentSeason();
@@ -2247,7 +2239,7 @@ export async function fetchMilestones(todayGames) {
   }
 }
 
-export function renderMilestoneBoard(allMilestones) {
+function renderMilestoneBoard(allMilestones) {
   const container = document.getElementById('milestones-container');
   if (!container) return;
   const filterFns = {
@@ -2325,7 +2317,7 @@ export function renderMilestoneBoard(allMilestones) {
     </div>`;
 }
 
-export function renderMilestoneCard(m) {
+function renderMilestoneCard(m) {
   const statusClass = m.playingNow ? ' now' : m.playingToday ? ' today' : '';
   const importanceClass = (m.importance || '').toLowerCase().replace(/\s+/g, '-');
   const diffLabel = Number(m.diff) === 1 ? `1 ${m.shortStat} away` : `${m.diff} ${m.shortStat} away`;
@@ -2372,21 +2364,21 @@ export function renderMilestoneCard(m) {
 }
 
 // ─── SPOILER MODE ────────────────────────────────────────────────────────────
-export let spoilerTeams = new Set(JSON.parse(localStorage.getItem('spoilerTeams') || '[]'));
+let spoilerTeams = new Set(JSON.parse(localStorage.getItem('spoilerTeams') || '[]'));
 
-export function saveSpoilerTeams() {
+function saveSpoilerTeams() {
   try { localStorage.setItem('spoilerTeams', JSON.stringify([...spoilerTeams])); } catch(e) {}
 }
 
-export function saveFavoriteTeams() {
+function saveFavoriteTeams() {
   savePrefs({ favoriteTeams: [...favoriteTeams] });
 }
 
-export function isFavoriteGame(game) {
+function isFavoriteGame(game) {
   return favoriteTeams.has(game.awayTeam) || favoriteTeams.has(game.homeTeam);
 }
 
-export function toggleFavoriteTeam(abbr) {
+function toggleFavoriteTeam(abbr) {
   if (favoriteTeams.has(abbr)) favoriteTeams.delete(abbr);
   else favoriteTeams.add(abbr);
   saveFavoriteTeams();
@@ -2394,14 +2386,14 @@ export function toggleFavoriteTeam(abbr) {
   if (lastGames) renderGames(lastGames);
 }
 
-export function clearAllFavorites() {
+function clearAllFavorites() {
   favoriteTeams.clear();
   saveFavoriteTeams();
   renderFavoriteGrid();
   if (lastGames) renderGames(lastGames);
 }
 
-export function toggleSpoilerTeam(abbr) {
+function toggleSpoilerTeam(abbr) {
   if (spoilerTeams.has(abbr)) spoilerTeams.delete(abbr);
   else spoilerTeams.add(abbr);
   saveSpoilerTeams();
@@ -2409,14 +2401,14 @@ export function toggleSpoilerTeam(abbr) {
   if (lastGames) renderGames(lastGames);
 }
 
-export function clearAllSpoilers() {
+function clearAllSpoilers() {
   spoilerTeams.clear();
   saveSpoilerTeams();
   renderSpoilerGrid();
   if (lastGames) renderGames(lastGames);
 }
 
-export function renderSpoilerGrid() {
+function renderSpoilerGrid() {
   const grid = document.getElementById('spoiler-team-grid');
   grid.innerHTML = ALL_TEAM_ABBRS.map(abbr => {
     const isSpoiled = spoilerTeams.has(abbr);
@@ -2429,7 +2421,7 @@ export function renderSpoilerGrid() {
   }).join('');
 }
 
-export function renderFavoriteGrid() {
+function renderFavoriteGrid() {
   const grid = document.getElementById('favorite-team-grid');
   if (!grid) return;
   grid.innerHTML = ALL_TEAM_ABBRS.map(abbr => {
@@ -2444,7 +2436,7 @@ export function renderFavoriteGrid() {
 }
 
 // ─── SIDEBAR CONTROLS ────────────────────────────────────────────────────────
-export function openSidebar() {
+function openSidebar() {
   document.getElementById('sidebar').classList.add('open');
   document.getElementById('sidebar-overlay').classList.add('open');
   renderStarList();
@@ -2452,12 +2444,12 @@ export function openSidebar() {
   renderFavoriteGrid();
 }
 
-export function closeSidebar() {
+function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-overlay').classList.remove('open');
 }
 
-export function switchSidebarTab(tab) {
+function switchSidebarTab(tab) {
   renderWithErrorBoundary(() => {
     document.querySelectorAll('.sidebar-tab').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.sidebar-section').forEach(s => s.classList.remove('active'));
@@ -2466,7 +2458,7 @@ export function switchSidebarTab(tab) {
   }, 'sb-' + tab, 'Sidebar tab failed to load');
 }
 
-export function revealSpoiler(el, gamePk) {
+function revealSpoiler(el, gamePk) {
   const card = el.closest('.game-card');
   if (!card || !card._fullGame) return;
   const game = card._fullGame;
@@ -2481,7 +2473,7 @@ export function revealSpoiler(el, gamePk) {
 }
 
 // Renders full game info into an existing card element (used for reveal + main render)
-export function renderSingleGameCard(card, game) {
+function renderSingleGameCard(card, game) {
   const wi = game.watchabilityIndex;
   const isFinal = /final/i.test(game.inningStatus);
   const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
@@ -2634,7 +2626,7 @@ export function renderSingleGameCard(card, game) {
   }
 }
 
-export function renderStarList() {
+function renderStarList() {
   const container = document.getElementById('sb-star-list');
   // Group PLAYER_TIER back into tiers
   const tiers = { 1: [], 2: [], 3: [] };
@@ -2672,11 +2664,11 @@ export function renderStarList() {
 // Silver Slugger: hitters only by position, ranked by OPS+ (park-adjusted).
 
 // ── Fangraphs WAR cache (30-min TTL) ─────────────────────────────────────────
-export let _fgWarCache = null;
-export let _fgWarCacheTime = 0;
-export const FG_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+let _fgWarCache = null;
+let _fgWarCacheTime = 0;
+const FG_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-export async function fetchFangraphsWAR(season) {
+async function fetchFangraphsWAR(season) {
   const now = Date.now();
   if (_fgWarCache && (now - _fgWarCacheTime) < FG_CACHE_TTL) {
     return _fgWarCache;
@@ -2695,10 +2687,10 @@ export async function fetchFangraphsWAR(season) {
   return _fgWarCache;
 }
 
-export const POSITIONS_SS_AL = ['C','1B','2B','3B','SS','LF','CF','RF','DH'];
-export const POSITIONS_SS_NL = ['C','1B','2B','3B','SS','LF','CF','RF','DH']; // NL has no pitcher SS since universal DH
+const POSITIONS_SS_AL = ['C','1B','2B','3B','SS','LF','CF','RF','DH'];
+const POSITIONS_SS_NL = ['C','1B','2B','3B','SS','LF','CF','RF','DH']; // NL has no pitcher SS since universal DH
 
-export async function fetchAwardRaces() {
+async function fetchAwardRaces() {
   const container = document.getElementById('awards-container');
   container.innerHTML = '<div class="empty-msg">Loading award races...</div>';
   const season = currentSeason();
@@ -3445,7 +3437,7 @@ export async function fetchAwardRaces() {
 // ─── HOME RUNS TAB ────────────────────────────────────────────────────────────
 // Spray chart coordinate conversion. Prefer Savant's feet coordinates because
 // they directly describe landing direction from home plate.
-export function savantToSVG(hr) {
+function savantToSVG(hr) {
   const plateX = 100;
   const plateY = 155;
   const ftScale = 0.32;
@@ -3465,13 +3457,13 @@ export function savantToSVG(hr) {
   };
 }
 
-export function parkCountLabel(n) {
+function parkCountLabel(n) {
   if (n === null || n === undefined) return '—';
   if (n === 0) return '0';
   return `${n}/30`;
 }
 
-export function evColor(ev) {
+function evColor(ev) {
   if (!ev) return 'var(--text-dim)';
   const v = parseFloat(ev);
   if (v >= 110) return 'var(--danger)';
@@ -3480,24 +3472,24 @@ export function evColor(ev) {
   return '#60a5fa';
 }
 
-export function hrRunLabel(rbi) {
+function hrRunLabel(rbi) {
   const runs = Math.max(1, parseInt(rbi, 10) || 1);
   return runs === 1 ? 'Solo HR' : `${runs}-run HR`;
 }
 
-export function formatHomeRunScore(hr) {
+function formatHomeRunScore(hr) {
   if (!hr.scoreAfter) return hrRunLabel(hr.rbi);
   const before = hr.scoreBefore ? `was ${hr.scoreBefore.away}-${hr.scoreBefore.home}` : null;
   return `${hrRunLabel(hr.rbi)} to make it ${hr.team_batting} ${hr.scoreAfter.away}-${hr.scoreAfter.home}${before ? ` (${before})` : ''}`;
 }
 
-export function formatWpa(hr) {
+function formatWpa(hr) {
   if (typeof hr.battingTeamWpa !== 'number') return 'WPA —';
   const sign = hr.battingTeamWpa > 0 ? '+' : '';
   return `WPA ${sign}${hr.battingTeamWpa.toFixed(1)} pts`;
 }
 
-export function uniqueTop(list, sorter, limit = 3) {
+function uniqueTop(list, sorter, limit = 3) {
   const seen = new Set();
   return [...list]
     .filter(hr => {
@@ -3510,7 +3502,7 @@ export function uniqueTop(list, sorter, limit = 3) {
     .slice(0, limit);
 }
 
-export function renderHomeRunCard(hr) {
+function renderHomeRunCard(hr) {
   const ev = parseFloat(hr.hit_speed || hr.launch_speed || 0);
   const la = parseFloat(hr.hit_angle || hr.launch_angle || 0);
   const dist = parseInt(hr.hit_distance || 0);
@@ -3602,7 +3594,7 @@ export function renderHomeRunCard(hr) {
   </div>`;
 }
 
-export async function fetchAndRenderHomeRuns(games) {
+async function fetchAndRenderHomeRuns(games) {
   const container = document.getElementById('homeruns-container');
   if (!container) return;
 
@@ -3682,7 +3674,7 @@ export async function fetchAndRenderHomeRuns(games) {
     `).join('')}`;
 }
 
-export async function fetchImpactPlays(gamePk) {
+async function fetchImpactPlays(gamePk) {
   try {
     const [feed, wpData] = await Promise.all([
       requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }),
@@ -3735,7 +3727,7 @@ export async function fetchImpactPlays(gamePk) {
   }
 }
 
-export async function fetchAndRenderTicker(games) {
+async function fetchAndRenderTicker(games) {
   const container = document.getElementById('ticker-container');
   if (!container) return;
   const activePks = (games || [])
@@ -3773,29 +3765,29 @@ export async function fetchAndRenderTicker(games) {
 }
 
 // ─── POLLING ───────────────────────────────────────────────────────────────────
-export let polling = false;
-export let pollTimer = null;
-export let pollCount = 0;
-export let lastGames = null;
-export let lastAuxRefresh = 0;
-export let currentPollDelay = 15000;
-export const FAST_POLL_MS = 15000;
-export const PREGAME_POLL_MS = 60000;
-export const IDLE_POLL_MS = 120000;
-export const EMPTY_DAY_POLL_MS = 300000;
+let polling = false;
+let pollTimer = null;
+let pollCount = 0;
+let lastGames = null;
+let lastAuxRefresh = 0;
+let currentPollDelay = 15000;
+const FAST_POLL_MS = 15000;
+const PREGAME_POLL_MS = 60000;
+const IDLE_POLL_MS = 120000;
+const EMPTY_DAY_POLL_MS = 300000;
 
-export function isGameLiveNow(game) {
+function isGameLiveNow(game) {
   return game && !/scheduled|pre-game|warmup|preview|final/i.test(`${game.gameState} ${game.inningStatus}`);
 }
 
-export function nextPollDelayForGames(games) {
+function nextPollDelayForGames(games) {
   if (!games || games.length === 0) return EMPTY_DAY_POLL_MS;
   if (games.some(isGameLiveNow)) return FAST_POLL_MS;
   if (games.some(g => /scheduled|pre-game|warmup|preview/i.test(`${g.gameState} ${g.inningStatus}`))) return PREGAME_POLL_MS;
   return IDLE_POLL_MS;
 }
 
-export function scheduleNextPoll(games) {
+function scheduleNextPoll(games) {
   if (!polling) return;
   clearTimeout(pollTimer);
   currentPollDelay = nextPollDelayForGames(games);
@@ -3805,7 +3797,7 @@ export function scheduleNextPoll(games) {
   if (updateEl && updateEl.textContent) updateEl.textContent += ` · next ${mins}`;
 }
 
-export async function startPolling() {
+async function startPolling() {
   document.getElementById('start-btn').disabled = true;
   document.getElementById('stop-btn').disabled  = false;
   document.getElementById('status-dot').classList.add('live');
@@ -3827,7 +3819,7 @@ export async function startPolling() {
   setTimeout(() => { if (lastGames) renderGames(lastGames); }, 12000);
 }
 
-export function stopPolling() {
+function stopPolling() {
   polling = false;
   clearTimeout(pollTimer);
   document.getElementById('start-btn').disabled = false;
@@ -3835,7 +3827,7 @@ export function stopPolling() {
   document.getElementById('status-dot').classList.remove('live');
 }
 
-export function hydratePreferenceControls() {
+function hydratePreferenceControls() {
   const dateInput = document.getElementById('game-date');
   if (dateInput) dateInput.value = selectedDate;
 
@@ -3853,7 +3845,7 @@ export function hydratePreferenceControls() {
 }
 
 
-export async function pollGames() {
+async function pollGames() {
   pollCount++;
   try {
     usedStaleData.value = false;
@@ -3925,7 +3917,7 @@ export async function pollGames() {
 }
 
 // ─── THE DUEL: PITCHER VS BATTER ───────────────────────────────────────────────
-export async function fetchAndRenderDuel(games) {
+async function fetchAndRenderDuel(games) {
   const container = document.getElementById('duel-container');
   if (!container) return;
 
@@ -3965,7 +3957,7 @@ export async function fetchAndRenderDuel(games) {
   }
 }
 
-export async function renderLiveDuelCard(card, g) {
+async function renderLiveDuelCard(card, g) {
   try {
     const batterId = (await getPlayerIdByName(g.currentBatter.name)) || null;
     const pitcherId = (await getPlayerIdByName(g.currentPitcher.name)) || null;
@@ -4012,7 +4004,7 @@ export async function renderLiveDuelCard(card, g) {
   }
 }
 
-export async function getPlayerIdByName(name) {
+async function getPlayerIdByName(name) {
   // Simple search or lookup in existing tiers
   // For now, let's try searching the API
   try {
@@ -4021,7 +4013,7 @@ export async function getPlayerIdByName(name) {
   } catch { return null; }
 }
 
-export async function runSimulatedDuel(bId, pId, container) {
+async function runSimulatedDuel(bId, pId, container) {
   if (!bId || !pId) {
     const bName = document.getElementById('duel-batter-search')?.value;
     const pName = document.getElementById('duel-pitcher-search')?.value;
