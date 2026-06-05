@@ -1012,6 +1012,7 @@ function toggleExpandCard(gamePk, btn) {
 async function openSidePanel(gamePk) {
   activeGamePk = gamePk;
   const panel = document.getElementById('side-panel');
+  panel?.classList.add('open');
   const title = document.getElementById('side-panel-title');
   const body = document.getElementById('side-panel-body');
   const game = gameDetailsByPk[gamePk];
@@ -1039,6 +1040,7 @@ async function openSidePanel(gamePk) {
 
 function closeSidePanel() {
   activeGamePk = null;
+  document.getElementById('side-panel')?.classList.remove('open');
   document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
   const body = document.getElementById('side-panel-body');
   const title = document.getElementById('side-panel-title');
