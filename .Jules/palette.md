@@ -5,3 +5,7 @@
 ## 2026-06-05 - Accessible Clickable Containers
 **Learning:** Interactive "cards" or containers that aren't native buttons must have explicit ARIA roles, tab indices, and keyboard event handlers (Enter/Space) to be accessible. Providing a high-contrast focus-visible outline is critical for visibility on dark theme backgrounds.
 **Action:** When making a div clickable, always add role="button", tabindex="0", and a keydown listener. Use a themed gold focus outline for dark modes.
+
+## 2026-06-05 - Prioritize Active Content
+**Learning:** For real-time dashboards, users usually care most about what's happening *right now*. Prioritizing "Live" states over "Scheduled" or "Final" states by default reduces cognitive load and helps users find relevant information faster.
+**Action:** Implement a 3-tier status priority (Ongoing > Scheduled > Completed) for default sorting of real-time data feeds.
