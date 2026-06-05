@@ -16,19 +16,34 @@ export class RequestPool {
   }
 
   async fetchDedup(url, options = {}) {
-    const { cacheKey = url, timeout = 10000 } = options;
+    const { cacheKey = url, timeout = 10000, ttl = null } = options;
     
-    // Return existing pending request if available
+    // 1. Check existing pending request
     if (this.pending.has(cacheKey)) {
       this.metrics.deduplicatedRequests++;
-      console.log(`[RequestPool] Cache hit: ${cacheKey}`);
+      console.log(`[RequestPool] Pending hit: ${cacheKey}`);
       return this.pending.get(cacheKey);
+    }
+
+    // 2. Check persistent cache if TTL is relevant
+    const cached = persistentCache.get(cacheKey);
+    if (cached) {
+      this.metrics.deduplicatedRequests++;
+      console.log(`[RequestPool] Persistent hit: ${cacheKey}`);
+      return Promise.resolve(cached);
     }
 
     this.metrics.totalRequests++;
     const startTime = performance.now();
     
     const promise = fetchJson(url, { cacheKey, timeoutMs: timeout })
+      .then(data => {
+        // Save to persistent cache if TTL requested
+        if (ttl) {
+          persistentCache.set(cacheKey, data, ttl);
+        }
+        return data;
+      })
       .finally(() => {
         this.pending.delete(cacheKey);
         const elapsed = performance.now() - startTime;
@@ -192,7 +207,11 @@ export class PersistentCache {
 
   set(key, value, ttlMs = null) {
     const fullKey = this.prefix + key;
-    const entry = { value, savedAt: Date.now() };
+    const entry = {
+      value,
+      savedAt: Date.now(),
+      expiresAt: ttlMs ? Date.now() + ttlMs : null
+    };
     
     try {
       localStorage.setItem(fullKey, JSON.stringify(entry));
@@ -203,14 +222,14 @@ export class PersistentCache {
     this.memory.set(fullKey, entry);
     
     if (ttlMs) {
-      this.ttl[fullKey] = Date.now() + ttlMs;
+      this.ttl[fullKey] = entry.expiresAt;
     }
   }
 
   get(key) {
     const fullKey = this.prefix + key;
     
-    // Check if expired
+    // Check if expired in memory TTL map
     if (this.ttl[fullKey] && Date.now() > this.ttl[fullKey]) {
       this.delete(key);
       return null;
@@ -218,7 +237,12 @@ export class PersistentCache {
 
     // Try memory first
     if (this.memory.has(fullKey)) {
-      return this.memory.get(fullKey).value;
+      const entry = this.memory.get(fullKey);
+      if (entry.expiresAt && Date.now() > entry.expiresAt) {
+        this.delete(key);
+        return null;
+      }
+      return entry.value;
     }
 
     // Try localStorage
@@ -226,7 +250,14 @@ export class PersistentCache {
       const stored = localStorage.getItem(fullKey);
       if (stored) {
         const entry = JSON.parse(stored);
+        if (entry.expiresAt && Date.now() > entry.expiresAt) {
+          this.delete(key);
+          return null;
+        }
         this.memory.set(fullKey, entry);
+        if (entry.expiresAt) {
+          this.ttl[fullKey] = entry.expiresAt;
+        }
         return entry.value;
       }
     } catch (e) {

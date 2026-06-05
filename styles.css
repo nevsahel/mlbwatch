@@ -19,44 +19,6 @@
   .status-dot.live { background: #4ade80; box-shadow: 0 0 6px #4ade80; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
-  .newswire {
-    background: #000;
-    color: #ffb100;
-    font-family: 'Courier New', Courier, monospace;
-    height: 34px;
-    display: flex;
-    align-items: center;
-    overflow: hidden;
-    border-bottom: 1px solid #333;
-    z-index: 90;
-  }
-  .newswire-label {
-    background: #8b2635;
-    color: #fdfcf0;
-    font-weight: 900;
-    font-size: 0.65rem;
-    padding: 0 12px;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    z-index: 95;
-    box-shadow: 4px 0 8px rgba(0,0,0,0.5);
-  }
-  .newswire-track {
-    display: flex;
-    white-space: nowrap;
-    animation: scroll-left 40s linear infinite;
-    padding-left: 20px;
-  }
-  .newswire-item {
-    font-size: 0.85rem;
-    padding-right: 60px;
-    font-weight: 700;
-  }
-  @keyframes scroll-left {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-100%); }
-  }
 
   .controls {
     background: #1b3328;
@@ -105,11 +67,12 @@
     position: sticky;
     top: 100px;
     height: calc(100vh - 140px);
-    display: flex;
+    display: none;
     flex-direction: column;
     box-shadow: 0 4px 0 #0a1a13;
     overflow: hidden;
   }
+  .side-panel.open { display: flex; }
   .side-panel-header {
     padding: 16px;
     border-bottom: 1px solid #2a4a3a;
@@ -159,6 +122,7 @@
     box-shadow: 0 4px 0 #0a1a13;
   }
   .game-card:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #0a1a13; }
+  .game-card:focus-visible { outline: 3px solid #f59e0b; outline-offset: 4px; box-shadow: 0 6px 0 #0a1a13; }
   .game-card.active-side { border-color: #f5e6be; box-shadow: 0 0 15px rgba(245, 230, 190, 0.3); }
   .game-card.hot { border-color: #f59e0b44; }
   .game-card.fire { border-color: #4ade8077; }
