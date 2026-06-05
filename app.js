@@ -218,8 +218,8 @@ async function fetchFangraphsStarTiers() {
     ];
 
     const [hitData, pitData] = await Promise.all([
-      await requestPool.fetchDedup(hitUrl),
-      await requestPool.fetchDedup(pitUrl)
+      requestPool.fetchDedup(hitUrl),
+      requestPool.fetchDedup(pitUrl)
     ]);
 
     // Combine hitters + pitchers, sort by WAR descending, assign tiers by rank
@@ -1739,7 +1739,7 @@ async function fetchAllTeamL10() {
       teamL10Cache[abbr] = { w, l, streakCount, streakDir, games: last10.length };
     } catch(e) {}
   }));
-  l10LastFetchDate = today;
+  l10LastFetchDate = date;
 }
 
 function l10Html(abbr) {
@@ -2218,8 +2218,8 @@ async function fetchMilestones(todayGames) {
     // Fetch career milestones
     try {
       const [hitPool2, pitPool2] = await Promise.all([
-        (await fetch(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30`)).json(),
-        (await fetch(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30`)).json()
+        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30`, { ttl: 900000 }),
+        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30`, { ttl: 900000 })
       ]);
 
       const playerMap = {};
@@ -2238,11 +2238,14 @@ async function fetchMilestones(todayGames) {
 
       await Promise.all(players.map(async ({ pid, name, team, group }) => {
         try {
-          // NOTE: MLB API career stats don't seem to support endDate reliably in some testing,
-          // but we include it anyway in case it works for some segments or future updates.
+          // BOLT OPTIMIZATION: Only fetch career stats relevant to the player's primary role to halve network requests.
+          // Ohtani (660271) is always treated as both a hitter and a pitcher.
+          const isHitter = group === 'hitting' || pid === OHTANI_ID;
+          const isPitcher = group === 'pitching' || pid === OHTANI_ID;
+
           const [hitData, pitData] = await Promise.all([
-            batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/people/${pid}/stats?stats=career&group=hitting&endDate=${date}`, { ttl: 3600000 })),
-            batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/people/${pid}/stats?stats=career&group=pitching&endDate=${date}`, { ttl: 3600000 }))
+            isHitter ? batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/people/${pid}/stats?stats=career&group=hitting&endDate=${date}`, { ttl: 3600000 })) : Promise.resolve({}),
+            isPitcher ? batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/people/${pid}/stats?stats=career&group=pitching&endDate=${date}`, { ttl: 3600000 })) : Promise.resolve({})
           ]);
           const hitStat = hitData.stats?.[0]?.splits?.[0]?.stat;
           const pitStat = pitData.stats?.[0]?.splits?.[0]?.stat;
@@ -3007,11 +3010,12 @@ async function fetchAwardRaces() {
 
     // ── 6. ROTY: rookies only, hitters + pitchers, ranked by WAR then stats ──
     // MLB API has a playerPool=rookies param — fetch both groups
+    // BOLT OPTIMIZATION: Use requestPool for deduplication and persistent caching
     const [alRookH, nlRookH, alRookP, nlRookP] = await Promise.all([
-      fetch(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`).then(r=>r.json()).catch(()=>({})),
-      fetch(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`).then(r=>r.json()).catch(()=>({})),
-      fetch(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`).then(r=>r.json()).catch(()=>({})),
-      fetch(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`).then(r=>r.json()).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
     ]);
 
     const alRookHitters  = attachWAR(buildPool(alRookH), false);
