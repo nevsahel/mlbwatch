@@ -1,5 +1,4 @@
 import { fetchJson, escapeHTML, todayET } from './core.js';
-import { fetchJson, escapeHTML } from "./core.js";
 /* ───────────────────────────────────────────────────────────────────────────
    PERFORMANCE & REQUEST MANAGEMENT UTILITIES
    ─────────────────────────────────────────────────────────────────────────── */

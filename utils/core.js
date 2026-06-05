@@ -4,7 +4,7 @@
 
 const APP_PREFS_KEY = 'mlbWatchPrefsV1';
 const DATA_CACHE_PREFIX = 'mlbWatchCache:';
-let usedStaleData = false;
+export let usedStaleData = { value: false };
 
 export function escapeHTML(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -51,7 +51,7 @@ export async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}
   } catch (error) {
     const cached = cacheKey ? readCache(cacheKey) : null;
     if (cached) {
-      usedStaleData = true;
+      usedStaleData.value = true;
       console.warn(`Using stale cache for ${cacheKey}:`, error.message);
       return cached.data;
     }

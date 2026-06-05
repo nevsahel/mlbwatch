@@ -227,7 +227,9 @@ import {
   openSidebar, closeSidebar, switchSidebarTab, clearAllFavorites,
   clearAllSpoilers, startPolling, stopPolling, setGameDate,
   todayET, closeGameDrawer, switchTab, setSort, setFilter,
-  closeSidePanel, runSimulatedDuel, revealSpoiler
+  closeSidePanel, runSimulatedDuel, revealSpoiler,
+  toggleExpandCard, openGameDrawer, toggleFavoriteTeam, toggleSpoilerTeam,
+  setMilestoneFilter, toggleFollowChase
 } from "./app.js";
 
 window.openSidebar = openSidebar;
@@ -246,6 +248,12 @@ window.setFilter = setFilter;
 window.closeSidePanel = closeSidePanel;
 window.runSimulatedDuel = runSimulatedDuel;
 window.revealSpoiler = revealSpoiler;
+window.toggleExpandCard = toggleExpandCard;
+window.openGameDrawer = openGameDrawer;
+window.toggleFavoriteTeam = toggleFavoriteTeam;
+window.toggleSpoilerTeam = toggleSpoilerTeam;
+window.setMilestoneFilter = setMilestoneFilter;
+window.toggleFollowChase = toggleFollowChase;
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(() => {}));
