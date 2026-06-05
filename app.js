@@ -1464,21 +1464,21 @@ function checkFavoriteAlerts(games) {
 
 // ─── STAT LEADERS ──────────────────────────────────────────────────────────────
 const BATTING_LEADER_DEFS = [
-  { api: 'hits',                  label: 'Hits' },
-  { api: 'homeRuns',              label: 'HR' },
-  { api: 'runsBattedIn',          label: 'RBI' },
-  { api: 'battingAverage',        label: 'AVG' },
-  { api: 'onBasePlusSlugging',    label: 'OPS' },
-  { api: 'stolenBases',           label: 'SB' }
+  { api: 'hits',                  label: 'Hits', sortStat: 'hits',               order: 'desc' },
+  { api: 'homeRuns',              label: 'HR',   sortStat: 'homeRuns',           order: 'desc' },
+  { api: 'runsBattedIn',          label: 'RBI',  sortStat: 'runsBattedIn',       order: 'desc' },
+  { api: 'battingAverage',        label: 'AVG',  sortStat: 'battingAverage',     order: 'desc', qualified: true },
+  { api: 'onBasePlusSlugging',    label: 'OPS',  sortStat: 'onBasePlusSlugging', order: 'desc', qualified: true },
+  { api: 'stolenBases',           label: 'SB',   sortStat: 'stolenBases',        order: 'desc' }
 ];
 
 const PITCHING_LEADER_DEFS = [
-  { api: 'inningsPitched',                label: 'IP' },
-  { api: 'strikeouts',                    label: 'K' },
-  { api: 'earnedRunAverage',              label: 'ERA' },
-  { api: 'battingAverage',               label: 'BAA' },
-  { api: 'walksAndHitsPerInningPitched',  label: 'WHIP' },
-  { api: 'saves',                         label: 'SV' }
+  { api: 'inningsPitched',                label: 'IP',   sortStat: 'inningsPitched',               order: 'desc' },
+  { api: 'strikeouts',                    label: 'K',    sortStat: 'strikeouts',                   order: 'desc' },
+  { api: 'earnedRunAverage',              label: 'ERA',  sortStat: 'earnedRunAverage',             order: 'asc',  qualified: true },
+  { api: 'battingAverage',               label: 'BAA',  sortStat: 'battingAverage',               order: 'asc',  qualified: true },
+  { api: 'walksAndHitsPerInningPitched',  label: 'WHIP', sortStat: 'walksAndHitsPerInningPitched', order: 'asc',  qualified: true },
+  { api: 'saves',                         label: 'SV',   sortStat: 'saves',                        order: 'desc' }
 ];
 
 // ─── ALL-TIME LEADERS CACHE ───────────────────────────────────────────────────
@@ -1511,15 +1511,29 @@ async function fetchLeaderGroup(defs, statGroup) {
     try {
       // stats/leaders endDate is unreliable for mid-season historical stats.
       // Use byDateRange for more accurate historical leaderboards.
-      const url = `${MLB_API}/stats?stats=byDateRange&group=${statGroup}&startDate=${season}-01-01&endDate=${date}&leaderCategories=${def.api}&sportId=1&limit=1`;
-      const data = await requestPool.fetchDedup(url, { cacheKey: `leaders:${def.api}:${date}`, ttl: 300000 });
+      let url = `${MLB_API}/stats?stats=byDateRange&group=${statGroup}&startDate=${season}-01-01&endDate=${date}&sportId=1&sortStat=${def.sortStat}&order=${def.order}&limit=1&gameType=R`;
+      if (def.qualified) url += '&personPool=qualified';
+
+      const data = await requestPool.fetchDedup(url, { cacheKey: `leaders:${statGroup}:${def.api}:${date}`, ttl: 300000 });
       const ldr = data.stats?.[0]?.splits?.[0];
       if (!ldr) return null;
+
+      // Extract the correct value based on the API response structure
+      let val = ldr.stat[def.api] ?? ldr.stat[def.sortStat] ?? ldr.value;
+
+      // Handle special cases where API keys might differ (e.g. battingAverage vs avg)
+      if (def.api === 'battingAverage' && ldr.stat.avg) val = ldr.stat.avg;
+      if (def.api === 'runsBattedIn' && ldr.stat.rbi) val = ldr.stat.rbi;
+      if (def.api === 'onBasePlusSlugging' && ldr.stat.ops) val = ldr.stat.ops;
+      if (def.api === 'strikeouts' && ldr.stat.strikeOuts) val = ldr.stat.strikeOuts;
+      if (def.api === 'earnedRunAverage' && ldr.stat.era) val = ldr.stat.era;
+      if (def.api === 'walksAndHitsPerInningPitched' && ldr.stat.whip) val = ldr.stat.whip;
+
       return {
         label: def.label,
         name:  ldr.player?.fullName || 'Unknown',
         team:  normalizeAbbr(ldr.team?.abbreviation || teamAbbrFromId(ldr.team?.id) || ldr.team?.name || ''),
-        value: ldr.stat[def.api] ?? (ldr.stat.homeRuns && def.api === 'homeRuns' ? ldr.stat.homeRuns : ldr.value)
+        value: val
       };
     } catch (e) { console.error(`Leader ${def.label}:`, e); return null; }
   });
