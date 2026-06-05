@@ -1467,7 +1467,17 @@ function renderGames(games) {
         if (event.target.closest('button') || event.target.closest('.card-expand-panel')) return;
         openGameDrawer(game.gamePk);
       });
+      card.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          if (event.target.closest('button') || event.target.closest('.card-expand-panel')) return;
+          event.preventDefault();
+          openGameDrawer(game.gamePk);
+        }
+      });
     }
+    // Ensure accessibility attributes are present even on reconciled nodes
+    if (card.getAttribute('role') !== 'button') card.setAttribute('role', 'button');
+    if (card.getAttribute('tabindex') !== '0') card.setAttribute('tabindex', '0');
 
     const isFinal = /final/i.test(game.gameState);
     const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);

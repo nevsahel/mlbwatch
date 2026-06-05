@@ -121,6 +121,7 @@
     box-shadow: 0 4px 0 #0a1a13;
   }
   .game-card:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #0a1a13; }
+  .game-card:focus-visible { outline: 3px solid #f59e0b; outline-offset: 4px; box-shadow: 0 6px 0 #0a1a13; }
   .game-card.active-side { border-color: #f5e6be; box-shadow: 0 0 15px rgba(245, 230, 190, 0.3); }
   .game-card.hot { border-color: #f59e0b44; }
   .game-card.fire { border-color: #4ade8077; }
