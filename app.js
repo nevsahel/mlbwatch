@@ -3452,21 +3452,21 @@ async function fetchAwardRaces() {
 // they directly describe landing direction from home plate.
 function savantToSVG(hr) {
   const plateX = 100;
-  const plateY = 155;
-  const ftScale = 0.32;
+  const plateY = 160;
+  const ftScale = 0.33;
   const xFt = parseFloat(hr.hc_x_ft);
   const yFt = parseFloat(hr.hc_y_ft);
   if (Number.isFinite(xFt) && Number.isFinite(yFt)) {
     return {
-      x: Math.round(Math.max(12, Math.min(188, plateX + xFt * ftScale))),
-      y: Math.round(Math.max(10, Math.min(152, plateY - yFt * ftScale)))
+      x: Math.round(Math.max(10, Math.min(190, plateX + xFt * ftScale))),
+      y: Math.round(Math.max(5, Math.min(158, plateY - yFt * ftScale)))
     };
   }
   const hcX = parseFloat(hr.hc_x || 125);
   const hcY = parseFloat(hr.hc_y || 204);
   return {
-    x: Math.round(Math.max(12, Math.min(188, plateX + (hcX - 125) * 0.72))),
-    y: Math.round(Math.max(10, Math.min(152, plateY - (204 - hcY) * 0.82)))
+    x: Math.round(Math.max(10, Math.min(190, plateX + (hcX - 125) * 0.75))),
+    y: Math.round(Math.max(5, Math.min(158, plateY - (204 - hcY) * 0.85)))
   };
 }
 
@@ -3578,29 +3578,29 @@ function renderHomeRunCard(hr) {
       <div class="hr-spray-wrap">
         <svg class="hr-spray-svg" viewBox="0 0 200 170" xmlns="http://www.w3.org/2000/svg">
           <!-- Field outline -->
-          <ellipse cx="100" cy="80" rx="88" ry="80" fill="#0d2010"/>
+          <ellipse cx="100" cy="80" rx="90" ry="80" fill="#0d2010"/>
           <!-- Warning track circle hint -->
-          <ellipse cx="100" cy="80" rx="83" ry="75" fill="none" stroke="#1a2a1a" stroke-width="5"/>
+          <ellipse cx="100" cy="80" rx="85" ry="75" fill="none" stroke="#1a2a1a" stroke-width="4"/>
           <!-- Foul lines -->
-          <line x1="100" y1="155" x2="18" y2="8"  stroke="#1e3a1e" stroke-width="1"/>
-          <line x1="100" y1="155" x2="182" y2="8" stroke="#1e3a1e" stroke-width="1"/>
+          <line x1="100" y1="160" x2="10" y2="70"  stroke="#1e3a1e" stroke-width="1.5"/>
+          <line x1="100" y1="160" x2="190" y2="70" stroke="#1e3a1e" stroke-width="1.5"/>
           <!-- Infield diamond -->
-          <polygon points="100,105 120,125 100,145 80,125" fill="none" stroke="#2a4a2a" stroke-width="1.5"/>
+          <polygon points="100,118 121,139 100,160 79,139" fill="none" stroke="#2a4a2a" stroke-width="1.5"/>
           <!-- Bases -->
-          <rect x="96" y="101" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,100,105)"/>
-          <rect x="116" y="121" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,120,125)"/>
-          <rect x="96" y="141" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,100,145)"/>
-          <rect x="76" y="121" width="8" height="8" rx="1" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,80,125)"/>
+          <rect x="97" y="115" width="6" height="6" rx="0.5" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,100,118)"/>
+          <rect x="118" y="136" width="6" height="6" rx="0.5" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,121,139)"/>
+          <rect x="97" y="157" width="6" height="6" rx="0.5" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,100,160)"/>
+          <rect x="76" y="136" width="6" height="6" rx="0.5" fill="var(--success)33" stroke="var(--success)" stroke-width="0.8" transform="rotate(45,79,139)"/>
           <!-- Pitching rubber -->
-          <circle cx="100" cy="125" r="3" fill="#2a3a2a" stroke="#3a4a3a" stroke-width="0.5"/>
+          <circle cx="100" cy="140" r="2.5" fill="#2a3a2a" stroke="#3a4a3a" stroke-width="0.5"/>
           <!-- Home plate -->
-          <polygon points="100,147 96,152 98,156 102,156 104,152" fill="#2a2a2a" stroke="var(--text-dim)" stroke-width="0.5"/>
+          <polygon points="100,158 96,162 98,166 102,166 104,162" fill="#2a2a2a" stroke="var(--text-dim)" stroke-width="0.5"/>
           <!-- Landing spot -->
-          <circle cx="${pt.x}" cy="${pt.y}" r="7" fill="${evColor(ev)}33" stroke="${evColor(ev)}" stroke-width="2"/>
-          <circle cx="${pt.x}" cy="${pt.y}" r="3" fill="${evColor(ev)}"/>
+          <circle cx="${pt.x}" cy="${pt.y}" r="6" fill="${evColor(ev)}33" stroke="${evColor(ev)}" stroke-width="2"/>
+          <circle cx="${pt.x}" cy="${pt.y}" r="2.5" fill="${evColor(ev)}"/>
           <!-- Trajectory arc (rough bezier from plate to landing) -->
-          <path d="M100,147 Q${Math.round((100+pt.x)/2)},${Math.round(Math.min(pt.y, 147) - 35)} ${pt.x},${pt.y}" 
-                fill="none" stroke="${evColor(ev)}55" stroke-width="1.5" stroke-dasharray="4,2"/>
+          <path d="M100,160 Q${Math.round((100+pt.x)/2)},${Math.round(Math.min(pt.y, 160) - 40)} ${pt.x},${pt.y}"
+                fill="none" stroke="${evColor(ev)}55" stroke-width="1.2" stroke-dasharray="4,2"/>
         </svg>
       </div>
     </div>
