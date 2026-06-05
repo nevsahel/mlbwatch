@@ -1,3 +1,4 @@
+@import "css/variables.css";
 ﻿* { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #12261d; color: #fdfcf0; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
 

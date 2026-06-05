@@ -1,159 +1,60 @@
+import { requestPool, batchFetcher, renderWithErrorBoundary } from "./utils/performance.js";
+import { todayET, escapeHTML, loadPrefs, savePrefs, readCache, writeCache, showNotification } from "./utils/core.js";
+import { MLB_API, WATCHABILITY_CONFIG, TEAM_DATA, RIVALRY_PAIRS } from "./js/constants.js";
+
 ﻿/* ───────────────────────────────────────────────────────────────────────────
    MLB WATCHABILITY INDEX — FULL IMPLEMENTATION
    Uses the public MLB Stats API (statsapi.mlb.com)
    ─────────────────────────────────────────────────────────────────────────── */
 
-const MLB_API = 'https://statsapi.mlb.com/api/v1';
 
-const favoriteTeams = new Set(loadPrefs().favoriteTeams || []);
-const favoriteAlerts = {};
-const gameDetailsByPk = {};
-const revealedGames = new Set();
 
-const WATCHABILITY_CONFIG = {
-  caps: { starPower: 15, teamQuality: 8, playoff: 15, context: 30, liveSituation: 50, finalSituation: 28 },
-  context: { milestone: 5, rivalry: 5 },
-  bases: { preview: 20, live: 30, final: 22 },
-  scaling: { previewContext: 1.1, liveContext: 0.65, finalContext: 0.55 },
-  live: {
-    diff: { tied: 20, oneRun: 15, twoRun: 9, threeRun: 4, fivePlus: -4, sevenPlus: -8 },
-    inning: { extras11: 18, ninth: 15, eighth: 11, seventh: 7, fifthSixth: 3 },
-    runners: { each: 3, cap: 7, twoOutPressure: 3 },
-    noHitter: 10
-  },
-  final: {
-    diff: { tied: 20, oneRun: 14, twoRun: 8, threeRun: 3 },
-    extras: 8
-  }
-};
+export const favoriteTeams = new Set(loadPrefs().favoriteTeams || []);
+export const favoriteAlerts = {};
+export const gameDetailsByPk = {};
+export const revealedGames = new Set();
+
+
 
 // ─── RIVALRY PAIRS ─────────────────────────────────────────────────────────────
-const RIVALRY_PAIRS = [
-['NYY','BOS'],
-['NYY','BAL'],
-['NYY','TB'],
-['NYY','TOR'],
-['NYY','HOU'],
-['BOS','BAL'],
-['BOS','TB'],
-['BOS','TOR'],
-['BAL','TB'],
-['BAL','WAS'],
-['TB','TOR'],
-['CLE','CWS'],
-['CLE','DET'],
-['CWS','DET'],
-['MIN','CWS'],
-['MIN','CLE'],
-['DET','MIN'],
-['HOU','TEX'],
-['LAA','SEA'],
-['LAA','OAK'],
-['SEA','OAK'],
-['NYM','PHI'],
-['NYM','ATL'],
-['PHI','ATL'],
-['NYM','MIA'],
-['PHI','MIA'],
-['ATL','MIA'],
-['PHI','PIT'],
-['CHC','STL'],
-['MIL','STL'],
-['PIT','STL'],
-['CIN','PIT'],
-['MIL','CHC'],
-['CIN','CHC'],
-['LAD','SF'],
-['LAD','SD'],
-['SF','SD'],
-['COL','ARI'],
-['LAD','COL'],
-['SF','COL'],
-['SD','ARI'],
-['LAD','ARI'],
-['CWS','CHC'],
-['NYY','NYM'],
-['MIA','TB'],
-['TOR','DET'],
-['TOR','SEA'],
-['TOR','BOS'],
-['TOR','NYY'],
-['DET','TOR'],
-['WAS','PHI'],
-['OAK','SF'],
-['LAA','LAD'],
-['ARI','TEX'],
-['COL','SEA']
-];
 
-function isRivalry(a, b) {
+
+export function isRivalry(a, b) {
   return RIVALRY_PAIRS.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
 }
 
 // ─── TEAM DATA (logos + colors) ───────────────────────────────────────────────
-const TEAM_DATA = {
-  ARI: { id: 109, color: '#A71930' },
-  ATL: { id: 144, color: '#CE1141' },
-  BAL: { id: 110, color: '#DF4601' },
-  BOS: { id: 111, color: '#BD3039' },
-  CHC: { id: 112, color: '#0E3386' },
-  CWS: { id: 145, color: '#C4CED4' },
-  CIN: { id: 113, color: '#C6011F' },
-  CLE: { id: 114, color: '#E31937' },
-  COL: { id: 115, color: '#33006F' },
-  DET: { id: 116, color: '#FA4616' },
-  HOU: { id: 117, color: '#EB6E1F' },
-  KC:  { id: 118, color: '#004687' },
-  LAA: { id: 108, color: '#BA0021' },
-  LAD: { id: 119, color: '#005A9C' },
-  MIA: { id: 146, color: '#00A3E0' },
-  MIL: { id: 158, color: '#FFC52F' },
-  MIN: { id: 142, color: '#D31145' },
-  NYM: { id: 121, color: '#FF5910' },
-  NYY: { id: 147, color: '#003087' },
-  OAK: { id: 133, color: '#003831' },
-  ATH: { id: 133, color: '#003831' },
-  PHI: { id: 143, color: '#E81828' },
-  PIT: { id: 134, color: '#FDB827' },
-  SD:  { id: 135, color: '#FFC425' },
-  SF:  { id: 137, color: '#FD5A1E' },
-  SEA: { id: 136, color: '#005C5C' },
-  STL: { id: 138, color: '#C41E3A' },
-  TB:  { id: 139, color: '#8FBCE6' },
-  TEX: { id: 140, color: '#C0111F' },
-  TOR: { id: 141, color: '#134A8E' },
-  WSH: { id: 120, color: '#AB0003' }
-};
 
-function teamLogo(abbr) {
+
+export function teamLogo(abbr) {
   const t = TEAM_DATA[abbr];
   if (!t) return '';
   return `<img class="team-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" alt="" onerror="this.style.display='none'">`;
 }
 
-function teamColor(abbr) {
+export function teamColor(abbr) {
   return TEAM_DATA[abbr]?.color || 'var(--text-dim)';
 }
 
 // Build reverse lookup: team ID -> abbreviation
-const TEAM_ID_TO_ABBR = {};
+export const TEAM_ID_TO_ABBR = {};
 for (const [abbr, data] of Object.entries(TEAM_DATA)) {
   TEAM_ID_TO_ABBR[data.id] = abbr;
 }
-const ALL_TEAM_ABBRS = Object.keys(TEAM_DATA).filter(a => a !== 'ATH').sort();
+export const ALL_TEAM_ABBRS = Object.keys(TEAM_DATA).filter(a => a !== 'ATH').sort();
 
-function teamAbbrFromId(id) {
+export function teamAbbrFromId(id) {
   return normalizeAbbr(TEAM_ID_TO_ABBR[id] || '?');
 }
 
 // Some MLB API endpoints return non-standard abbreviations — normalize them here
-const ABBR_ALIASES = { 'AZ': 'ARI', 'CWS': 'CWS', 'WSH': 'WSH', 'ATH': 'OAK' };
-function normalizeAbbr(abbr) {
+export const ABBR_ALIASES = { 'AZ': 'ARI', 'CWS': 'CWS', 'WSH': 'WSH', 'ATH': 'OAK' };
+export function normalizeAbbr(abbr) {
   return ABBR_ALIASES[abbr] || abbr;
 }
 
 // ─── TABS ────────────────────────────────────────────────────────────────────
-function switchTab(tab) {
+export function switchTab(tab) {
   renderWithErrorBoundary(() => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -175,14 +76,14 @@ function switchTab(tab) {
 }
 
 // ─── TEAM RECORDS CACHE ─────────────────────────────────────────────────────
-let teamRecords = {}; // abbr -> { w, l }
-let playoffContext = {}; // abbr -> { divRank, wcRank, wcGB, pct }
-let milestoneWatchTeams = new Set(); // teams with a player near a milestone
+export let teamRecords = {}; // abbr -> { w, l }
+export let playoffContext = {}; // abbr -> { divRank, wcRank, wcGB, pct }
+export let milestoneWatchTeams = new Set(); // teams with a player near a milestone
 
 // ─── STAR POWER TABLE ──────────────────────────────────────────────────────
 // Dynamically populated from Fangraphs WAR leaderboard daily.
 // Fallback static list used until live data loads.
-const STAR_TIERS_FALLBACK = {
+export const STAR_TIERS_FALLBACK = {
   1: ['Shohei Ohtani','Aaron Judge','Mookie Betts','Fernando Tatis Jr.','Ronald Acuña Jr.',
       'Freddie Freeman','Bryce Harper','Juan Soto','Corbin Carroll','Gunnar Henderson',
       'Bobby Witt Jr.','Julio Rodríguez','Elly De La Cruz','Paul Skenes','Spencer Strider',
@@ -196,8 +97,8 @@ const STAR_TIERS_FALLBACK = {
 };
 
 // Build reverse lookup: name -> tier (mutable, gets updated by fetchFangraphsStarTiers)
-const PLAYER_TIER = {};
-function rebuildPlayerTier(tiers) {
+export const PLAYER_TIER = {};
+export function rebuildPlayerTier(tiers) {
   for (const k of Object.keys(PLAYER_TIER)) delete PLAYER_TIER[k];
   for (const [tier, names] of Object.entries(tiers)) {
     for (const n of names) PLAYER_TIER[n] = parseInt(tier);
@@ -206,9 +107,9 @@ function rebuildPlayerTier(tiers) {
 rebuildPlayerTier(STAR_TIERS_FALLBACK);
 
 // Cache key for season-based refresh
-let fangraphsStarLastSeason = null;
+export let fangraphsStarLastSeason = null;
 
-async function fetchFangraphsStarTiers() {
+export async function fetchFangraphsStarTiers() {
   const season = currentSeason();
   if (fangraphsStarLastSeason === season) return;
   try {
@@ -259,7 +160,7 @@ async function fetchFangraphsStarTiers() {
   }
 }
 
-function getStarPowerScore(game) {
+export function getStarPowerScore(game) {
   let score = 0;
   // Check pitcher
   if (game.currentPitcher) {
@@ -278,7 +179,7 @@ function getStarPowerScore(game) {
   return score;
 }
 
-function getTeamQualityScore(abbr) {
+export function getTeamQualityScore(abbr) {
   const r = teamRecords[abbr];
   if (!r) return 0;
   const games = r.w + r.l;
@@ -291,7 +192,7 @@ function getTeamQualityScore(abbr) {
   return 0;
 }
 
-function getPlayoffImportanceScore(abbr) {
+export function getPlayoffImportanceScore(abbr) {
   const ctx = playoffContext[abbr];
   if (!ctx) return 0;
   const wcGB = parseFloat(ctx.wcGB) || 0;
@@ -304,7 +205,7 @@ function getPlayoffImportanceScore(abbr) {
   return 0;
 }
 
-async function fetchTeamRecords() {
+export async function fetchTeamRecords() {
   try {
     const season = currentSeason();
     const date = selectedDate || todayET();
@@ -340,26 +241,26 @@ async function fetchTeamRecords() {
   } catch (e) { console.warn('Records fetch failed:', e); }
 }
 
-function teamRec(abbr) {
+export function teamRec(abbr) {
   const r = teamRecords[abbr];
   return r ? ` (${r.w}-${r.l})` : '';
 }
 
 // ─── NOTIFICATIONS & TRACKING ────────────────────────────────────────────────
-let isFirstLoad = true;
-const prevScores = {};
-const prevLeaders = {};
-const notifiedMilestones = new Set();
-const notifiedAtBats = new Set();
-const careerHRCache = {};
+export let isFirstLoad = true;
+export const prevScores = {};
+export const prevLeaders = {};
+export const notifiedMilestones = new Set();
+export const notifiedAtBats = new Set();
+export const careerHRCache = {};
 
-const SEASON_HR_MILESTONES = [10, 20, 30, 40, 50, 60, 61, 62, 70];
-const SEASON_RBI_MILESTONES = [25, 50, 75, 100, 120, 130, 140, 150];
-const SEASON_K_MILESTONES = [25, 50, 75, 100, 150, 200, 250, 300, 310, 320, 330, 340, 350];
-const CAREER_HR_MILESTONES = [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
-const SEASON_SV_MILESTONES = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65];
+export const SEASON_HR_MILESTONES = [10, 20, 30, 40, 50, 60, 61, 62, 70];
+export const SEASON_RBI_MILESTONES = [25, 50, 75, 100, 120, 130, 140, 150];
+export const SEASON_K_MILESTONES = [25, 50, 75, 100, 150, 200, 250, 300, 310, 320, 330, 340, 350];
+export const CAREER_HR_MILESTONES = [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
+export const SEASON_SV_MILESTONES = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65];
 
-function checkAndNotify(name, statLabel, value, milestones) {
+export function checkAndNotify(name, statLabel, value, milestones) {
   if (!milestones.includes(value)) return;
   const key = `${name}-${statLabel}-${value}`;
   if (notifiedMilestones.has(key)) return;
@@ -381,7 +282,7 @@ function checkAndNotify(name, statLabel, value, milestones) {
   }
 }
 
-function checkBoxscoreMilestones(feed) {
+export function checkBoxscoreMilestones(feed) {
   if (!feed?.liveData?.boxscore) return;
   const bs = feed.liveData.boxscore.teams;
   for (const side of ['home', 'away']) {
@@ -411,7 +312,7 @@ function checkBoxscoreMilestones(feed) {
   }
 }
 
-async function checkCareerHR(playerId, playerName, currentGameHR) {
+export async function checkCareerHR(playerId, playerName, currentGameHR) {
   const cached = careerHRCache[playerId];
   if (cached && cached.gameHR === currentGameHR) return;
   try {
@@ -430,11 +331,11 @@ async function checkCareerHR(playerId, playerName, currentGameHR) {
 
 // ─── DATE HELPERS ──────────────────────────────────────────────────────────────
 
-let selectedDate = loadPrefs().selectedDate || todayET();
+export let selectedDate = loadPrefs().selectedDate || todayET();
 
-function currentSeason() { return parseInt((selectedDate || todayET()).slice(0, 4), 10) || new Date().getFullYear(); }
+export function currentSeason() { return parseInt((selectedDate || todayET()).slice(0, 4), 10) || new Date().getFullYear(); }
 
-function formatGameTime(iso) {
+export function formatGameTime(iso) {
   try {
     return new Date(iso).toLocaleTimeString('en-US', {
       hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York'
@@ -442,7 +343,7 @@ function formatGameTime(iso) {
   } catch { return 'TBD'; }
 }
 
-function setGameDate(date) {
+export function setGameDate(date) {
   selectedDate = date || todayET();
   savePrefs({ selectedDate });
   const input = document.getElementById('game-date');
@@ -464,7 +365,7 @@ function setGameDate(date) {
 //   Total      0–80  raw → mapped to 0–100 via a gentle curve
 //   100 requires: tied extras with runners loaded + T1 stars + playoff race + rivalry
 //
-function calculateWatchabilityBreakdown(g) {
+export function calculateWatchabilityBreakdown(g) {
   const cfg = WATCHABILITY_CONFIG;
   const isFinal   = /final|game over|completed/i.test(g.gameState);
   const isPreview = /scheduled|pre-game|warmup|preview|postponed/i.test(g.gameState);
@@ -550,14 +451,14 @@ function calculateWatchabilityBreakdown(g) {
   return { score: clamp(raw), situation: sit, context, parts: [{ label: 'Situation', value: sit }, ...parts] };
 }
 
-function calculateWatchability(g) {
+export function calculateWatchability(g) {
   return calculateWatchabilityBreakdown(g).score;
 }
 
-function clamp(v) { return Math.min(100, Math.max(0, Math.round(v))); }
+export function clamp(v) { return Math.min(100, Math.max(0, Math.round(v))); }
 
 // ─── EXTRACT FINAL GAME DETAILS (WP/LP/SV/POTG) ────────────────────────────
-function extractFinalDetails(feed) {
+export function extractFinalDetails(feed) {
   try {
     const decisions = feed.liveData?.decisions || {};
     const bx = feed.liveData?.boxscore?.teams;
@@ -655,10 +556,10 @@ function extractFinalDetails(feed) {
 }
 
 // ─── PROBABLE PITCHER STATS CACHE ─────────────────────────────────────────────
-const pitcherStatsCache = {}; // id -> { era, whip, wins, losses, k9, ip, kTotal }
-const pitcherStatsFetching = new Set();
+export const pitcherStatsCache = {}; // id -> { era, whip, wins, losses, k9, ip, kTotal }
+export const pitcherStatsFetching = new Set();
 
-async function fetchProbablePitcherStats(pitcherId) {
+export async function fetchProbablePitcherStats(pitcherId) {
   if (!pitcherId || pitcherStatsCache[pitcherId] || pitcherStatsFetching.has(pitcherId)) return;
   pitcherStatsFetching.add(pitcherId);
   try {
@@ -680,11 +581,11 @@ async function fetchProbablePitcherStats(pitcherId) {
 }
 
 // ─── HOME RUN FEED CACHE ──────────────────────────────────────────────────────
-let hrFeedCache = {}; // gamePk -> array of HR events
-let hrFeedLastFetch = {}; // gamePk -> timestamp
-const HR_FEED_TTL = 45000; // 45s
+export let hrFeedCache = {}; // gamePk -> array of HR events
+export let hrFeedLastFetch = {}; // gamePk -> timestamp
+export const HR_FEED_TTL = 45000; // 45s
 
-async function fetchGameHRs(gamePk) {
+export async function fetchGameHRs(gamePk) {
   const now = Date.now();
   if (hrFeedCache[gamePk] && (now - (hrFeedLastFetch[gamePk] || 0)) < HR_FEED_TTL) {
     return hrFeedCache[gamePk];
@@ -715,7 +616,7 @@ async function fetchGameHRs(gamePk) {
   }
 }
 
-function enrichHomeRunEvent(hr, hrPlays, wpByAtBat) {
+export function enrichHomeRunEvent(hr, hrPlays, wpByAtBat) {
   const atBatIndex = Number.isFinite(parseInt(hr.ab_number, 10)) ? parseInt(hr.ab_number, 10) - 1 : null;
   const play = hrPlays.find(p => p.about?.atBatIndex === atBatIndex)
     || hrPlays.find(p =>
@@ -744,14 +645,14 @@ function enrichHomeRunEvent(hr, hrPlays, wpByAtBat) {
   };
 }
 
-function countRunsFromDescription(desc = '') {
+export function countRunsFromDescription(desc = '') {
   const lower = desc.toLowerCase();
   const runners = (lower.match(/ scores/g) || []).length;
   return Math.max(1, runners + 1);
 }
 
 // ─── FETCH LIVE GAME DATA ──────────────────────────────────────────────────────
-async function fetchLiveGamesData() {
+export async function fetchLiveGamesData() {
   const date = selectedDate || todayET();
   let schedData;
   try {
@@ -957,14 +858,14 @@ async function fetchLiveGamesData() {
 }
 
 // ─── EXPAND PANEL ─────────────────────────────────────────────────────────────
-const expandedCards = new Set();
-const expandCache   = {};
-const EXPAND_TTL    = 30000;
+export const expandedCards = new Set();
+export const expandCache   = {};
+export const EXPAND_TTL    = 30000;
 
-let activeGamePk = null;
-let lastAlertedPk = null;
+export let activeGamePk = null;
+export let lastAlertedPk = null;
 
-function checkHighLeverageAlerts(games) {
+export function checkHighLeverageAlerts(games) {
   const alertEl = document.getElementById('high-leverage-alert');
   const msgEl = document.getElementById('hl-alert-msg');
   const btnEl = document.getElementById('hl-alert-btn');
@@ -991,7 +892,7 @@ function checkHighLeverageAlerts(games) {
   }
 }
 
-function toggleExpandCard(gamePk, btn) {
+export function toggleExpandCard(gamePk, btn) {
   // Mobile/Legacy expand
   const panel = document.querySelector('.card-expand-panel[data-gpk="' + gamePk + '"]');
   if (panel) {
@@ -1008,7 +909,7 @@ function toggleExpandCard(gamePk, btn) {
   openSidePanel(gamePk);
 }
 
-async function openSidePanel(gamePk) {
+export async function openSidePanel(gamePk) {
   activeGamePk = gamePk;
   const panel = document.getElementById('side-panel');
   const title = document.getElementById('side-panel-title');
@@ -1036,7 +937,7 @@ async function openSidePanel(gamePk) {
   }
 }
 
-function closeSidePanel() {
+export function closeSidePanel() {
   activeGamePk = null;
   document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
   const body = document.getElementById('side-panel-body');
@@ -1045,7 +946,7 @@ function closeSidePanel() {
   if (body) body.innerHTML = '<div class="empty-msg">Click on any game card to view live box scores, play-by-play, and advanced metrics here.</div>';
 }
 
-async function openGameDrawer(gamePk) {
+export async function openGameDrawer(gamePk) {
   // Check if we should use side panel (desktop) or drawer (mobile)
   if (window.innerWidth > 1000) {
     openSidePanel(gamePk);
@@ -1073,12 +974,12 @@ async function openGameDrawer(gamePk) {
   }
 }
 
-function closeGameDrawer() {
+export function closeGameDrawer() {
   document.getElementById('game-drawer')?.classList.remove('open');
   document.getElementById('drawer-overlay')?.classList.remove('open');
 }
 
-async function loadExpandData(gamePk, panel) {
+export async function loadExpandData(gamePk, panel) {
   const now = Date.now();
   const cached = expandCache[gamePk];
   if (cached && (now - cached.fetchedAt) < EXPAND_TTL) {
@@ -1099,7 +1000,7 @@ async function loadExpandData(gamePk, panel) {
   }
 }
 
-function parseExpandData(feed, wpData = []) {
+export function parseExpandData(feed, wpData = []) {
   const ls    = feed.liveData && feed.liveData.linescore || {};
   const plays = feed.liveData && feed.liveData.plays     || {};
   const bx    = feed.liveData && feed.liveData.boxscore && feed.liveData.boxscore.teams || {};
@@ -1223,7 +1124,7 @@ function parseExpandData(feed, wpData = []) {
   return { boxRows, scoringPlays, awayPitching, homePitching, awayAbbr, homeAbbr, topWpaPlays, homeRuns, lineup, bullpen };
 }
 
-function renderExpandPanel(panel, data) {
+export function renderExpandPanel(panel, data) {
   const boxRows      = data.boxRows;
   const scoringPlays = data.scoringPlays;
   const awayPitching = data.awayPitching;
@@ -1349,10 +1250,10 @@ function renderExpandPanel(panel, data) {
 }
 
 // ─── SORT / FILTER STATE ──────────────────────────────────────────────────────
-let currentSort   = loadPrefs().sort || 'watchability'; // 'watchability' | 'score' | 'inning'
-let currentFilter = loadPrefs().filter || null;          // null | 'hot' | 'fire' | 'live'
+export let currentSort   = loadPrefs().sort || 'watchability'; // 'watchability' | 'score' | 'inning'
+export let currentFilter = loadPrefs().filter || null;          // null | 'hot' | 'fire' | 'live'
 
-function setSort(s) {
+export function setSort(s) {
   currentSort = s;
   savePrefs({ sort: s });
   document.querySelectorAll('[id^="sort-"]').forEach(b => b.classList.remove('active'));
@@ -1361,7 +1262,7 @@ function setSort(s) {
   if (lastGames) renderGames(lastGames);
 }
 
-function setFilter(f) {
+export function setFilter(f) {
   if (currentFilter === f) {
     currentFilter = null;
     savePrefs({ filter: null });
@@ -1376,7 +1277,7 @@ function setFilter(f) {
   if (lastGames) renderGames(lastGames);
 }
 
-function applySortFilter(games) {
+export function applySortFilter(games) {
   let g = [...games];
 
   // Filter
@@ -1420,7 +1321,7 @@ function applySortFilter(games) {
 }
 
 // ─── RENDER GAMES ──────────────────────────────────────────────────────────────
-function renderGames(games) {
+export function renderGames(games) {
   const grid = document.getElementById('games-grid');
   const filtered = applySortFilter(games);
 
@@ -1508,7 +1409,7 @@ function renderGames(games) {
   grid.appendChild(fragment);
 }
 
-function renderScoreBreakdown(game) {
+export function renderScoreBreakdown(game) {
   const breakdown = game.watchabilityBreakdown;
   if (!breakdown?.parts?.length) return '';
   const chips = breakdown.parts
@@ -1519,7 +1420,7 @@ function renderScoreBreakdown(game) {
   return chips ? `<div class="score-breakdown">${chips}</div>` : '';
 }
 
-function renderWinProbSparkline(game) {
+export function renderWinProbSparkline(game) {
   const series = game.winProbSeries || [];
   if (series.length < 2) return '';
   const points = series.slice(-36);
@@ -1540,7 +1441,7 @@ function renderWinProbSparkline(game) {
   </div>`;
 }
 
-function checkFavoriteAlerts(games) {
+export function checkFavoriteAlerts(games) {
   if (isFirstLoad || favoriteTeams.size === 0) return;
   games.filter(isFavoriteGame).forEach(game => {
     const prev = favoriteAlerts[game.gamePk];
@@ -1555,7 +1456,7 @@ function checkFavoriteAlerts(games) {
 }
 
 // ─── STAT LEADERS ──────────────────────────────────────────────────────────────
-const BATTING_LEADER_DEFS = [
+export const BATTING_LEADER_DEFS = [
   { api: 'hits',                  label: 'Hits' },
   { api: 'homeRuns',              label: 'HR' },
   { api: 'runsBattedIn',          label: 'RBI' },
@@ -1564,7 +1465,7 @@ const BATTING_LEADER_DEFS = [
   { api: 'stolenBases',           label: 'SB' }
 ];
 
-const PITCHING_LEADER_DEFS = [
+export const PITCHING_LEADER_DEFS = [
   { api: 'inningsPitched',                label: 'IP' },
   { api: 'strikeouts',                    label: 'K' },
   { api: 'earnedRunAverage',              label: 'ERA' },
@@ -1574,9 +1475,9 @@ const PITCHING_LEADER_DEFS = [
 ];
 
 // ─── ALL-TIME LEADERS CACHE ───────────────────────────────────────────────────
-let allTimeLeaders = {}; // category -> array of { rank, value, name }
+export let allTimeLeaders = {}; // category -> array of { rank, value, name }
 
-async function fetchAllTimeLeaders(category, group = 'hitting') {
+export async function fetchAllTimeLeaders(category, group = 'hitting') {
   if (allTimeLeaders[category]) return allTimeLeaders[category];
   try {
     const data = await requestPool.fetchDedup(
@@ -1596,7 +1497,7 @@ async function fetchAllTimeLeaders(category, group = 'hitting') {
   }
 }
 
-async function fetchLeaderGroup(defs, statGroup) {
+export async function fetchLeaderGroup(defs, statGroup) {
   const season = currentSeason();
   const date = selectedDate || todayET();
   const promises = defs.map(async def => {
@@ -1618,7 +1519,7 @@ async function fetchLeaderGroup(defs, statGroup) {
   return (await Promise.all(promises)).filter(Boolean);
 }
 
-function renderLeaderRow(results, container) {
+export function renderLeaderRow(results, container) {
   const row = document.createElement('div');
   row.className = 'leaders-row';
   results.forEach(l => {
@@ -1642,7 +1543,7 @@ function renderLeaderRow(results, container) {
   container.appendChild(row);
 }
 
-async function fetchStatLeaders() {
+export async function fetchStatLeaders() {
   const container = document.getElementById('leaders-container');
   container.innerHTML = '<div class="empty-msg">Loading stat leaders...</div>';
 
@@ -1676,15 +1577,15 @@ async function fetchStatLeaders() {
 }
 
 // ─── PLAYOFF RACES ──────────────────────────────────────────────────────────
-const DIV_NAMES = { 200: 'AL West', 201: 'AL East', 202: 'AL Central', 203: 'NL West', 204: 'NL East', 205: 'NL Central' };
-const AL_DIVS = [201, 202, 200];
-const NL_DIVS = [204, 205, 203];
+export const DIV_NAMES = { 200: 'AL West', 201: 'AL East', 202: 'AL Central', 203: 'NL West', 204: 'NL East', 205: 'NL Central' };
+export const AL_DIVS = [201, 202, 200];
+export const NL_DIVS = [204, 205, 203];
 
 // ─── TEAM L10 FORM CACHE ──────────────────────────────────────────────────────
-const teamL10Cache = {}; // abbr -> { w, l, streak, streakDir }
-let l10LastFetchDate = null;
+export const teamL10Cache = {}; // abbr -> { w, l, streak, streakDir }
+export let l10LastFetchDate = null;
 
-async function fetchAllTeamL10() {
+export async function fetchAllTeamL10() {
   const date = selectedDate || todayET();
   if (l10LastFetchDate === date && Object.keys(teamL10Cache).length > 0) return;
   const allAbbrs = Object.keys(TEAM_DATA).filter(a => a !== 'ATH');
@@ -1729,21 +1630,21 @@ async function fetchAllTeamL10() {
   l10LastFetchDate = today;
 }
 
-function l10Html(abbr) {
+export function l10Html(abbr) {
   const d = teamL10Cache[abbr];
   if (!d || d.games < 5) return '<span class="l10-cell even">—</span>';
   const cls = d.w >= 7 ? 'hot' : d.w <= 3 ? 'cold' : 'even';
   return `<span class="l10-cell ${cls}">${d.w}-${d.l}</span>`;
 }
 
-function streakHtml(abbr) {
+export function streakHtml(abbr) {
   const d = teamL10Cache[abbr];
   if (!d || !d.streakDir) return '<span class="streak-cell">—</span>';
   const cls = d.streakDir === 'W' ? 'win' : 'loss';
   return `<span class="streak-cell ${cls}">${d.streakDir}${d.streakCount}</span>`;
 }
 
-async function fetchPlayoffRaces(todayGames) {
+export async function fetchPlayoffRaces(todayGames) {
   const container = document.getElementById('playoffs-container');
   container.innerHTML = '<div class="empty-msg">Loading standings...</div>';
   try {
@@ -1969,7 +1870,7 @@ async function fetchPlayoffRaces(todayGames) {
 }
 
 // ─── MILESTONES TAB ─────────────────────────────────────────────────────────
-const MILESTONE_DEFS = [
+export const MILESTONE_DEFS = [
   { api: 'hits',           group: 'hitting',  label: 'Season H',  milestones: [10, 25, 50, 100, 150, 200] },
   { api: 'homeRuns',       group: 'hitting',  label: 'Season HR', milestones: [10, 20, 30, 40, 50, 60, 61, 62, 70] },
   { api: 'runsBattedIn',   group: 'hitting',  label: 'Season RBI',milestones: [25, 50, 75, 100, 120, 130, 140, 150] },
@@ -1979,13 +1880,13 @@ const MILESTONE_DEFS = [
   { api: 'inningsPitched', group: 'pitching', label: 'Season IP', milestones: [50, 100, 150, 200, 250], isFloat: true }
 ];
 
-const CAREER_HR_MS =  [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
-const CAREER_H_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
-const CAREER_RBI_MS = [10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000];
-const CAREER_K_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
-let milestoneFilter = loadPrefs().milestoneFilter || 'all';
+export const CAREER_HR_MS =  [1, 10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
+export const CAREER_H_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
+export const CAREER_RBI_MS = [10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000];
+export const CAREER_K_MS =   [10, 50, 100, 200, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000];
+export let milestoneFilter = loadPrefs().milestoneFilter || 'all';
 
-const MILESTONE_META = {
+export const MILESTONE_META = {
   'Season H': { short: 'H', type: 'hitter', scope: 'season', major: [100,150,200], historic: [200] },
   'Season HR': { short: 'HR', type: 'hitter', scope: 'season', major: [30,40,50,60], historic: [60,61,62,70] },
   'Season RBI': { short: 'RBI', type: 'hitter', scope: 'season', major: [100,120,130,140,150], historic: [150] },
@@ -1999,21 +1900,21 @@ const MILESTONE_META = {
   'Career K': { short: 'K', type: 'pitcher', scope: 'career', major: [1000,2000,3000], historic: [3000] }
 };
 
-function setMilestoneFilter(filter) {
+export function setMilestoneFilter(filter) {
   milestoneFilter = filter;
   savePrefs({ milestoneFilter: filter });
   if (window.lastMilestones) renderMilestoneBoard(window.lastMilestones);
 }
 
-const followedChases = new Set(loadPrefs().followedChases || []);
-function toggleFollowChase(playerKey) {
+export const followedChases = new Set(loadPrefs().followedChases || []);
+export function toggleFollowChase(playerKey) {
   if (followedChases.has(playerKey)) followedChases.delete(playerKey);
   else followedChases.add(playerKey);
   savePrefs({ followedChases: [...followedChases] });
   if (window.lastMilestones) renderMilestoneBoard(window.lastMilestones);
 }
 
-function milestoneImportance(m) {
+export function milestoneImportance(m) {
   const meta = MILESTONE_META[m.stat] || {};
   if ((meta.historic || []).includes(Number(m.next))) return 'Historic';
   if ((meta.major || []).includes(Number(m.next))) return 'Major';
@@ -2021,7 +1922,7 @@ function milestoneImportance(m) {
   return 'Round number';
 }
 
-function milestoneUrgency(m) {
+export function milestoneUrgency(m) {
   if (m.playingNow && m.diff <= 2) return 'Could happen today';
   if (m.diff <= 1) return 'Could happen today';
   if (m.playingToday && m.diff <= 3) return 'Could happen today';
@@ -2030,7 +1931,7 @@ function milestoneUrgency(m) {
   return 'Longer watch';
 }
 
-function milestonePriority(m) {
+export function milestonePriority(m) {
   const importance = milestoneImportance(m);
   let score = 100 - Math.min(m.diff, 20) * 3;
   if (m.playingNow) score += 22;
@@ -2042,18 +1943,18 @@ function milestonePriority(m) {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-function isFavoriteTeam(team) {
+export function isFavoriteTeam(team) {
   return favoriteTeams.has(normalizeAbbr(team));
 }
 
-function milestoneProgress(m) {
+export function milestoneProgress(m) {
   const current = parseFloat(m.current) || 0;
   const next = parseFloat(m.next) || 1;
   const pct = Math.max(0, Math.min(100, (current / next) * 100));
   return Math.round(pct);
 }
 
-function milestonePaceText(m) {
+export function milestonePaceText(m) {
   const current = parseFloat(m.current) || 0;
   const diff = parseFloat(m.diff) || 0;
   if (m.playingNow && diff <= 2) return 'live watch';
@@ -2064,8 +1965,8 @@ function milestonePaceText(m) {
   return 'longer chase';
 }
 
-const playerHeatCache = {};
-async function fetchPlayerHeat(playerId, group) {
+export const playerHeatCache = {};
+export async function fetchPlayerHeat(playerId, group) {
   if (playerHeatCache[playerId]) return playerHeatCache[playerId];
   try {
     const season = currentSeason();
@@ -2087,8 +1988,8 @@ async function fetchPlayerHeat(playerId, group) {
   }
 }
 
-let reachedMilestones = [];
-function checkReachedMilestones(milestones) {
+export let reachedMilestones = [];
+export function checkReachedMilestones(milestones) {
   const now = Date.now();
   const today = todayET();
   const reached = [];
@@ -2112,7 +2013,7 @@ function checkReachedMilestones(milestones) {
   reachedMilestones = log;
 }
 
-async function fetchMilestones(todayGames) {
+export async function fetchMilestones(todayGames) {
   const container = document.getElementById('milestones-container');
   container.innerHTML = '<div class="empty-msg">Loading milestones...</div>';
   const season = currentSeason();
@@ -2328,7 +2229,7 @@ async function fetchMilestones(todayGames) {
   }
 }
 
-function renderMilestoneBoard(allMilestones) {
+export function renderMilestoneBoard(allMilestones) {
   const container = document.getElementById('milestones-container');
   if (!container) return;
   const filterFns = {
@@ -2406,7 +2307,7 @@ function renderMilestoneBoard(allMilestones) {
     </div>`;
 }
 
-function renderMilestoneCard(m) {
+export function renderMilestoneCard(m) {
   const statusClass = m.playingNow ? ' now' : m.playingToday ? ' today' : '';
   const importanceClass = (m.importance || '').toLowerCase().replace(/\s+/g, '-');
   const diffLabel = Number(m.diff) === 1 ? `1 ${m.shortStat} away` : `${m.diff} ${m.shortStat} away`;
@@ -2453,21 +2354,21 @@ function renderMilestoneCard(m) {
 }
 
 // ─── SPOILER MODE ────────────────────────────────────────────────────────────
-let spoilerTeams = new Set(JSON.parse(localStorage.getItem('spoilerTeams') || '[]'));
+export let spoilerTeams = new Set(JSON.parse(localStorage.getItem('spoilerTeams') || '[]'));
 
-function saveSpoilerTeams() {
+export function saveSpoilerTeams() {
   try { localStorage.setItem('spoilerTeams', JSON.stringify([...spoilerTeams])); } catch(e) {}
 }
 
-function saveFavoriteTeams() {
+export function saveFavoriteTeams() {
   savePrefs({ favoriteTeams: [...favoriteTeams] });
 }
 
-function isFavoriteGame(game) {
+export function isFavoriteGame(game) {
   return favoriteTeams.has(game.awayTeam) || favoriteTeams.has(game.homeTeam);
 }
 
-function toggleFavoriteTeam(abbr) {
+export function toggleFavoriteTeam(abbr) {
   if (favoriteTeams.has(abbr)) favoriteTeams.delete(abbr);
   else favoriteTeams.add(abbr);
   saveFavoriteTeams();
@@ -2475,14 +2376,14 @@ function toggleFavoriteTeam(abbr) {
   if (lastGames) renderGames(lastGames);
 }
 
-function clearAllFavorites() {
+export function clearAllFavorites() {
   favoriteTeams.clear();
   saveFavoriteTeams();
   renderFavoriteGrid();
   if (lastGames) renderGames(lastGames);
 }
 
-function toggleSpoilerTeam(abbr) {
+export function toggleSpoilerTeam(abbr) {
   if (spoilerTeams.has(abbr)) spoilerTeams.delete(abbr);
   else spoilerTeams.add(abbr);
   saveSpoilerTeams();
@@ -2490,14 +2391,14 @@ function toggleSpoilerTeam(abbr) {
   if (lastGames) renderGames(lastGames);
 }
 
-function clearAllSpoilers() {
+export function clearAllSpoilers() {
   spoilerTeams.clear();
   saveSpoilerTeams();
   renderSpoilerGrid();
   if (lastGames) renderGames(lastGames);
 }
 
-function renderSpoilerGrid() {
+export function renderSpoilerGrid() {
   const grid = document.getElementById('spoiler-team-grid');
   grid.innerHTML = ALL_TEAM_ABBRS.map(abbr => {
     const isSpoiled = spoilerTeams.has(abbr);
@@ -2510,7 +2411,7 @@ function renderSpoilerGrid() {
   }).join('');
 }
 
-function renderFavoriteGrid() {
+export function renderFavoriteGrid() {
   const grid = document.getElementById('favorite-team-grid');
   if (!grid) return;
   grid.innerHTML = ALL_TEAM_ABBRS.map(abbr => {
@@ -2525,7 +2426,7 @@ function renderFavoriteGrid() {
 }
 
 // ─── SIDEBAR CONTROLS ────────────────────────────────────────────────────────
-function openSidebar() {
+export function openSidebar() {
   document.getElementById('sidebar').classList.add('open');
   document.getElementById('sidebar-overlay').classList.add('open');
   renderStarList();
@@ -2533,12 +2434,12 @@ function openSidebar() {
   renderFavoriteGrid();
 }
 
-function closeSidebar() {
+export function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-overlay').classList.remove('open');
 }
 
-function switchSidebarTab(tab) {
+export function switchSidebarTab(tab) {
   renderWithErrorBoundary(() => {
     document.querySelectorAll('.sidebar-tab').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.sidebar-section').forEach(s => s.classList.remove('active'));
@@ -2547,7 +2448,7 @@ function switchSidebarTab(tab) {
   }, 'sb-' + tab, 'Sidebar tab failed to load');
 }
 
-function revealSpoiler(el, gamePk) {
+export function revealSpoiler(el, gamePk) {
   const card = el.closest('.game-card');
   if (!card || !card._fullGame) return;
   const game = card._fullGame;
@@ -2562,7 +2463,7 @@ function revealSpoiler(el, gamePk) {
 }
 
 // Renders full game info into an existing card element (used for reveal + main render)
-function renderSingleGameCard(card, game) {
+export function renderSingleGameCard(card, game) {
   const wi = game.watchabilityIndex;
   const isFinal = /final/i.test(game.inningStatus);
   const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
@@ -2715,7 +2616,7 @@ function renderSingleGameCard(card, game) {
   }
 }
 
-function renderStarList() {
+export function renderStarList() {
   const container = document.getElementById('sb-star-list');
   // Group PLAYER_TIER back into tiers
   const tiers = { 1: [], 2: [], 3: [] };
@@ -2753,11 +2654,11 @@ function renderStarList() {
 // Silver Slugger: hitters only by position, ranked by OPS+ (park-adjusted).
 
 // ── Fangraphs WAR cache (30-min TTL) ─────────────────────────────────────────
-let _fgWarCache = null;
-let _fgWarCacheTime = 0;
-const FG_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+export let _fgWarCache = null;
+export let _fgWarCacheTime = 0;
+export const FG_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-async function fetchFangraphsWAR(season) {
+export async function fetchFangraphsWAR(season) {
   const now = Date.now();
   if (_fgWarCache && (now - _fgWarCacheTime) < FG_CACHE_TTL) {
     return _fgWarCache;
@@ -2776,10 +2677,10 @@ async function fetchFangraphsWAR(season) {
   return _fgWarCache;
 }
 
-const POSITIONS_SS_AL = ['C','1B','2B','3B','SS','LF','CF','RF','DH'];
-const POSITIONS_SS_NL = ['C','1B','2B','3B','SS','LF','CF','RF','DH']; // NL has no pitcher SS since universal DH
+export const POSITIONS_SS_AL = ['C','1B','2B','3B','SS','LF','CF','RF','DH'];
+export const POSITIONS_SS_NL = ['C','1B','2B','3B','SS','LF','CF','RF','DH']; // NL has no pitcher SS since universal DH
 
-async function fetchAwardRaces() {
+export async function fetchAwardRaces() {
   const container = document.getElementById('awards-container');
   container.innerHTML = '<div class="empty-msg">Loading award races...</div>';
   const season = currentSeason();
@@ -3525,7 +3426,7 @@ async function fetchAwardRaces() {
 // ─── HOME RUNS TAB ────────────────────────────────────────────────────────────
 // Spray chart coordinate conversion. Prefer Savant's feet coordinates because
 // they directly describe landing direction from home plate.
-function savantToSVG(hr) {
+export function savantToSVG(hr) {
   const plateX = 100;
   const plateY = 155;
   const ftScale = 0.32;
@@ -3545,13 +3446,13 @@ function savantToSVG(hr) {
   };
 }
 
-function parkCountLabel(n) {
+export function parkCountLabel(n) {
   if (n === null || n === undefined) return '—';
   if (n === 0) return '0';
   return `${n}/30`;
 }
 
-function evColor(ev) {
+export function evColor(ev) {
   if (!ev) return 'var(--text-dim)';
   const v = parseFloat(ev);
   if (v >= 110) return 'var(--danger)';
@@ -3560,24 +3461,24 @@ function evColor(ev) {
   return '#60a5fa';
 }
 
-function hrRunLabel(rbi) {
+export function hrRunLabel(rbi) {
   const runs = Math.max(1, parseInt(rbi, 10) || 1);
   return runs === 1 ? 'Solo HR' : `${runs}-run HR`;
 }
 
-function formatHomeRunScore(hr) {
+export function formatHomeRunScore(hr) {
   if (!hr.scoreAfter) return hrRunLabel(hr.rbi);
   const before = hr.scoreBefore ? `was ${hr.scoreBefore.away}-${hr.scoreBefore.home}` : null;
   return `${hrRunLabel(hr.rbi)} to make it ${hr.team_batting} ${hr.scoreAfter.away}-${hr.scoreAfter.home}${before ? ` (${before})` : ''}`;
 }
 
-function formatWpa(hr) {
+export function formatWpa(hr) {
   if (typeof hr.battingTeamWpa !== 'number') return 'WPA —';
   const sign = hr.battingTeamWpa > 0 ? '+' : '';
   return `WPA ${sign}${hr.battingTeamWpa.toFixed(1)} pts`;
 }
 
-function uniqueTop(list, sorter, limit = 3) {
+export function uniqueTop(list, sorter, limit = 3) {
   const seen = new Set();
   return [...list]
     .filter(hr => {
@@ -3590,7 +3491,7 @@ function uniqueTop(list, sorter, limit = 3) {
     .slice(0, limit);
 }
 
-function renderHomeRunCard(hr) {
+export function renderHomeRunCard(hr) {
   const ev = parseFloat(hr.hit_speed || hr.launch_speed || 0);
   const la = parseFloat(hr.hit_angle || hr.launch_angle || 0);
   const dist = parseInt(hr.hit_distance || 0);
@@ -3682,7 +3583,7 @@ function renderHomeRunCard(hr) {
   </div>`;
 }
 
-async function fetchAndRenderHomeRuns(games) {
+export async function fetchAndRenderHomeRuns(games) {
   const container = document.getElementById('homeruns-container');
   if (!container) return;
 
@@ -3762,7 +3663,7 @@ async function fetchAndRenderHomeRuns(games) {
     `).join('')}`;
 }
 
-async function fetchImpactPlays(gamePk) {
+export async function fetchImpactPlays(gamePk) {
   try {
     const [feed, wpData] = await Promise.all([
       requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }),
@@ -3815,7 +3716,7 @@ async function fetchImpactPlays(gamePk) {
   }
 }
 
-async function fetchAndRenderTicker(games) {
+export async function fetchAndRenderTicker(games) {
   const container = document.getElementById('ticker-container');
   if (!container) return;
   const activePks = (games || [])
@@ -3853,29 +3754,29 @@ async function fetchAndRenderTicker(games) {
 }
 
 // ─── POLLING ───────────────────────────────────────────────────────────────────
-let polling = false;
-let pollTimer = null;
-let pollCount = 0;
-let lastGames = null;
-let lastAuxRefresh = 0;
-let currentPollDelay = 15000;
-const FAST_POLL_MS = 15000;
-const PREGAME_POLL_MS = 60000;
-const IDLE_POLL_MS = 120000;
-const EMPTY_DAY_POLL_MS = 300000;
+export let polling = false;
+export let pollTimer = null;
+export let pollCount = 0;
+export let lastGames = null;
+export let lastAuxRefresh = 0;
+export let currentPollDelay = 15000;
+export const FAST_POLL_MS = 15000;
+export const PREGAME_POLL_MS = 60000;
+export const IDLE_POLL_MS = 120000;
+export const EMPTY_DAY_POLL_MS = 300000;
 
-function isGameLiveNow(game) {
+export function isGameLiveNow(game) {
   return game && !/scheduled|pre-game|warmup|preview|final/i.test(`${game.gameState} ${game.inningStatus}`);
 }
 
-function nextPollDelayForGames(games) {
+export function nextPollDelayForGames(games) {
   if (!games || games.length === 0) return EMPTY_DAY_POLL_MS;
   if (games.some(isGameLiveNow)) return FAST_POLL_MS;
   if (games.some(g => /scheduled|pre-game|warmup|preview/i.test(`${g.gameState} ${g.inningStatus}`))) return PREGAME_POLL_MS;
   return IDLE_POLL_MS;
 }
 
-function scheduleNextPoll(games) {
+export function scheduleNextPoll(games) {
   if (!polling) return;
   clearTimeout(pollTimer);
   currentPollDelay = nextPollDelayForGames(games);
@@ -3885,7 +3786,7 @@ function scheduleNextPoll(games) {
   if (updateEl && updateEl.textContent) updateEl.textContent += ` · next ${mins}`;
 }
 
-async function startPolling() {
+export async function startPolling() {
   document.getElementById('start-btn').disabled = true;
   document.getElementById('stop-btn').disabled  = false;
   document.getElementById('status-dot').classList.add('live');
@@ -3907,7 +3808,7 @@ async function startPolling() {
   setTimeout(() => { if (lastGames) renderGames(lastGames); }, 12000);
 }
 
-function stopPolling() {
+export function stopPolling() {
   polling = false;
   clearTimeout(pollTimer);
   document.getElementById('start-btn').disabled = false;
@@ -3915,7 +3816,7 @@ function stopPolling() {
   document.getElementById('status-dot').classList.remove('live');
 }
 
-function hydratePreferenceControls() {
+export function hydratePreferenceControls() {
   const dateInput = document.getElementById('game-date');
   if (dateInput) dateInput.value = selectedDate;
 
@@ -3932,8 +3833,8 @@ function hydratePreferenceControls() {
   }
 }
 
-let newswireItems = [];
-function updateNewswire(games) {
+export let newswireItems = [];
+export function updateNewswire(games) {
   const track = document.getElementById('newswire-track');
   if (!track) return;
 
@@ -3972,7 +3873,7 @@ function updateNewswire(games) {
   }
 }
 
-async function pollGames() {
+export async function pollGames() {
   pollCount++;
   try {
     usedStaleData = false;
@@ -4045,7 +3946,7 @@ async function pollGames() {
 }
 
 // ─── THE DUEL: PITCHER VS BATTER ───────────────────────────────────────────────
-async function fetchAndRenderDuel(games) {
+export async function fetchAndRenderDuel(games) {
   const container = document.getElementById('duel-container');
   if (!container) return;
 
@@ -4085,7 +3986,7 @@ async function fetchAndRenderDuel(games) {
   }
 }
 
-async function renderLiveDuelCard(card, g) {
+export async function renderLiveDuelCard(card, g) {
   try {
     const batterId = (await getPlayerIdByName(g.currentBatter.name)) || null;
     const pitcherId = (await getPlayerIdByName(g.currentPitcher.name)) || null;
@@ -4132,7 +4033,7 @@ async function renderLiveDuelCard(card, g) {
   }
 }
 
-async function getPlayerIdByName(name) {
+export async function getPlayerIdByName(name) {
   // Simple search or lookup in existing tiers
   // For now, let's try searching the API
   try {
@@ -4141,7 +4042,7 @@ async function getPlayerIdByName(name) {
   } catch { return null; }
 }
 
-async function runSimulatedDuel(bId, pId, container) {
+export async function runSimulatedDuel(bId, pId, container) {
   if (!bId || !pId) {
     const bName = document.getElementById('duel-batter-search')?.value;
     const pName = document.getElementById('duel-pitcher-search')?.value;

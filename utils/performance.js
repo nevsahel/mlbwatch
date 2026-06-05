@@ -1,9 +1,11 @@
+import { fetchJson, escapeHTML, todayET } from './core.js';
+import { fetchJson, escapeHTML } from "./core.js";
 /* ───────────────────────────────────────────────────────────────────────────
    PERFORMANCE & REQUEST MANAGEMENT UTILITIES
    ─────────────────────────────────────────────────────────────────────────── */
 
 // Request deduplication pool - prevents duplicate simultaneous API calls
-class RequestPool {
+export class RequestPool {
   constructor() {
     this.pending = new Map();
     this.metrics = {
@@ -62,10 +64,10 @@ class RequestPool {
   }
 }
 
-const requestPool = new RequestPool();
+export const requestPool = new RequestPool();
 
 // Performance timing utility
-class PerfTimer {
+export class PerfTimer {
   constructor() {
     this.marks = {};
     this.measures = {};
@@ -105,10 +107,10 @@ class PerfTimer {
   }
 }
 
-const perfTimer = new PerfTimer();
+export const perfTimer = new PerfTimer();
 
 // Error boundary wrapper for safe rendering
-function renderWithErrorBoundary(fn, containerId, fallbackMsg = 'Failed to load content') {
+export function renderWithErrorBoundary(fn, containerId, fallbackMsg = 'Failed to load content') {
   try {
     fn();
   } catch (e) {
@@ -132,7 +134,7 @@ function renderWithErrorBoundary(fn, containerId, fallbackMsg = 'Failed to load 
 }
 
 // Batch API calls with intelligent queuing
-class BatchFetcher {
+export class BatchFetcher {
   constructor(maxParallel = 5) {
     this.maxParallel = maxParallel;
     this.queue = [];
@@ -178,10 +180,10 @@ class BatchFetcher {
   }
 }
 
-const batchFetcher = new BatchFetcher(5);
+export const batchFetcher = new BatchFetcher(5);
 
 // Persistent cache layer (localStorage + memory with TTL support)
-class PersistentCache {
+export class PersistentCache {
   constructor(prefix = 'mlbWatch:') {
     this.prefix = prefix;
     this.memory = new Map();
@@ -266,10 +268,10 @@ class PersistentCache {
   }
 }
 
-const persistentCache = new PersistentCache('mlbWatch:');
+export const persistentCache = new PersistentCache('mlbWatch:');
 
 // Keyboard shortcut registry
-class KeyboardShortcuts {
+export class KeyboardShortcuts {
   constructor() {
     this.shortcuts = new Map();
     this.registerDefaults();
@@ -306,4 +308,4 @@ class KeyboardShortcuts {
   }
 }
 
-const keyboardShortcuts = new KeyboardShortcuts();
+export const keyboardShortcuts = new KeyboardShortcuts();
