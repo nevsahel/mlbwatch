@@ -1509,7 +1509,7 @@ function renderScoreBreakdown(game) {
 function renderWinProbSparkline(game) {
   const series = game.winProbSeries || [];
   if (series.length < 2) return '';
-  const points = series.slice(-36);
+  const points = series;
   const w = 180, h = 34, pad = 3;
   const path = points.map((p, i) => {
     const x = pad + (i / Math.max(points.length - 1, 1)) * (w - pad * 2);
