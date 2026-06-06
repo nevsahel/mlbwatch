@@ -176,6 +176,7 @@
   .badge { position: absolute; top: 12px; right: 12px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; }
   .badge.rivalry { background: #7c3aed22; color: #a78bfa; border: 1px solid #7c3aed44; }
   .badge.favorite-badge { background: #f59e0b22; color: #fbbf24; border: 1px solid #f59e0b55; left: 12px; right: auto; }
+  .badge.followed-badge { background: #4ade8022; color: #4ade80; border: 1px solid #4ade8055; right: 12px; top: 12px; font-weight: 900; animation: pulse 2s infinite; }
   .badge.nohitter { background: #dc2626; color: #fff; border: 1px solid #ef4444; font-size: 0.6rem; padding: 3px 8px; }
   .badge.perfect { background: #dc2626; color: #fff; border: 1px solid #ef4444; font-size: 0.6rem; padding: 3px 8px; }
 
