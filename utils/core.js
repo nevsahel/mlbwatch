@@ -66,11 +66,27 @@ function showNotification(message, type = 'info') {
   if (!container) return;
   const notif = document.createElement('div');
   notif.className = `notification ${type}`;
-  notif.textContent = message;
-  container.appendChild(notif);
-  setTimeout(() => {
+
+  const text = document.createElement('span');
+  text.textContent = message;
+  notif.appendChild(text);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.innerHTML = '&times;';
+  closeBtn.className = 'notif-close';
+  closeBtn.setAttribute('aria-label', 'Close notification');
+  closeBtn.onclick = () => {
     notif.style.opacity = '0';
     setTimeout(() => notif.remove(), 500);
+  };
+  notif.appendChild(closeBtn);
+
+  container.appendChild(notif);
+  setTimeout(() => {
+    if (notif.parentNode) {
+      notif.style.opacity = '0';
+      setTimeout(() => notif.remove(), 500);
+    }
   }, 10000);
 }
 
