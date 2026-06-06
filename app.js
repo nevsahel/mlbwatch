@@ -113,8 +113,9 @@ async function fetchFangraphsStarTiers() {
     ];
 
     const [hitData, pitData] = await Promise.all([
-      requestPool.fetchDedup(hitUrl),
-      requestPool.fetchDedup(pitUrl)
+      // BOLT OPTIMIZATION: 1-day TTL for daily Fangraphs data
+      requestPool.fetchDedup(hitUrl, { ttl: 86400000 }),
+      requestPool.fetchDedup(pitUrl, { ttl: 86400000 })
     ]);
 
     // Combine hitters + pitchers, sort by WAR descending, assign tiers by rank
@@ -632,7 +633,8 @@ async function fetchProbablePitcherStats(pitcherId) {
   try {
     const season = currentSeason();
     const date = selectedDate || todayET();
-    const data = await requestPool.fetchDedup(`${MLB_API}/people/${pitcherId}/stats?stats=season&group=pitching&season=${season}&endDate=${date}`, { cacheKey: `pitcherStats:${date}:${pitcherId}` });
+    // BOLT OPTIMIZATION: 1-hr TTL for probable pitcher stats
+    const data = await requestPool.fetchDedup(`${MLB_API}/people/${pitcherId}/stats?stats=season&group=pitching&season=${season}&endDate=${date}`, { cacheKey: `pitcherStats:${date}:${pitcherId}`, ttl: 3600000 });
     const s = data.stats?.[0]?.splits?.[0]?.stat || {};
     pitcherStatsCache[pitcherId] = {
       era: s.era || '-.--',
@@ -723,9 +725,10 @@ async function fetchLiveGamesData() {
   const date = selectedDate || todayET();
   let schedData;
   try {
+    // BOLT OPTIMIZATION: 30s TTL for schedule data
     schedData = await requestPool.fetchDedup(
       `${MLB_API}/schedule?sportId=1&date=${date}&hydrate=linescore,team,probablePitcher,broadcasts`,
-      { cacheKey: `schedule:${date}` }
+      { cacheKey: `schedule:${date}`, ttl: 30000 }
     );
   } catch (e) {
     console.warn('Schedule fetch failed:', e);
@@ -779,15 +782,27 @@ async function fetchLiveGamesData() {
   // Fetch live feeds in parallel
   const results = await Promise.all(needFeed.map(async g => {
     try {
-      const feed = await requestPool.fetchDedup(
-        `https://statsapi.mlb.com/api/v1.1/game/${g.gamePk}/feed/live`,
-        { cacheKey: `feed:${g.gamePk}` }
-      );
+      const isFinal = g.status.abstractGameState === 'Final';
+      // BOLT OPTIMIZATION: 1hr TTL for Final games, 15s for Live games
+      const gameTtl = isFinal ? 3600000 : 15000;
+
+      // BOLT OPTIMIZATION: Parallelize feed and win probability requests
+      const [feed, wpData] = await Promise.all([
+        requestPool.fetchDedup(
+          `https://statsapi.mlb.com/api/v1.1/game/${g.gamePk}/feed/live`,
+          { cacheKey: `feed:${g.gamePk}`, ttl: gameTtl }
+        ),
+        (g.status.abstractGameState === 'Live' || isFinal)
+          ? requestPool.fetchDedup(
+              `${MLB_API}/game/${g.gamePk}/winProbability`,
+              { cacheKey: `winProbability:${g.gamePk}`, timeoutMs: 7000, ttl: gameTtl }
+            ).catch(() => [])
+          : Promise.resolve([])
+      ]);
 
       const ls    = feed.liveData.linescore;
       const plays = feed.liveData.plays;
       const teams = feed.gameData.teams;
-      const isFinal = g.status.abstractGameState === 'Final';
 
       const inn = ls.currentInning || 9;
       const awayH = ls.teams?.away?.hits ?? 0;
@@ -805,27 +820,19 @@ async function fetchLiveGamesData() {
       const balls = currentCount.balls ?? 0;
       const strikes = currentCount.strikes ?? 0;
 
-      // Fetch win probability from dedicated endpoint (non-blocking)
+      // Process win probability (fetched above in parallel)
       let homeWinProb = null;
       let winProbSeries = [];
-      if (g.status.abstractGameState === 'Live' || g.status.abstractGameState === 'Final') {
-        try {
-          const wpData = await requestPool.fetchDedup(
-            `${MLB_API}/game/${g.gamePk}/winProbability`,
-            { cacheKey: `winProbability:${g.gamePk}`, timeoutMs: 7000 }
-          );
-          if (Array.isArray(wpData) && wpData.length > 0) {
-            winProbSeries = wpData
-              .filter(p => typeof p.homeTeamWinProbability === 'number')
-              .map(p => ({
-                atBatIndex: p.atBatIndex ?? p.about?.atBatIndex ?? null,
-                home: p.homeTeamWinProbability,
-                delta: p.homeTeamWinProbabilityAdded ?? null
-              }));
-            const lastWp = wpData[wpData.length - 1];
-            homeWinProb = lastWp.homeTeamWinProbability ?? null;
-          }
-        } catch (e) { console.warn('WP fetch failed:', e); }
+      if (Array.isArray(wpData) && wpData.length > 0) {
+        winProbSeries = wpData
+          .filter(p => typeof p.homeTeamWinProbability === 'number')
+          .map(p => ({
+            atBatIndex: p.atBatIndex ?? p.about?.atBatIndex ?? null,
+            home: p.homeTeamWinProbability,
+            delta: p.homeTeamWinProbabilityAdded ?? null
+          }));
+        const lastWp = wpData[wpData.length - 1];
+        homeWinProb = lastWp.homeTeamWinProbability ?? null;
       }
 
       // Perfect game / no-hitter detection (through 6 complete innings → inn >= 7)
