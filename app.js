@@ -2797,23 +2797,63 @@ async function fetchAwardRaces() {
       });
     };
 
-    // Offense-weighted MVP ranking: hitters get a +0.5 WAR bonus over pitchers
-    const mvpScore = (p) => (p.war ?? 0) + (p.isPitcher ? 0 : 0.5);
+    // Historical-based Award Models
+    const scoreMVPHitter = (p) => {
+      const s = p.stats;
+      const ops = parseFloat(s.onBasePlusSlugging) || 0;
+      const hr = parseInt(s.homeRuns) || 0;
+      const rbi = parseInt(s.runsBattedIn) || 0;
+      const r = parseInt(s.runs) || 0;
+      const avg = parseFloat(s.battingAverage) || 0;
+      const war = p.war ?? 0;
+      // Weights calibrated to historical means (.993 OPS, 34 HR, 114 RBI, 110 R)
+      return (war * 10.0) + (ops * 45.0) + (hr * 0.45) + (rbi * 0.12) + (r * 0.12) + (avg * 25.0);
+    };
+
+    const scoreMVPPitcher = (p) => {
+      const s = p.stats;
+      const w = parseInt(s.wins) || 0;
+      const era = parseFloat(s.earnedRunAverage) || 4.5;
+      const so = parseInt(s.strikeouts) || 0;
+      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
+      const war = p.war ?? 0;
+      // Pitchers need ~20% higher relative dominance to match hitters in MVP voting
+      return ((war * 9.0) + (w * 1.0) + ((3.5 - era) * 10.0) + (so * 0.06) + ((1.2 - whip) * 18.0)) * 0.82;
+    };
+
+    const mvpScore = (p) => p.isPitcher ? scoreMVPPitcher(p) : scoreMVPHitter(p);
+
+    const scoreCY = p => {
+      const s = p.stats;
+      const era = parseFloat(s.earnedRunAverage) || 4.5;
+      const k = parseInt(s.strikeouts) || 0;
+      const w = parseInt(s.wins) || 0;
+      const ip = parseFloat(s.inningsPitched) || 0;
+      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
+      const sho = parseInt(s.shutouts) || 0;
+      const war = p.war ?? 0;
+      // Calibrated to 2.46 ERA, 19 W, 213 SO, 1.04 WHIP means
+      return (w * 1.8) + ((3.2 - era) * 14) + (k * 0.14) + (ip * 0.08) + ((1.15 - whip) * 22) + (sho * 4) + (war * 6);
+    };
 
     // ── Votes simulation ─────────────────────────────────────────────────────
-    // Simulates a 5-voter panel. Each voter adds noise to the base score,
-    // then ranks top-5 and awards BBWAA-style points (14/9/7/4/2).
-    // Result: voteTotal added to each candidate for display.
+    // Simulates a 5-voter panel with varied statistical focuses.
     const VOTE_PTS = [14, 9, 7, 4, 2];
-    function simulateVotes(candidates) {
+    function simulateVotes(candidates, scoreFn) {
       const votes = {};
       candidates.forEach(p => { votes[p.id] = 0; });
-      for (let v = 0; v < 5; v++) {
-        // Each voter has a slight bias toward offense or WAR
-        const offenseBias  = (Math.random() - 0.5) * 0.6; // ±0.3
+      const voterProfiles = [
+        { name: 'Traditionalist', weights: { stats: 1.2, war: 0.5, noise: 0.3 } },
+        { name: 'Sabermetrician', weights: { stats: 0.4, war: 1.5, noise: 0.1 } },
+        { name: 'Balanced', weights: { stats: 1.0, war: 1.0, noise: 0.2 } },
+        { name: 'Clutch/Narrative', weights: { stats: 0.8, war: 0.7, noise: 0.6 } },
+        { name: 'Dominance-Focused', weights: { stats: 1.3, war: 0.8, noise: 0.2 } }
+      ];
+
+      for (const voter of voterProfiles) {
         const sorted = [...candidates].sort((a, b) => {
-          const sa = mvpScore(a) + (a.isPitcher ? 0 : offenseBias) + (Math.random() - 0.5) * 0.4;
-          const sb = mvpScore(b) + (b.isPitcher ? 0 : offenseBias) + (Math.random() - 0.5) * 0.4;
+          const sa = (scoreFn(a) * voter.weights.stats) + ((a.war ?? 0) * voter.weights.war) + (Math.random() * voter.weights.noise * 10);
+          const sb = (scoreFn(b) * voter.weights.stats) + ((b.war ?? 0) * voter.weights.war) + (Math.random() * voter.weights.noise * 10);
           return sb - sa;
         });
         sorted.slice(0, 5).forEach((p, i) => { votes[p.id] = (votes[p.id] || 0) + VOTE_PTS[i]; });
@@ -2821,67 +2861,22 @@ async function fetchAwardRaces() {
       return votes;
     }
 
-    const rankByWAR = (arr) => {
-      const eligible = [...arr].filter(p => p.war !== null);
-      // Sort top 10 to feed the vote sim (broader pool = more realistic)
-      const top10 = eligible.sort((a, b) => mvpScore(b) - mvpScore(a)).slice(0, 10);
-      const votes = simulateVotes(top10);
+    const rankAward = (arr, scoreFn) => {
+      const top10 = [...arr].sort((a, b) => scoreFn(b) - scoreFn(a)).slice(0, 10);
+      if (!top10.length) return [];
+      const votes = simulateVotes(top10, scoreFn);
       return top10
         .map(p => ({ ...p, voteTotal: votes[p.id] || 0 }))
         .sort((a, b) => b.voteTotal - a.voteTotal)
         .slice(0, 5);
     };
 
-    // If Fangraphs data came through, use WAR ranking; else fall back to OPS/ERA blend
     const hasFG = Object.keys(warByName).length > 20;
 
-    const fallbackScoreHitter = p => {
-      const s = p.stats;
-      return (parseFloat(s.onBasePlusSlugging)||0)*60 + (parseInt(s.homeRuns)||0)*1.5 + (parseInt(s.runsBattedIn)||0)*0.8 + (parseFloat(s.battingAverage)||0)*40;
-    };
-    const fallbackScorePitcher = p => {
-      const s = p.stats;
-      // 0.75 multiplier: pitchers need to be meaningfully better to rank above hitters
-      return ((4-(parseFloat(s.earnedRunAverage)||9))*15 + (parseInt(s.strikeouts)||0)*0.3 + (parseFloat(s.inningsPitched)||0)*0.15 + (1.5-(parseFloat(s.walksAndHitsPerInningPitched)||2))*20) * 0.75;
-    };
+    const mvpAL = rankAward(mergeForMVP(alH, alP), mvpScore);
+    const mvpNL = rankAward(mergeForMVP(nlH, nlP), mvpScore);
 
-    const rankFallback = (hitters, pitchers) => {
-      const scored = [
-        ...hitters.map(p => ({ ...p, _score: fallbackScoreHitter(p) })),
-        ...pitchers.map(p => ({ ...p, _score: fallbackScorePitcher(p) }))
-      ];
-      const seen = new Set();
-      const top10 = scored
-        .filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; })
-        .sort((a,b) => b._score - a._score)
-        .slice(0, 10);
-      const votes = {};
-      top10.forEach(p => { votes[p.id] = 0; });
-      for (let v = 0; v < 5; v++) {
-        const bias = (Math.random() - 0.5) * 0.3;
-        [...top10].sort((a,b) => (b._score + (b.isPitcher ? 0 : bias)) - (a._score + (a.isPitcher ? 0 : bias)) + (Math.random()-0.5)*4)
-          .slice(0,5).forEach((p,i) => { votes[p.id] += VOTE_PTS[i]; });
-      }
-      return top10
-        .map(p => ({ ...p, voteTotal: votes[p.id] || 0 }))
-        .sort((a,b) => b.voteTotal - a.voteTotal)
-        .slice(0, 5);
-    };
-
-    const mvpAL = hasFG ? rankByWAR(mergeForMVP(alH, alP)) : rankFallback(alH, alP);
-    const mvpNL = hasFG ? rankByWAR(mergeForMVP(nlH, nlP)) : rankFallback(nlH, nlP);
-
-    // ── 5. Cy Young: qualified starters only (≥ qualifiedIP), ERA/K/WHIP blend ─
-    const scoreCY = p => {
-      const s = p.stats;
-      const era  = parseFloat(s.earnedRunAverage) || 9;
-      const k    = parseInt(s.strikeouts) || 0;
-      const ip   = parseFloat(s.inningsPitched) || 0;
-      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 2;
-      const w    = parseInt(s.wins) || 0;
-      const warBonus = (p.war ?? 0) * 4;
-      return (4-era)*15 + k*0.3 + ip*0.15 + (1.5-whip)*20 + w*1.2 + warBonus;
-    };
+    // ── 5. Cy Young: qualified starters only (≥ qualifiedIP) ─────────────────
     const CY_VOTE_PTS = [15, 10, 7, 4, 1]; // BBWAA Cy Young is 5-voter, 5-place ballot
     function simulateCYVotes(candidates) {
       const votes = {};
@@ -2894,11 +2889,8 @@ async function fetchAwardRaces() {
     }
     const rankCY = (pitchers) => {
       const qualified = pitchers.filter(p => parseFloat(p.stats.inningsPitched||0) >= qualifiedIP);
-      const top10 = [...qualified].sort((a,b) => scoreCY(b)-scoreCY(a)).slice(0,10);
-      if (!top10.length) return [...pitchers].sort((a,b)=>scoreCY(b)-scoreCY(a)).slice(0,5); // fallback if season too early
-      const votes = simulateCYVotes(top10);
-      return top10.map(p => ({ ...p, voteTotal: votes[p.id]||0 }))
-        .sort((a,b) => b.voteTotal - a.voteTotal).slice(0,5);
+      const pool = qualified.length >= 5 ? qualified : pitchers;
+      return rankAward(pool, scoreCY);
     };
     const cyAL = rankCY(alP);
     const cyNL = rankCY(nlP);
@@ -2918,12 +2910,8 @@ async function fetchAwardRaces() {
     const alRookPitchers = attachWAR(buildPool(alRookP), true);
     const nlRookPitchers = attachWAR(buildPool(nlRookP), true);
 
-    const rotyAL = hasFG
-      ? rankByWAR(mergeForMVP(alRookHitters, alRookPitchers))
-      : rankFallback(alRookHitters, alRookPitchers);
-    const rotyNL = hasFG
-      ? rankByWAR(mergeForMVP(nlRookHitters, nlRookPitchers))
-      : rankFallback(nlRookHitters, nlRookPitchers);
+    const rotyAL = rankAward(mergeForMVP(alRookHitters, alRookPitchers), mvpScore);
+    const rotyNL = rankAward(mergeForMVP(nlRookHitters, nlRookPitchers), mvpScore);
 
     // ── 7. Format stat display lines ─────────────────────────────────────────
     function fmtMVP(p) {
@@ -3074,23 +3062,27 @@ async function fetchAwardRaces() {
       const avg = parseFloat(s.battingAverage) || 0;
       const hr = parseInt(s.homeRuns) || 0;
       const rbi = parseInt(s.runsBattedIn) || 0;
-      const sb = parseInt(s.stolenBases) || 0;
-      const hits = parseInt(s.hits) || 0;
-      return (p.war ?? 0) * 100 + ops * 90 + avg * 35 + hr * 2 + rbi * 0.8 + sb * 0.45 + hits * 0.2;
+      const r = parseInt(s.runs) || 0;
+      const h = parseInt(s.hits) || 0;
+      const war = p.war ?? 0;
+      // All-Star voting heavily favors "counting" stats and popularity (OPS/AVG/HR)
+      return (war * 50) + (ops * 120) + (avg * 80) + (hr * 4.5) + (rbi * 1.5) + (r * 1.2) + (h * 0.5);
     };
 
     const allStarPitcherScore = p => {
       const s = p.stats || {};
-      const era = parseFloat(s.earnedRunAverage) || 9;
-      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 2;
+      const era = parseFloat(s.earnedRunAverage) || 4.5;
+      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
       const k = parseInt(s.strikeouts) || 0;
-      const ip = parseFloat(s.inningsPitched) || 0;
       const w = parseInt(s.wins) || 0;
       const sv = parseInt(s.saves) || 0;
-      const isReliever = sv >= 5 || ip < qualifiedIP * 0.55;
-      const runPrevention = (4.25 - era) * 16 + (1.35 - whip) * 22;
-      const roleBonus = isReliever ? sv * 2.4 : ip * 0.22 + w * 1.4;
-      return (p.war ?? 0) * 95 + runPrevention + k * 0.36 + roleBonus;
+      const ip = parseFloat(s.inningsPitched) || 0;
+      const war = p.war ?? 0;
+
+      const isReliever = sv >= 4 || ip < qualifiedIP * 0.5;
+      const dominance = ((3.5 - era) * 25) + ((1.2 - whip) * 35) + (k * 0.4);
+      const roleBonus = isReliever ? (sv * 6.0) : (w * 4.0 + ip * 0.5);
+      return (war * 45) + dominance + roleBonus;
     };
 
     function uniqueById(players) {
