@@ -128,7 +128,7 @@
   <button class="btn secondary" id="today-btn" onclick="setGameDate(todayET())">Today</button>
 </div>
 
-<div id="high-leverage-alert" class="hl-alert">
+<div id="high-leverage-alert" class="hl-alert" role="alert">
   <div class="hl-alert-content">
     <span class="hl-alert-icon">⚠️</span>
     <span id="hl-alert-msg">HIGH LEVERAGE ALERT</span>
@@ -136,7 +136,7 @@
   </div>
 </div>
 
-<div id="notification-container"></div>
+<div id="notification-container" role="log" aria-live="polite"></div>
 <div class="drawer-overlay" id="drawer-overlay" onclick="closeGameDrawer()"></div>
 <aside class="game-drawer" id="game-drawer" aria-label="Game details">
   <div class="drawer-header">

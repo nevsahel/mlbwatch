@@ -2499,7 +2499,10 @@ function renderMilestoneCard(m) {
 
   const playerKey = `${m.id}-${m.stat}`;
   const isFollowed = followedChases.has(playerKey);
-  const followBtn = `<button class="milestone-follow ${isFollowed ? 'active' : ''}" onclick="toggleFollowChase('${playerKey}')">
+  const followBtn = `<button class="milestone-follow ${isFollowed ? 'active' : ''}"
+    onclick="toggleFollowChase('${playerKey}')"
+    aria-pressed="${isFollowed}"
+    aria-label="${isFollowed ? 'Stop watching' : 'Watch'} ${escapeHTML(m.name)}'s chase for ${escapeHTML(m.next)} ${escapeHTML(m.stat)}">
     ${isFollowed ? '★ Following' : '☆ Watch Chase'}
   </button>`;
 

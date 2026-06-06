@@ -221,10 +221,31 @@
     font-size: 0.82rem;
     font-weight: 600;
     color: #fff;
-    transition: opacity 0.5s;
+    transition: opacity 0.5s, transform 0.5s;
     box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    animation: slideInRight 0.4s ease-out;
   }
+  @keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  .notif-close {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    font-size: 1.2rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+    border-radius: 4px;
+    transition: color 0.2s, background 0.2s;
+  }
+  .notif-close:hover { color: #fff; background: rgba(255,255,255,0.1); }
   .notification.milestone {
     background: linear-gradient(135deg, #92400e, #d97706);
     border: 1px solid #f59e0b;
