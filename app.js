@@ -419,8 +419,10 @@ function setGameDate(date) {
   isFirstLoad = true;
   pollCount = 0;
   lastGames = null;
+  lastAuxRefresh = 0;
+  Object.keys(prevLeaders).forEach(k => delete prevLeaders[k]);
   document.getElementById('last-update').textContent = selectedDate === todayET() ? 'Date set to today' : `Date set to ${selectedDate}`;
-  if (polling) pollGames();
+  pollGames();
 }
 
 // ─── WATCHABILITY INDEX CALCULATOR ─────────────────────────────────────────────
@@ -1645,6 +1647,11 @@ function renderLeaderRow(results, container) {
 
 async function fetchStatLeaders() {
   const container = document.getElementById('leaders-container');
+  const title = document.getElementById('stat-leaders-title');
+  const date = selectedDate || todayET();
+  if (title) {
+    title.textContent = date === todayET() ? 'Stat Leaders' : `Stat Leaders (as of ${date})`;
+  }
   container.innerHTML = '<div class="empty-msg">Loading stat leaders...</div>';
 
   const [battingResults, pitchingResults] = await Promise.all([
@@ -2836,14 +2843,14 @@ function renderStarList() {
 // Silver Slugger: hitters only by position, ranked by OPS+ (park-adjusted).
 
 // ── Fangraphs WAR cache (30-min TTL) ─────────────────────────────────────────
-let _fgWarCache = null;
-let _fgWarCacheTime = 0;
+let _fgWarCache = {}; // season -> data
+let _fgWarCacheTime = {}; // season -> timestamp
 const FG_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 async function fetchFangraphsWAR(season) {
   const now = Date.now();
-  if (_fgWarCache && (now - _fgWarCacheTime) < FG_CACHE_TTL) {
-    return _fgWarCache;
+  if (_fgWarCache[season] && (now - _fgWarCacheTime[season]) < FG_CACHE_TTL) {
+    return _fgWarCache[season];
   }
   let fgHitters = [], fgPitchers = [];
   try {
@@ -2854,9 +2861,9 @@ async function fetchFangraphsWAR(season) {
     fgHitters  = (fgH?.data  || (Array.isArray(fgH)  ? fgH  : []));
     fgPitchers = (fgP?.data  || (Array.isArray(fgP)  ? fgP  : []));
   } catch(e) { console.warn('[Awards] Fangraphs WAR fetch failed:', e.message); }
-  _fgWarCache = { fgHitters, fgPitchers };
-  _fgWarCacheTime = now;
-  return _fgWarCache;
+  _fgWarCache[season] = { fgHitters, fgPitchers };
+  _fgWarCacheTime[season] = now;
+  return _fgWarCache[season];
 }
 
 const POSITIONS_SS_AL = ['C','1B','2B','3B','SS','LF','CF','RF','DH'];
@@ -4072,7 +4079,11 @@ async function pollGames() {
 
     // First load: also fetch standings, milestones & award races
     if (isFirstLoad) {
-      await fetchFangraphsStarTiers();
+      await Promise.all([
+        fetchFangraphsStarTiers(),
+        fetchStatLeaders(),
+        fetchTeamRecords()
+      ]);
       fetchPlayoffRaces(games);
       fetchMilestones(games);
       fetchAwardRaces();
