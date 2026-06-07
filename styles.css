@@ -297,6 +297,7 @@
   .tab-bar { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 3px solid #8b2635; }
   .tab-btn { background: none; border: none; color: #7a9e8d; font-size: 0.82rem; font-weight: 700; padding: 10px 20px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -3px; text-transform: uppercase; letter-spacing: 0.06em; }
   .tab-btn:hover { color: #f5e6be; }
+  .tab-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; color: #f5e6be; }
   .tab-btn.active { color: #f5e6be; border-bottom-color: #f5e6be; font-weight: 900; }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
@@ -415,6 +416,7 @@
     transition: color 0.15s;
   }
   .sidebar-tab:hover { color: #aaa; }
+  .sidebar-tab:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; color: var(--gold); }
   .sidebar-tab.active { color: #f59e0b; border-bottom-color: #f59e0b; }
 
   .sidebar-body {
@@ -482,6 +484,7 @@
     user-select: none;
   }
   .team-toggle:hover { border-color: #2e2e4e; color: #ddd; }
+  .team-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-color: var(--gold); }
   .team-toggle.spoilered { border-color: #ef444477; background: #1a0a0a; color: #f87171; }
   .team-toggle.favorite { border-color: #f59e0b77; background: #1d1608; color: #fbbf24; }
   .team-toggle .tt-logo { width: 16px; height: 16px; object-fit: contain; flex-shrink: 0; }
@@ -502,7 +505,10 @@
     background: #1a0a0a; border: 1px dashed #ef444455; border-radius: 6px;
     padding: 10px; margin: 8px 0; font-size: 0.72rem; color: #ef4444; font-weight: 700;
     gap: 6px; cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
   }
+  .game-card.spoilered .spoiler-mask:hover { background: #2a0a0a; border-color: #ef4444; }
+  .game-card.spoilered .spoiler-mask:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   /* Milestones */
   .milestone-hero {
     display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; align-items: stretch;
@@ -522,6 +528,7 @@
     padding: 6px 12px; font-size: 0.7rem; font-weight: 800; cursor: pointer;
   }
   .milestone-filter:hover { color: #ddd; background: #252540; }
+  .milestone-filter:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   .milestone-filter.active { color: #f59e0b; border-color: #f59e0b55; background: #f59e0b18; }
   .milestone-lane { margin-bottom: 22px; }
   .milestone-lane-title {
@@ -802,6 +809,7 @@
     cursor: pointer; transition: all 0.15s; white-space: nowrap;
   }
   .gc-btn:hover { background: #252540; color: #ccc; }
+  .gc-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   .gc-btn.active { background: #f59e0b22; border-color: #f59e0b55; color: #f59e0b; }
   .gc-btn.active-blue { background: #3b82f622; border-color: #3b82f655; color: #60a5fa; }
   .gc-divider { width: 1px; height: 20px; background: #2a2a3e; margin: 0 2px; }

@@ -23,7 +23,7 @@ function isRivalry(a, b) {
 function teamLogo(abbr) {
   const t = TEAM_DATA[abbr];
   if (!t) return '';
-  return `<img class="team-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" alt="" onerror="this.style.display='none'">`;
+  return `<img class="team-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" alt="${abbr} logo" onerror="this.style.display='none'">`;
 }
 
 function teamColor(abbr) {
@@ -1464,7 +1464,7 @@ function renderGames(games) {
       const spoilerHtml = `
         <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
         <div class="inning-line" style="color:var(--text-dim)">${isScheduled ? game.inningStatus : isFinal ? 'FINAL' : 'Live'}</div>
-        <div class="spoiler-mask" onclick="revealSpoiler(this, ${game.gamePk})">
+        <div class="spoiler-mask" role="button" tabindex="0" onclick="revealSpoiler(this, ${game.gamePk})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();revealSpoiler(this, ${game.gamePk})}">
           🙈 Spoiler Mode — tap to reveal
         </div>
       `;
@@ -2592,8 +2592,8 @@ function renderSpoilerGrid() {
   grid.innerHTML = ALL_TEAM_ABBRS.map(abbr => {
     const isSpoiled = spoilerTeams.has(abbr);
     const t = TEAM_DATA[abbr];
-    return `<div class="team-toggle${isSpoiled ? ' spoilered' : ''}" onclick="toggleSpoilerTeam('${abbr}')">
-      <img class="tt-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" onerror="this.style.display='none'">
+    return `<div class="team-toggle${isSpoiled ? ' spoilered' : ''}" role="button" tabindex="0" aria-pressed="${isSpoiled}" onclick="toggleSpoilerTeam('${abbr}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSpoilerTeam('${abbr}')}">
+      <img class="tt-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" alt="${abbr} logo" onerror="this.style.display='none'">
       <span>${abbr}</span>
       <div class="tt-check">${isSpoiled ? '✓' : ''}</div>
     </div>`;
@@ -2606,8 +2606,8 @@ function renderFavoriteGrid() {
   grid.innerHTML = ALL_TEAM_ABBRS.map(abbr => {
     const isFav = favoriteTeams.has(abbr);
     const t = TEAM_DATA[abbr];
-    return `<div class="team-toggle${isFav ? ' favorite' : ''}" onclick="toggleFavoriteTeam('${abbr}')">
-      <img class="tt-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" onerror="this.style.display='none'">
+    return `<div class="team-toggle${isFav ? ' favorite' : ''}" role="button" tabindex="0" aria-pressed="${isFav}" onclick="toggleFavoriteTeam('${abbr}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFavoriteTeam('${abbr}')}">
+      <img class="tt-logo" src="https://www.mlbstatic.com/team-logos/${t.id}.svg" alt="${abbr} logo" onerror="this.style.display='none'">
       <span>${abbr}</span>
       <div class="tt-check">${isFav ? '★' : ''}</div>
     </div>`;
