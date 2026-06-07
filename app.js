@@ -2209,8 +2209,8 @@ async function fetchMilestones(todayGames) {
     // Fetch top players in each category
     const allMilestones = [];
 
-    // Fetch regular season milestones
-    await Promise.all(MILESTONE_DEFS.map(def =>
+    // BOLT OPTIMIZATION: Parallelize season milestone fetches and career milestone pool fetches to reduce tab load time.
+    const seasonMilestonePromises = MILESTONE_DEFS.map(def =>
       batchFetcher.add(async () => {
         try {
           const url = `${MLB_API}/stats?stats=byDateRange&group=${def.group}&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=50&sortStat=${def.api}`;
@@ -2249,14 +2249,21 @@ async function fetchMilestones(todayGames) {
           }
         } catch (e) { console.warn(`Milestone ${def.label}:`, e); }
       })
-    ));
+    );
+
+    const careerPoolPromise = Promise.all([
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30`, { ttl: 900000 }),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30`, { ttl: 900000 })
+    ]);
+
+    // Fetch regular season milestones and career pools in parallel
+    const [[hitPool2, pitPool2]] = await Promise.all([
+      careerPoolPromise,
+      ...seasonMilestonePromises
+    ]);
 
     // Fetch career milestones
     try {
-      const [hitPool2, pitPool2] = await Promise.all([
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30`, { ttl: 900000 }),
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30`, { ttl: 900000 })
-      ]);
 
       const playerMap = {};
       const addPlayers = (data, group) => {
@@ -2876,8 +2883,33 @@ async function fetchAwardRaces() {
   const date = selectedDate || todayET();
 
   try {
+    // BOLT OPTIMIZATION: Initiate all independent foundational data fetches concurrently to minimize serial latency.
+    const fgWarPromise = fetchFangraphsWAR(season);
+
+    const statsPromise = Promise.all([
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/schedule?sportId=1&season=${season}&endDate=${date}&gameType=R&teamId=147`, { ttl: 900000 }).catch(()=>null)),
+    ]);
+
+    const rotyPromise = Promise.all([
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+    ]);
+
+    const asStatsPromise = Promise.all([
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`, { ttl: 900000 }),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`, { ttl: 900000 }),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`, { ttl: 900000 }),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`, { ttl: 900000 })
+    ]);
+
     // ── 1. Fetch Fangraphs fWAR (cached, 30-min TTL) ────────────────────────
-    const { fgHitters, fgPitchers } = await fetchFangraphsWAR(season);
+    const { fgHitters, fgPitchers } = await fgWarPromise;
 
     // Build name→WAR lookup (deduplicated, keep highest)
     const warByName = {};
@@ -2914,13 +2946,7 @@ async function fetchAwardRaces() {
 
     // ── 2. Fetch MLB API stats for display (traditional stats alongside WAR) ─
     // Using byDateRange for more accurate historical leaderboards
-    const [alHit, nlHit, alPit, nlPit, alGames] = await Promise.all([
-      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`, { ttl: 900000 })),
-      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
-      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`, { ttl: 900000 })),
-      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
-      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/schedule?sportId=1&season=${season}&endDate=${date}&gameType=R&teamId=147`, { ttl: 900000 }).catch(()=>null)),
-    ]);
+    const [alHit, nlHit, alPit, nlPit, alGames] = await statsPromise;
 
     // ── 3. Build per-player stat pools from MLB API ──────────────────────────
     function buildPool(data) {
@@ -3077,12 +3103,7 @@ async function fetchAwardRaces() {
     // ── 6. ROTY: rookies only, hitters + pitchers, ranked by WAR then stats ──
     // MLB API has a playerPool=rookies param — fetch both groups
     // BOLT OPTIMIZATION: Use requestPool for deduplication and persistent caching
-    const [alRookH, nlRookH, alRookP, nlRookP] = await Promise.all([
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
-    ]);
+    const [alRookH, nlRookH, alRookP, nlRookP] = await rotyPromise;
 
     const alRookHitters  = attachWAR(buildPool(alRookH), false);
     const nlRookHitters  = attachWAR(buildPool(nlRookH), false);
@@ -3197,7 +3218,7 @@ async function fetchAwardRaces() {
       } catch(e) { return {}; }
     }
 
-    const [ssAL, ssNL] = await Promise.all([buildSilverSluggers(103), buildSilverSluggers(104)]);
+    const ssPromise = Promise.all([buildSilverSluggers(103), buildSilverSluggers(104)]);
 
     // ── 9. All-Star roster projection — 32 players: 20 bats, 12 pitchers ────
     const MLB_TEAMS_BY_LEAGUE = {
@@ -3221,12 +3242,14 @@ async function fetchAwardRaces() {
         chunks.push(ids.slice(i, i + chunkSize));
       }
 
-      await Promise.all(chunks.map(async chunk => {
-        try {
-          const pd = await requestPool.fetchDedup(`${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=currentTeam`);
-          (pd.people || []).forEach(person => { meta[person.id] = person; });
-        } catch {}
-      }));
+      await Promise.all(chunks.map(chunk =>
+        batchFetcher.add(async () => {
+          try {
+            const pd = await requestPool.fetchDedup(`${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=currentTeam`);
+            (pd.people || []).forEach(person => { meta[person.id] = person; });
+          } catch {}
+        })
+      ));
       return players.map(p => {
         const person = meta[p.id] || {};
         const team = normalizeAbbr(person.currentTeam?.abbreviation || p.team || '?');
@@ -3349,13 +3372,8 @@ async function fetchAwardRaces() {
       };
     }
 
-    async function buildAllStarRosters() {
-      const [alHitAS, nlHitAS, alPitAS, nlPitAS] = await Promise.all([
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`, { ttl: 900000 }),
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`, { ttl: 900000 }),
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`, { ttl: 900000 }),
-        requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`, { ttl: 900000 })
-      ]);
+    async function buildAllStarRosters(asStatsPromise) {
+      const [alHitAS, nlHitAS, alPitAS, nlPitAS] = await asStatsPromise;
       const [alHitMeta, nlHitMeta, alPitMeta, nlPitMeta] = await Promise.all([
         enrichPlayersForAllStar(attachWAR(buildPool(alHitAS), false), false),
         enrichPlayersForAllStar(attachWAR(buildPool(nlHitAS), false), false),
@@ -3368,7 +3386,11 @@ async function fetchAwardRaces() {
       };
     }
 
-    const allStarRosters = await buildAllStarRosters();
+    const [ssResults, allStarRosters] = await Promise.all([
+      ssPromise,
+      buildAllStarRosters(asStatsPromise)
+    ]);
+    const [ssAL, ssNL] = ssResults;
 
     function comparisonCard(title, leagueLabel, leagueCls, list, fmtFn, scoreFn) {
       if (!list || list.length < 2) return '';
