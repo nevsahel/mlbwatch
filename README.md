@@ -1,60 +1,97 @@
-# MLB Watchability Index
+# ⚾ MLB Watchability Index
 
-A live, data-driven dashboard for Major League Baseball that uses a custom **Watchability Index** to identify the most compelling action in real-time. Whether it's a tight divisional rivalry, a late-inning comeback, or a star pitcher on the mound, this tool ensures you never miss a high-stakes moment.
+A sophisticated, data-driven live dashboard for Major League Baseball that uses a multi-factor **Watchability Index** to identify the most compelling action in real-time. From pennant races and milestone chases to high-stakes late-inning drama, this tool ensures you're always tuned into the game's most important moments.
+
+---
 
 ## 🚀 Key Features
 
-- **🔥 Live Games**: Real-time scores and situation updates, ranked by our custom Watchability Index. Includes win probability sparklines and situational graphics (bases, outs, count).
-- **📟 Live Ticker**: A scrolling feed of high-impact plays, lead changes, and major Win Probability Added (WPA) events across the league.
-- **🏁 Playoff Races**: Dynamic standings for every division and wild card race, featuring magic numbers, elimination numbers, and Last 10 (L10) form.
-- **☄️ Home Run Command Center**: Detailed tracking of every home run hit today, including exit velocity, distance, launch angle, and Savant-powered spray charts.
-- **🎯 Milestone Watch**: Real-time tracking of active players approaching significant career and season milestones (hits, HRs, strikeouts, etc.).
-- **🏆 Award Race Projections**: Simulated daily projections for MVP, Cy Young, ROTY, and Silver Slugger based on live season data and fWAR.
+### 🔥 Real-Time Game Dashboard
+- **Intelligent Ranking**: Games are dynamically sorted by watchability, ensuring high-leverage action is always at the top.
+- **Situational Graphics**: Instant visual context with bases-occupied indicators, out counters, and pitch counts.
+- **Win Probability Sparklines**: Live SVG-rendered sparklines visualizing the ebb and flow of every game.
+- **Dynamic Theming**: UI elements automatically adapt to team brand colors for an immersive experience.
 
-## 📐 The Watchability Index
+### 🏆 Award Race Projections
+- **Simulated Voting**: Projections for MVP, Cy Young, and ROTY use a unique **5-voter panel simulation** (Traditionalist, Stat-head, etc.) based on fWAR and traditional metrics.
+- **Silver Slugger Field**: Interactive SVG field diagrams showing the projected Silver Slugger at every position.
+- **All-Star Roster Builder**: Real-time 34-man roster projections for both leagues, ensuring every MLB club is represented.
 
-The index is a **0–100 score** that blends situational drama, historical context, and a baseline game intensity:
+### 🎯 Milestone & Record Watch
+- **Chase Board**: Tracks players approaching major career (3000 Hits, 500 HR) and season benchmarks.
+- **Follow Chase**: Users can "follow" specific milestones to receive high-priority alerts when that player is at the plate.
+- **Heat Maps**: Visualizes a player's recent performance (Last 10 games) relative to their milestone chase.
+
+### 🕹️ Interactive Tools
+- **The Duel**: A head-to-head matchup simulator. Compare any batter and pitcher in MLB history (or active) using a weighted blend of season and career data to predict outcomes.
+- **Home Run Command Center**: Detailed tracking of every HR today, featuring **Baseball Savant-powered spray charts**, launch metrics, and Win Probability Added (WPA).
+- **Live Ticker**: A scrolling feed of the league's most impactful plays, lead changes, and "clutch" events.
+
+---
+
+## 📐 The Watchability Index (0–100)
+
+The index uses a tiered, bounded calculation system to ensure scores spread naturally across the full range.
 
 ### 1. Situation Component (Max 50 pts)
-Measures the immediate drama of the game:
-- **Score Closeness**: Tied games and 1-run leads receive the highest priority.
-- **Inning Urgency**: Bonuses for late-inning and extra-inning action.
-- **Base State**: Points for runners in scoring position and two-out pressure.
-- **Special Events**: Significant boosts for active no-hitters or perfect games.
+Measures immediate leverage and drama:
+- **Score Closeness**: Massive boosts for tied games (+20) and 1-run leads (+15).
+- **Urgency**: Bonuses for the 9th inning (+15) and extra innings (up to +18).
+- **Pressure**: Points for runners in scoring position and two-out threats.
+- **Special Events**: 10-point "No-Hitter/Perfect Game" override for games entering the 7th inning.
 
 ### 2. Context Component (Max 30 pts raw)
-Measures the historical and seasonal importance:
-- **Star Power**: Daily updated tiers based on Fangraphs fWAR (T1 = Top 20, T2 = Top 50, etc.).
+Measures historical and seasonal gravity:
+- **Star Power**: Daily tiers (T1/T2/T3) driven by live Fangraphs fWAR data.
 - **Team Quality**: Rewards matchups between high-winning-percentage teams.
-- **Playoff Stakes**: Elevated scores for bubble teams and divisional races.
-- **Rivalries**: Built-in bonuses for historic rivalry matchups (e.g., NYY vs. BOS).
+- **Playoff Stakes**: Elevated scores for divisional rivalries and bubble-team matchups.
 
 ### 3. Final Calculation
-The total score is a weighted blend of a **base intensity score** (e.g., 30 pts for live games), the Situation component, and a scaled version of the Context component, ensuring scores spread across the full 0–100 range.
+- **Live**: `30 (Base) + Situation + (Context * 0.65)`
+- **100 Score Requirements**: A game must be tied in extras, with bases loaded, featuring Tier 1 stars, in a playoff race, during a historic rivalry.
 
-## 🛠 Technology Stack
+---
 
-- **Frontend**: Vanilla HTML5, CSS3 (with custom animations and SVG field diagrams), and ES6+ JavaScript.
-- **Architecture**: Progressive Web App (PWA) with Service Worker for offline support and manifest-based installation.
-- **Utilities**: Custom request deduplication, batch fetching, and a persistent caching layer (`utils/performance.js`).
-- **Data Sources**:
-    - **MLB Stats API**: Real-time scores, standings, and player stats.
-    - **Baseball Savant**: Advanced home run metrics and exit velocity data.
-    - **Fangraphs**: Live API integration for daily WAR-based star tiers.
+## 🏆 Award Simulation Model
 
-## ⚙️ User Settings
+Unlike static leaderboards, our Award tab simulates actual BBWAA voting patterns:
+- **Voter Profiles**: Each projection aggregates five simulated ballots:
+    - *Traditionalist*: Weights Wins, RBI, and ERA.
+    - *Sabermetrician*: Heavily weights fWAR and park-adjusted metrics.
+    - *Balanced*: A 50/50 blend of old and new school.
+    - *Clutch/Narrative*: Favors players on winning teams in high-leverage roles.
+    - *Dominance*: Focused on rate stats like K/9 and OPS.
+- **Cy Young Criteria**: Requires a minimum qualification of 1.0 IP per team game played.
 
-- **⭐ Favorites**: Mark your favorite teams to float them to the top of the grid, ignore spoiler masking, and receive browser notifications for score updates and "heating up" alerts.
-- **🙈 Spoiler Mode**: Select specific teams to hide their scores and details, allowing you to watch the game later without knowing the outcome.
+---
+
+## 🛠️ Technology & Performance
+
+Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestration:
+
+- **`RequestPool`**: A custom deduplication layer that prevents redundant simultaneous API calls and integrates persistent cross-session caching.
+- **`BatchFetcher`**: Manages parallel network requests with intelligent queuing and concurrency limits (default: 5) to respect API rate limits.
+- **`PersistentCache`**: A TTL-based storage wrapper for `localStorage`, ensuring data like Fangraphs tiers (24h) and Game Feeds (15s) stay fresh without over-fetching.
+- **`PerfTimer`**: Built-in performance monitoring to track rendering and I/O latency.
+- **A11y & UX**: Full keyboard navigation, `aria-live` regions for updates, and **Spoiler Mode** to hide scores for specific teams.
+
+---
 
 ## 📁 Project Structure
 
-- `index.html`: Main application entry point and layout.
-- `app.js`: Core logic for data orchestration, scoring, and rendering.
-- `styles.css`: Comprehensive design system and responsive layouts.
-- `utils/performance.js`: Request management and performance monitoring.
-- `service-worker.js`: PWA caching and offline reliability.
-- `manifest.webmanifest`: App configuration for mobile and desktop install.
+```text
+├── app.js               # Core orchestration, scoring logic, and UI rendering
+├── index.html           # Main layout and tab structure
+├── styles.css           # Comprehensive dark-themed design system
+├── js/
+│   ├── constants.js     # Team metadata, rivalry pairs, and scoring config
+│   └── modules/
+│       └── api.js       # Specialized API interaction layers
+├── utils/
+│   ├── core.js          # Shared utilities (formatting, storage, notifications)
+│   └── performance.js   # Request management, batching, and caching
+└── service-worker.js    # PWA offline support and asset caching
+```
 
 ---
 
