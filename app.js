@@ -3037,8 +3037,8 @@ async function fetchAwardRaces() {
       const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
       const sho = parseInt(s.shutouts) || 0;
       const war = p.war ?? 0;
-      // Calibrated to 2.46 ERA, 19 W, 213 SO, 1.04 WHIP means
-      return (w * 1.8) + ((3.2 - era) * 14) + (k * 0.14) + (ip * 0.08) + ((1.15 - whip) * 22) + (sho * 4) + (war * 6);
+      // Calibrated to 2.46 ERA, 19 W, 213 SO, 1.04 WHIP means. Reduced WAR weight.
+      return (w * 2.2) + ((3.2 - era) * 18) + (k * 0.16) + (ip * 0.1) + ((1.15 - whip) * 26) + (sho * 4) + (war * 2.5);
     };
 
     // ── Votes simulation ─────────────────────────────────────────────────────
@@ -3119,15 +3119,18 @@ async function fetchAwardRaces() {
       if (p.war !== null) parts.push(`<strong style="color:var(--gold)">${p.war.toFixed(1)} fWAR</strong>`);
       const s = p.stats;
       if (p.isPitcher) {
+        if (s.wins) parts.push(`<strong>${s.wins}</strong> W`);
         if (s.earnedRunAverage) parts.push(`<strong>${s.earnedRunAverage}</strong> ERA`);
         if (s.strikeouts) parts.push(`<strong>${s.strikeouts}</strong> K`);
         if (s.walksAndHitsPerInningPitched) parts.push(`<strong>${s.walksAndHitsPerInningPitched}</strong> WHIP`);
+        if (s.inningsPitched) parts.push(`<strong>${s.inningsPitched}</strong> IP`);
       } else {
         if (s.battingAverage) parts.push(`<strong>${s.battingAverage}</strong> AVG`);
         if (s.homeRuns) parts.push(`<strong>${s.homeRuns}</strong> HR`);
         if (s.runsBattedIn) parts.push(`<strong>${s.runsBattedIn}</strong> RBI`);
         if (s.onBasePlusSlugging) parts.push(`<strong>${s.onBasePlusSlugging}</strong> OPS`);
-        if (s.stolenBases && parseInt(s.stolenBases) > 5) parts.push(`<strong>${s.stolenBases}</strong> SB`);
+        if (s.runs) parts.push(`<strong>${s.runs}</strong> R`);
+        if (s.stolenBases) parts.push(`<strong>${s.stolenBases}</strong> SB`);
       }
       return parts.join(' · ');
     }
@@ -3136,11 +3139,12 @@ async function fetchAwardRaces() {
       const parts = [];
       if (p.war !== null) parts.push(`<strong style="color:var(--gold)">${p.war.toFixed(1)} fWAR</strong>`);
       const s = p.stats;
+      if (s.wins) parts.push(`<strong>${s.wins}</strong> W`);
       if (s.earnedRunAverage) parts.push(`<strong>${s.earnedRunAverage}</strong> ERA`);
       if (s.strikeouts) parts.push(`<strong>${s.strikeouts}</strong> K`);
-      if (s.wins) parts.push(`<strong>${s.wins}</strong> W`);
       if (s.walksAndHitsPerInningPitched) parts.push(`<strong>${s.walksAndHitsPerInningPitched}</strong> WHIP`);
       if (s.inningsPitched) parts.push(`<strong>${s.inningsPitched}</strong> IP`);
+      if (s.shutouts) parts.push(`<strong>${s.shutouts}</strong> SHO`);
       return parts.join(' · ');
     }
 
@@ -3329,12 +3333,12 @@ async function fetchAwardRaces() {
       addBest(scoredHitters, positionPlayers, 3, 'Starter OF', p => p.rosterPos === 'OF');
       ['C','1B','2B','3B','SS'].forEach(pos => addBest(scoredHitters, positionPlayers, 1, `Reserve ${pos}`, p => p.rosterPos === pos));
       addBest(scoredHitters, positionPlayers, 3, 'Reserve OF', p => p.rosterPos === 'OF');
-      addBest(scoredHitters, positionPlayers, 20 - positionPlayers.length, 'Reserve bat');
+      addBest(scoredHitters, positionPlayers, 21 - positionPlayers.length, 'Reserve bat');
 
       const pitchersRoster = [];
       addBest(scoredPitchers, pitchersRoster, 5, 'SP', p => p.pitcherRole === 'SP');
-      addBest(scoredPitchers, pitchersRoster, 3, 'RP', p => p.pitcherRole === 'RP');
-      addBest(scoredPitchers, pitchersRoster, 12 - pitchersRoster.length, 'Pitcher');
+      addBest(scoredPitchers, pitchersRoster, 4, 'RP', p => p.pitcherRole === 'RP');
+      addBest(scoredPitchers, pitchersRoster, 13 - pitchersRoster.length, 'Pitcher');
 
       let roster = [...positionPlayers, ...pitchersRoster];
       const requiredTeams = MLB_TEAMS_BY_LEAGUE[leagueCode] || [];
@@ -3392,62 +3396,7 @@ async function fetchAwardRaces() {
     ]);
     const [ssAL, ssNL] = ssResults;
 
-    function comparisonCard(title, leagueLabel, leagueCls, list, fmtFn, scoreFn) {
-      if (!list || list.length < 2) return '';
-      const [a, b] = list;
-      const scoreA = scoreFn ? scoreFn(a) : (a.voteTotal || 0);
-      const scoreB = scoreFn ? scoreFn(b) : (b.voteTotal || 0);
-      const gap = Math.abs(scoreA - scoreB);
-      const gapText = a.voteTotal != null && b.voteTotal != null
-        ? `${Math.abs((a.voteTotal || 0) - (b.voteTotal || 0))} vote pts`
-        : `${gap.toFixed(1)} model pts`;
-      const row = p => `<div class="race-compare-player">
-        <div class="race-compare-name">${teamLogo(p.team)} ${escapeHTML(p.name)} ${p.isPitcher ? '<span>P</span>' : ''}</div>
-        <div class="race-compare-team">${escapeHTML(p.team)}</div>
-        <div class="race-compare-stats">${fmtFn(p)}</div>
-      </div>`;
-      return `<article class="race-compare-card">
-        <div class="race-compare-title"><span class="lg-badge ${leagueCls}">${leagueLabel}</span> ${escapeHTML(title)} <em>${escapeHTML(gapText)} gap</em></div>
-        <div class="race-compare-grid">${row(a)}${row(b)}</div>
-      </article>`;
-    }
 
-    function comparisonSectionHtml() {
-      const cards = [
-        comparisonCard('MVP Close Race', 'AL', 'al', mvpAL, fmtMVP, mvpScore),
-        comparisonCard('MVP Close Race', 'NL', 'nl', mvpNL, fmtMVP, mvpScore),
-        comparisonCard('Cy Young Close Race', 'AL', 'al', cyAL, fmtCY, scoreCY),
-        comparisonCard('Cy Young Close Race', 'NL', 'nl', cyNL, fmtCY, scoreCY),
-        comparisonCard('Rookie Close Race', 'AL', 'al', rotyAL, fmtMVP, mvpScore),
-        comparisonCard('Rookie Close Race', 'NL', 'nl', rotyNL, fmtMVP, mvpScore)
-      ].filter(Boolean);
-      return `<div class="race-compare-section">
-        <div class="section-title" style="margin-bottom:8px">Close Race Comparisons</div>
-        <div class="race-compare-list">${cards.join('')}</div>
-      </div>`;
-    }
-
-    function allStarSnubWatchHtml(rosters) {
-      const rows = [
-        ...rosters.AL.snubs.map(p => ({ ...p, league: 'AL', leagueCls: 'al' })),
-        ...rosters.NL.snubs.map(p => ({ ...p, league: 'NL', leagueCls: 'nl' }))
-      ].sort((a, b) => (b.allStarScore || 0) - (a.allStarScore || 0)).slice(0, 12);
-      if (!rows.length) return '';
-      return `<div class="snub-watch-section">
-        <div class="section-title" style="margin-bottom:8px">All-Star Snub Watch</div>
-        <div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:12px">Best players outside the projected 32-man roster after position needs, pitching slots, and one-player-per-team representation are applied.</div>
-        <div class="snub-watch-grid">
-          ${rows.map((p, i) => `<div class="snub-card">
-            <div class="snub-rank">#${i + 1}</div>
-            <div class="snub-main">
-              <div class="snub-name"><span class="lg-badge ${p.leagueCls}">${p.league}</span> ${teamLogo(p.team)} ${escapeHTML(p.name)}</div>
-              <div class="snub-meta">${escapeHTML(p.team)} · ${escapeHTML(p.isPitcher ? (p.pitcherRole || 'P') : (p.rosterPos || 'BAT'))}</div>
-              <div class="snub-stats">${escapeHTML(fmtAllStarStats(p))}</div>
-            </div>
-          </div>`).join('')}
-        </div>
-      </div>`;
-    }
 
     // Field position coordinates (x%, y% from top-left of diagram)
     const FIELD_POSITIONS = {
@@ -3593,9 +3542,6 @@ async function fetchAwardRaces() {
       </div>`;
     container.appendChild(rotyRow);
 
-    const compareSection = document.createElement('div');
-    compareSection.innerHTML = comparisonSectionHtml();
-    container.appendChild(compareSection);
 
     const ssSection = document.createElement('div');
     ssSection.className = 'ss-section';
@@ -3610,16 +3556,13 @@ async function fetchAwardRaces() {
     const asSection = document.createElement('div');
     asSection.className = 'allstar-section';
     asSection.innerHTML = `<div class="section-title" style="margin-bottom:8px">Projected All-Star Rosters</div>
-      <div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:14px">Stats-based 2026 projection using current All-Star construction: 32 per league, 20 position players, 12 pitchers, starters by position, reserve coverage, and every MLB club represented. This does not model fan ballot popularity or injury replacements.</div>
+      <div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:14px">Stats-based 2026 projection using current All-Star construction: 34 per league (including 2 roster buffers), 21 position players, 13 pitchers, starters by position, reserve coverage, and every MLB club represented. This does not model fan ballot popularity or injury replacements.</div>
       <div class="as-leagues">
         ${allStarRosterHtml(allStarRosters.AL, 'AL', 'al')}
         ${allStarRosterHtml(allStarRosters.NL, 'NL', 'nl')}
       </div>`;
     container.appendChild(asSection);
 
-    const snubSection = document.createElement('div');
-    snubSection.innerHTML = allStarSnubWatchHtml(allStarRosters);
-    container.appendChild(snubSection);
 
   } catch(e) {
     console.error('Award races failed:', e);

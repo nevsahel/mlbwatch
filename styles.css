@@ -687,7 +687,7 @@
     font-size: 0.5rem; color: #f59e0b; font-weight: 800;
     text-transform: uppercase; letter-spacing: 0.05em;
   }
-  .field-player-stat { font-size: 0.52rem; color: #4ade80; }
+  .field-player-stat { font-size: 0.58rem; font-weight: 700; color: #4ade80; background: rgba(0,0,0,0.6); padding: 1px 3px; border-radius: 2px; margin-top: 1px; }
   .field-player.loading .field-player-name { color: #555; }
 
   /* Gold Glove */
