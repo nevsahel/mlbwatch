@@ -233,6 +233,7 @@ async function fetchTeamRecords() {
     }
     teamRecords = rec;
     playoffContext = ctx;
+    populateL10Cache(regData);
   } catch (e) { console.warn('Records fetch failed:', e); }
 }
 
@@ -1689,80 +1690,53 @@ const AL_DIVS = [201, 202, 200];
 const NL_DIVS = [204, 205, 203];
 
 // ─── TEAM L10 FORM CACHE ──────────────────────────────────────────────────────
-const teamL10Cache = {}; // abbr -> { w, l, streak, streakDir }
-let l10LastFetchDate = null;
+const teamL10Cache = {}; // abbr -> { w, l, streakCode, games }
 
-async function fetchAllTeamL10() {
-  const date = selectedDate || todayET();
-  if (l10LastFetchDate === date && Object.keys(teamL10Cache).length > 0) return;
-  const allAbbrs = Object.keys(TEAM_DATA).filter(a => a !== 'ATH');
-  const season = currentSeason();
-  // Fetch last 15 games for each team in parallel (15 to be sure we get 10 completed)
-  await Promise.all(allAbbrs.map(async abbr => {
-    const tid = TEAM_DATA[abbr]?.id;
-    if (!tid) return;
-    try {
-      // end=date, start=~28 days ago should be plenty
-      const end = date;
-      const startDate = new Date(date + 'T12:00:00'); // set mid-day to avoid TZ issues
-      startDate.setDate(startDate.getDate() - 28);
-      const start = `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`;
-      const url = `${MLB_API}/schedule?sportId=1&teamId=${tid}&startDate=${start}&endDate=${end}&hydrate=team&gameType=R`;
-      const data = await requestPool.fetchDedup(url);
-      const results = [];
-      for (const dateObj of (data.dates || [])) {
-        for (const g of (dateObj.games || [])) {
-          if (g.status?.abstractGameState !== 'Final') continue;
-          const isHome = g.teams?.home?.team?.id === tid;
-          const myScore = isHome ? g.teams?.home?.score : g.teams?.away?.score;
-          const oppScore = isHome ? g.teams?.away?.score : g.teams?.home?.score;
-          if (myScore == null || oppScore == null) continue;
-          results.push(myScore > oppScore ? 'W' : 'L');
-        }
-      }
-      const last10 = results.slice(-10);
-      const w = last10.filter(r => r === 'W').length;
-      const l = last10.filter(r => r === 'L').length;
-      // Streak: count how many in a row from end
-      let streakCount = 0;
-      let streakDir = '';
-      for (let i = results.length - 1; i >= 0; i--) {
-        if (streakDir === '') { streakDir = results[i]; streakCount = 1; }
-        else if (results[i] === streakDir) streakCount++;
-        else break;
-      }
-      teamL10Cache[abbr] = { w, l, streakCount, streakDir, games: last10.length };
-    } catch(e) {}
-  }));
-  l10LastFetchDate = date;
+/**
+ * BOLT OPTIMIZATION: Extract L10 and streak data from aggregate standings data
+ * instead of making 30 individual schedule requests.
+ */
+function populateL10Cache(regData) {
+  if (!regData?.records) return;
+  for (const group of regData.records) {
+    for (const t of group.teamRecords) {
+      const abbr = normalizeAbbr(t.team.abbreviation || t.team.name);
+      const l10 = t.records?.splitRecords?.find(s => s.type === 'lastTen') || {};
+      teamL10Cache[abbr] = {
+        w: l10.wins ?? 0,
+        l: l10.losses ?? 0,
+        streakCode: t.streak?.streakCode || '-',
+        games: (l10.wins ?? 0) + (l10.losses ?? 0)
+      };
+    }
+  }
 }
 
 function l10Html(abbr) {
   const d = teamL10Cache[abbr];
-  if (!d || d.games < 5) return '<span class="l10-cell even">—</span>';
+  if (!d || d.games < 1) return '<span class="l10-cell even">—</span>';
   const cls = d.w >= 7 ? 'hot' : d.w <= 3 ? 'cold' : 'even';
   return `<span class="l10-cell ${cls}">${d.w}-${d.l}</span>`;
 }
 
 function streakHtml(abbr) {
   const d = teamL10Cache[abbr];
-  if (!d || !d.streakDir) return '<span class="streak-cell">—</span>';
-  const cls = d.streakDir === 'W' ? 'win' : 'loss';
-  return `<span class="streak-cell ${cls}">${d.streakDir}${d.streakCount}</span>`;
+  if (!d || !d.streakCode || d.streakCode === '-') return '<span class="streak-cell">—</span>';
+  const cls = d.streakCode.startsWith('W') ? 'win' : 'loss';
+  return `<span class="streak-cell ${cls}">${d.streakCode}</span>`;
 }
 
 async function fetchPlayoffRaces(todayGames) {
   const container = document.getElementById('playoffs-container');
   container.innerHTML = '<div class="empty-msg">Loading standings...</div>';
   try {
-    // Kick off L10 fetch in background (non-blocking — will populate on next render if slow)
-    fetchAllTeamL10();
     const season = currentSeason();
     const date = selectedDate || todayET();
     const [regData, wcData] = await Promise.all([
       requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${date}`, ttl: 300000 }),
       requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${date}`, ttl: 300000 })
     ]);
+    populateL10Cache(regData);
 
     // Build division map
     const divMap = {};
