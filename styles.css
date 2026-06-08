@@ -1127,6 +1127,72 @@
   }
   .card-expand-panel.open { display: block; }
 
+  /* Live At-Bat / Gameday Styles */
+  .gameday-container {
+    margin-bottom: 20px;
+    background: #0a0a14;
+    border: 1px solid #2a2a3e;
+    border-radius: 8px;
+    overflow: hidden;
+    padding: 12px;
+  }
+  .gameday-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #1e1e2e;
+    padding-bottom: 8px;
+  }
+  .gameday-title { font-size: 0.75rem; font-weight: 800; color: #f59e0b; text-transform: uppercase; }
+  .gameday-viz-wrap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 500px) {
+    .gameday-viz-wrap { grid-template-columns: 1fr; }
+  }
+
+  .strike-zone-svg {
+    width: 100%;
+    max-width: 240px;
+    height: auto;
+    background: #111;
+    border-radius: 4px;
+    margin: 0 auto;
+    display: block;
+  }
+  .sz-rect { fill: none; stroke: #444; stroke-width: 1; }
+  .sz-hotzone { stroke: rgba(255,255,255,0.05); stroke-width: 0.5; }
+  .pitch-dot { transition: r 0.2s; cursor: help; }
+  .pitch-dot:hover { r: 6; }
+  .pitch-text { font-size: 6px; font-weight: 800; text-anchor: middle; dominant-baseline: central; fill: #fff; pointer-events: none; }
+
+  .pitch-list {
+    font-size: 0.7rem;
+    color: #ccc;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .pitch-item {
+    display: grid;
+    grid-template-columns: 20px 1fr auto;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #1a1a2a;
+    align-items: center;
+  }
+  .pitch-item:last-child { border-bottom: none; }
+  .pitch-num {
+    width: 18px; height: 18px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.6rem; font-weight: 800; color: #fff;
+  }
+  .pitch-info b { color: #f59e0b; }
+  .pitch-result { font-weight: 700; font-size: 0.65rem; }
+
   /* box score mini table */
   .expand-box { margin-bottom: 10px; }
   .expand-box-row {
