@@ -153,6 +153,15 @@
   .player-info strong { color: #fff; }
 
   .situation-graphic { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+  .situation-graphic.nhl { justify-content: space-between; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 6px; }
+  .nhl-strength { display: flex; flex-direction: column; align-items: flex-start; }
+  .strength-label { font-size: 0.55rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .strength-indicator { font-size: 0.7rem; font-weight: 800; color: var(--text-dim); }
+  .strength-indicator.active { color: var(--gold); }
+  .nhl-goalie-status { display: flex; align-items: center; gap: 6px; }
+  .goalie-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+  .goalie-dot.pulled { background: var(--danger); box-shadow: 0 0 5px var(--danger); }
+  .goalie-label { font-size: 0.6rem; font-weight: 700; color: var(--text-dim); }
   .bases { position: relative; width: 30px; height: 18px; }
   .base { position: absolute; width: 8px; height: 8px; border: 1px solid #555; transform: rotate(45deg); }
   .base.occupied { background: #f59e0b; border-color: #f59e0b; }
