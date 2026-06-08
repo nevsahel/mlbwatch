@@ -50,12 +50,18 @@ function normalizeAbbr(abbr) {
 // ─── TABS ────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   renderWithErrorBoundary(() => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      b.classList.remove('active');
+      b.setAttribute('aria-selected', 'false');
+    });
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     const targetTab = document.getElementById('tab-' + tab);
     if (targetTab) targetTab.classList.add('active');
     const targetBtn = document.querySelector(`.tab-btn[onclick*="'${tab}'"]`);
-    if (targetBtn) targetBtn.classList.add('active');
+    if (targetBtn) {
+      targetBtn.classList.add('active');
+      targetBtn.setAttribute('aria-selected', 'true');
+    }
 
     // Lazy-load data for the active tab
     if (lastGames) {
@@ -1335,9 +1341,15 @@ let currentFilter = loadPrefs().filter || null;          // null | 'hot' | 'fire
 function setSort(s) {
   currentSort = s;
   savePrefs({ sort: s });
-  document.querySelectorAll('[id^="sort-"]').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('[id^="sort-"]').forEach(b => {
+    b.classList.remove('active');
+    b.setAttribute('aria-pressed', 'false');
+  });
   const btn = document.getElementById('sort-' + s);
-  if (btn) btn.classList.add('active');
+  if (btn) {
+    btn.classList.add('active');
+    btn.setAttribute('aria-pressed', 'true');
+  }
   if (lastGames) renderGames(lastGames);
 }
 
@@ -1345,13 +1357,22 @@ function setFilter(f) {
   if (currentFilter === f) {
     currentFilter = null;
     savePrefs({ filter: null });
-    document.querySelectorAll('[id^="filter-"]').forEach(b => { b.classList.remove('active'); });
+    document.querySelectorAll('[id^="filter-"]').forEach(b => {
+      b.classList.remove('active');
+      b.setAttribute('aria-pressed', 'false');
+    });
   } else {
     currentFilter = f;
     savePrefs({ filter: f });
-    document.querySelectorAll('[id^="filter-"]').forEach(b => { b.classList.remove('active'); });
+    document.querySelectorAll('[id^="filter-"]').forEach(b => {
+      b.classList.remove('active');
+      b.setAttribute('aria-pressed', 'false');
+    });
     const btn = document.getElementById('filter-' + f);
-    if (btn) btn.classList.add('active');
+    if (btn) {
+      btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
+    }
   }
   if (lastGames) renderGames(lastGames);
 }
@@ -2630,10 +2651,17 @@ function closeSidebar() {
 
 function switchSidebarTab(tab) {
   renderWithErrorBoundary(() => {
-    document.querySelectorAll('.sidebar-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sidebar-tab').forEach(b => {
+      b.classList.remove('active');
+      b.setAttribute('aria-selected', 'false');
+    });
     document.querySelectorAll('.sidebar-section').forEach(s => s.classList.remove('active'));
     document.getElementById('sb-' + tab).classList.add('active');
-    document.querySelector(`.sidebar-tab[onclick*="'${tab}'"]`).classList.add('active');
+    const targetBtn = document.querySelector(`.sidebar-tab[onclick*="'${tab}'"]`);
+    if (targetBtn) {
+      targetBtn.classList.add('active');
+      targetBtn.setAttribute('aria-selected', 'true');
+    }
   }, 'sb-' + tab, 'Sidebar tab failed to load');
 }
 
@@ -3974,16 +4002,26 @@ function hydratePreferenceControls() {
   const dateInput = document.getElementById('game-date');
   if (dateInput) dateInput.value = selectedDate;
 
-  document.querySelectorAll('[id^="sort-"]').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('[id^="sort-"]').forEach(b => {
+    b.classList.remove('active');
+    b.setAttribute('aria-pressed', 'false');
+  });
   const sortBtn = document.getElementById('sort-' + currentSort);
-  if (sortBtn) sortBtn.classList.add('active');
+  if (sortBtn) {
+    sortBtn.classList.add('active');
+    sortBtn.setAttribute('aria-pressed', 'true');
+  }
 
   document.querySelectorAll('[id^="filter-"]').forEach(b => {
     b.classList.remove('active');
+    b.setAttribute('aria-pressed', 'false');
   });
   if (currentFilter) {
     const filterBtn = document.getElementById('filter-' + currentFilter);
-    if (filterBtn) filterBtn.classList.add('active');
+    if (filterBtn) {
+      filterBtn.classList.add('active');
+      filterBtn.setAttribute('aria-pressed', 'true');
+    }
   }
 }
 
