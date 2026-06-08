@@ -993,14 +993,30 @@ function toggleExpandCard(gamePk, btn) {
   openSidePanel(gamePk);
 }
 
+const hotZonesCache = {}; // id -> zones
+
+async function fetchHotZones(playerId) {
+  if (!playerId || hotZonesCache[playerId]) return hotZonesCache[playerId];
+  try {
+    const data = await requestPool.fetchDedup(
+      `${MLB_API}/people/${playerId}?hydrate=stats(group=[hitting],type=[hotColdZones])`,
+      { cacheKey: `hotZones:${playerId}`, ttl: 86400000 }
+    );
+    const zones = data.people?.[0]?.stats?.find(s => s.group?.code === 'hitting')?.zones || [];
+    hotZonesCache[playerId] = zones;
+    return zones;
+  } catch { return []; }
+}
+
 async function openSidePanel(gamePk) {
   activeGamePk = gamePk;
   const panel = document.getElementById('side-panel');
-  panel?.classList.add('open');
+  if (!panel) return;
+  panel.classList.add('open');
   const title = document.getElementById('side-panel-title');
   const body = document.getElementById('side-panel-body');
   const game = gameDetailsByPk[gamePk];
-  if (!panel || !title || !body) return;
+  if (!title || !body) return;
 
   // Highlight active card
   document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
@@ -1008,7 +1024,9 @@ async function openSidePanel(gamePk) {
   if (card) card.classList.add('active-side');
 
   title.textContent = game ? `${game.awayTeam} @ ${game.homeTeam}` : 'Game Details';
-  body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+  if (body.innerHTML.includes('empty-msg') || body.innerHTML.includes('Select a game')) {
+    body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+  }
 
   try {
     const [feed, wpData] = await Promise.all([
@@ -1016,6 +1034,9 @@ async function openSidePanel(gamePk) {
       requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
     ]);
     const data = parseExpandData(feed, wpData);
+    if (data.gameday?.batterId) {
+      data.gameday.hotZones = await fetchHotZones(data.gameday.batterId);
+    }
     renderExpandPanel(body, data);
   } catch (e) {
     body.innerHTML = '<div class="expand-load-msg" style="color:var(--danger)">Failed to load details</div>';
@@ -1033,6 +1054,7 @@ function closeSidePanel() {
 }
 
 async function openGameDrawer(gamePk) {
+  activeGamePk = gamePk;
   // Check if we should use side panel (desktop) or drawer (mobile)
   if (window.innerWidth > 1000) {
     openSidePanel(gamePk);
@@ -1045,7 +1067,9 @@ async function openGameDrawer(gamePk) {
   const game = gameDetailsByPk[gamePk];
   if (!drawer || !overlay || !title || !body) return;
   title.textContent = game ? `${game.awayTeam} @ ${game.homeTeam}` : 'Game Details';
-  body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+  if (body.innerHTML.includes('Select a game')) {
+    body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+  }
   drawer.classList.add('open');
   overlay.classList.add('open');
   try {
@@ -1061,6 +1085,7 @@ async function openGameDrawer(gamePk) {
 }
 
 function closeGameDrawer() {
+  activeGamePk = null;
   document.getElementById('game-drawer')?.classList.remove('open');
   document.getElementById('drawer-overlay')?.classList.remove('open');
 }
@@ -1079,6 +1104,9 @@ async function loadExpandData(gamePk, panel) {
       requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
     ]);
     const data = parseExpandData(feed, wpData);
+    if (data.gameday?.batterId) {
+      data.gameday.hotZones = await fetchHotZones(data.gameday.batterId);
+    }
     expandCache[gamePk] = Object.assign({}, data, { fetchedAt: now });
     renderExpandPanel(panel, data);
   } catch(e) {
@@ -1207,7 +1235,141 @@ function parseExpandData(feed, wpData = []) {
     home: homePitching.filter(p => parseFloat(p.ip) < 3.5)
   };
 
-  return { boxRows, scoringPlays, awayPitching, homePitching, awayAbbr, homeAbbr, topWpaPlays, homeRuns, lineup, bullpen };
+  // Current At-Bat / Gameday Data
+  const currentPlay = plays.currentPlay;
+  const atBatPitches = (currentPlay?.playEvents || [])
+    .filter(e => e.isPitch && e.pitchData?.coordinates)
+    .map(p => ({
+      num: p.pitchNumber,
+      result: p.details?.description || '',
+      code: p.details?.call?.code || '',
+      type: p.details?.type?.description || 'Pitch',
+      speed: p.pitchData.startSpeed,
+      px: p.pitchData.coordinates.pX,
+      pz: p.pitchData.coordinates.pZ,
+      szTop: p.pitchData.strikeZoneTop || 3.5,
+      szBottom: p.pitchData.strikeZoneBottom || 1.5,
+      spin: p.pitchData.breaks?.spinRate,
+      breakAngle: p.pitchData.breaks?.breakAngle,
+      breakLength: p.pitchData.breaks?.breakLength
+    }));
+
+  const gameday = {
+    pitches: atBatPitches,
+    batterId: currentPlay?.matchup?.batter?.id || ls.offense?.batter?.id,
+    batterName: currentPlay?.matchup?.batter?.fullName || ls.offense?.batter?.fullName || 'Batter',
+    pitcherName: currentPlay?.matchup?.pitcher?.fullName || ls.defense?.pitcher?.fullName || 'Pitcher',
+    isLive: feed.gameData?.status?.abstractGameState === 'Live',
+    hotZones: []
+  };
+
+  return { boxRows, scoringPlays, awayPitching, homePitching, awayAbbr, homeAbbr, topWpaPlays, homeRuns, lineup, bullpen, gameday };
+}
+
+function renderGamedayView(gd) {
+  const pitches = gd.pitches;
+  if (!pitches.length) return '';
+
+  const szTop = pitches[pitches.length - 1].szTop;
+  const szBottom = pitches[pitches.length - 1].szBottom;
+
+  // Mapping feet to SVG coordinates (200x200 viewBox)
+  // X: -2.0 to 2.0 feet -> 20 to 180
+  // Z: -0.5 to 5.5 feet -> 190 to 10
+  const mapX = (px) => 100 + (px * 40);
+  const mapZ = (pz) => 175 - (pz * 33);
+
+  const szL = mapX(-0.708);
+  const szR = mapX(0.708);
+  const szT = mapZ(szTop);
+  const szB = mapZ(szBottom);
+
+  let hotZonesHtml = '';
+  if (gd.hotZones && gd.hotZones.length > 0) {
+    // Zones 1-9 are the 3x3 grid
+    const zoneMap = {
+      '01': { r: 0, c: 0 }, '02': { r: 0, c: 1 }, '03': { r: 0, c: 2 },
+      '04': { r: 1, c: 0 }, '05': { r: 1, c: 1 }, '06': { r: 1, c: 2 },
+      '07': { r: 2, c: 0 }, '08': { r: 2, c: 1 }, '09': { r: 2, c: 2 }
+    };
+    const cellW = (szR - szL) / 3;
+    const cellH = (szB - szT) / 3;
+
+    gd.hotZones.forEach(z => {
+      const pos = zoneMap[z.zone];
+      if (pos) {
+        const x = szL + pos.c * cellW;
+        const y = szT + pos.r * cellH;
+        hotZonesHtml += `<rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" fill="${z.color}" opacity="0.4" stroke="rgba(255,255,255,0.1)" stroke-width="0.5" />`;
+      }
+    });
+  }
+
+  let dots = '';
+  let listItems = '';
+
+  pitches.forEach((p) => {
+    // Colors inspired by MLB Gameday
+    let color = '#777'; // default
+    const c = p.code.toUpperCase();
+    if (c === 'B') color = '#4ade80'; // Ball - Green
+    else if (['C', 'S', 'F', 'T', 'L', 'M', 'W'].includes(c)) color = '#ef4444'; // Strike/Foul - Red
+    else if (['X', 'D', 'E'].includes(c)) color = '#f59e0b'; // In Play - Blue/Gold
+    else if (['*B', 'I', 'P'].includes(c)) color = '#4ade80';
+
+    const cx = mapX(p.px);
+    const cy = mapZ(p.pz);
+
+    dots += `
+      <circle cx="${cx}" cy="${cy}" r="6" fill="${color}" stroke="#fff" stroke-width="1.5" class="pitch-dot">
+        <title>Pitch ${p.num}: ${p.type}, ${p.speed}mph - ${p.result}</title>
+      </circle>
+      <text x="${cx}" y="${cy}" class="pitch-text">${p.num}</text>
+    `;
+
+    listItems += `
+      <div class="pitch-item">
+        <div class="pitch-num" style="background:${color}">${p.num}</div>
+        <div class="pitch-info">
+          <b>${escapeHTML(p.type)}</b> · ${p.speed || '—'} mph
+          <div style="font-size:0.6rem;color:var(--text-dim)">
+            ${p.spin ? `Spin: ${p.spin} rpm` : ''}
+            ${p.breakLength ? ` · Break: ${p.breakLength}"` : ''}
+          </div>
+        </div>
+        <div class="pitch-result" style="color:${color}">${escapeHTML(p.result)}</div>
+      </div>
+    `;
+  });
+
+  return `
+    <div class="gameday-container">
+      <div class="gameday-header">
+        <div class="gameday-title">Live At-Bat</div>
+        <div style="font-size:0.65rem;color:var(--text-dim)">${escapeHTML(gd.batterName)} vs ${escapeHTML(gd.pitcherName)}</div>
+      </div>
+      <div class="gameday-viz-wrap">
+        <div style="position:relative">
+          <svg viewBox="0 0 200 200" class="strike-zone-svg">
+            <!-- Hot Zones -->
+            ${hotZonesHtml}
+            <!-- Strike Zone Outline -->
+            <rect x="${szL}" y="${szT}" width="${szR - szL}" height="${szB - szT}" class="sz-rect" />
+            <!-- 3x3 Grid Inner Lines -->
+            <line x1="${szL + (szR-szL)/3}" y1="${szT}" x2="${szL + (szR-szL)/3}" y2="${szB}" class="sz-hotzone" />
+            <line x1="${szL + 2*(szR-szL)/3}" y1="${szT}" x2="${szL + 2*(szR-szL)/3}" y2="${szB}" class="sz-hotzone" />
+            <line x1="${szL}" y1="${szT + (szB-szT)/3}" x2="${szR}" y2="${szT + (szB-szT)/3}" class="sz-hotzone" />
+            <line x1="${szL}" y1="${szT + 2*(szB-szT)/3}" x2="${szR}" y2="${szT + 2*(szB-szT)/3}" class="sz-hotzone" />
+            ${dots}
+          </svg>
+          <div style="position:absolute;bottom:5px;left:5px;font-size:0.55rem;color:#444;text-transform:uppercase;letter-spacing:0.05em">Catcher's View</div>
+        </div>
+        <div class="pitch-list">
+          ${listItems || '<div class="empty-msg" style="padding:10px">Waiting for pitch...</div>'}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function renderExpandPanel(panel, data) {
@@ -1222,6 +1384,11 @@ function renderExpandPanel(panel, data) {
   const lineup       = data.lineup || { away: [], home: [] };
   const bullpen      = data.bullpen || { away: [], home: [] };
   let html = '';
+
+  // Live At-Bat (Gameday)
+  if (data.gameday && data.gameday.pitches.length > 0) {
+    html += renderGamedayView(data.gameday);
+  }
 
   // Box Score
   const innLabels = [];
@@ -4051,8 +4218,18 @@ async function pollGames() {
       if (activeTab === 'milestones') fetchMilestones(games);
     }
 
-    // Refresh side panel if open
-    if (activeGamePk) openSidePanel(activeGamePk);
+    // Refresh open details panel
+    if (activeGamePk) {
+      if (window.innerWidth > 1000) {
+        if (document.getElementById('side-panel')?.classList.contains('open')) {
+          openSidePanel(activeGamePk);
+        }
+      } else {
+        if (document.getElementById('game-drawer')?.classList.contains('open')) {
+          openGameDrawer(activeGamePk);
+        }
+      }
+    }
 
     // First load: also fetch standings, milestones & award races
     if (isFirstLoad) {
