@@ -8,27 +8,6 @@ const favoriteAlerts = {};
 const gameDetailsByPk = {};
 const revealedGames = new Set();
 
-// ─── GLOBAL STATE ─────────────────────────────────────────────────────────────
-let isFirstLoad = true;
-let selectedDate = loadPrefs().selectedDate || todayET();
-let currentSort = loadPrefs().sort || 'watchability';
-let currentFilter = loadPrefs().filter || null;
-let activeGamePk = null;
-let lastAlertedPk = null;
-let spoilerTeams = new Set(JSON.parse(localStorage.getItem('spoilerTeams') || '[]'));
-let milestoneFilter = loadPrefs().milestoneFilter || 'all';
-
-// ─── POLLING STATE ────────────────────────────────────────────────────────────
-let polling = false;
-let pollTimer = null;
-let pollCount = 0;
-let lastGames = null;
-let lastAuxRefresh = 0;
-let currentPollDelay = 15000;
-const FAST_POLL_MS = 15000;
-const PREGAME_POLL_MS = 60000;
-const IDLE_POLL_MS = 120000;
-const EMPTY_DAY_POLL_MS = 300000;
 
 
 // ─── RIVALRY PAIRS ─────────────────────────────────────────────────────────────
@@ -275,6 +254,7 @@ function teamRec(abbr) {
 }
 
 // ─── NOTIFICATIONS & TRACKING ────────────────────────────────────────────────
+let isFirstLoad = true;
 const prevScores = {};
 const prevLeaders = {};
 const notifiedMilestones = new Set();
@@ -468,6 +448,8 @@ async function checkCareerStats(playerId, playerName, group) {
 }
 
 // ─── DATE HELPERS ──────────────────────────────────────────────────────────────
+
+let selectedDate = loadPrefs().selectedDate || todayET();
 
 function currentSeason() { return parseInt((selectedDate || todayET()).slice(0, 4), 10) || new Date().getFullYear(); }
 
@@ -1007,6 +989,9 @@ async function fetchLiveGamesData() {
 const expandedCards = new Set();
 const expandCache   = {};
 const EXPAND_TTL    = 30000;
+
+let activeGamePk = null;
+let lastAlertedPk = null;
 
 function checkHighLeverageAlerts(games) {
   const alertEl = document.getElementById('high-leverage-alert');
@@ -1574,6 +1559,8 @@ function renderExpandPanel(panel, data) {
 }
 
 // ─── SORT / FILTER STATE ──────────────────────────────────────────────────────
+let currentSort   = loadPrefs().sort || 'watchability'; // 'watchability' | 'score' | 'inning'
+let currentFilter = loadPrefs().filter || null;          // null | 'hot' | 'fire' | 'live'
 
 function setSort(s) {
   currentSort = s;
@@ -2249,6 +2236,8 @@ const CAREER_STATS_MAP = {
   ]
 };
 
+let milestoneFilter = loadPrefs().milestoneFilter || 'all';
+
 const MILESTONE_META = {
   'Season H': { short: 'H', type: 'hitter', scope: 'season', major: [150,175,200], historic: [200,250,262] },
   'Season HR': { short: 'HR', type: 'hitter', scope: 'season', major: [30,40,50], historic: [60,61,62,70,73] },
@@ -2798,6 +2787,7 @@ function renderMilestoneCard(m) {
 }
 
 // ─── SPOILER MODE ────────────────────────────────────────────────────────────
+let spoilerTeams = new Set(JSON.parse(localStorage.getItem('spoilerTeams') || '[]'));
 
 function saveSpoilerTeams() {
   try { localStorage.setItem('spoilerTeams', JSON.stringify([...spoilerTeams])); } catch(e) {}
@@ -3978,6 +3968,16 @@ async function fetchAndRenderTicker(games) {
 }
 
 // ─── POLLING ───────────────────────────────────────────────────────────────────
+let polling = false;
+let pollTimer = null;
+let pollCount = 0;
+let lastGames = null;
+let lastAuxRefresh = 0;
+let currentPollDelay = 15000;
+const FAST_POLL_MS = 15000;
+const PREGAME_POLL_MS = 60000;
+const IDLE_POLL_MS = 120000;
+const EMPTY_DAY_POLL_MS = 300000;
 
 function isGameLiveNow(game) {
   return game && !/scheduled|pre-game|warmup|preview|final/i.test(`${game.gameState} ${game.inningStatus}`);
