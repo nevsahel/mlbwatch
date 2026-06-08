@@ -210,18 +210,13 @@ async function fetchTeamRecords() {
   try {
     const season = currentSeason();
     const date = selectedDate || todayET();
-    // BOLT OPTIMIZATION: Combine standings types into a single request
-    const data = await requestPool.fetchDedup(
-      `${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason,wildCard&hydrate=team`,
-      { cacheKey: `standings:all:${date}`, ttl: 300000 }
-    );
-
+    const [regData, wcData] = await Promise.all([
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${date}`, ttl: 300000 }),
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${date}`, ttl: 300000 })
+    ]);
     const rec = {};
     const ctx = {};
-    const regRecords = data.records.filter(r => r.standingsType === 'regularSeason');
-    const wcRecords = data.records.filter(r => r.standingsType === 'wildCard');
-
-    for (const group of regRecords) {
+    for (const group of regData.records) {
       for (const t of group.teamRecords) {
         const abbr = normalizeAbbr(t.team.abbreviation || t.team.name);
         rec[abbr] = { w: t.wins, l: t.losses };
@@ -233,9 +228,9 @@ async function fetchTeamRecords() {
         };
       }
     }
-    for (const group of wcRecords) {
+    for (const group of wcData.records) {
       for (const t of group.teamRecords) {
-        const abbr = normalizeAbbr(t.team.abbreviation || t.team.name);
+        const abbr = t.team.abbreviation || t.team.name;
         if (ctx[abbr]) {
           ctx[abbr].wcRank = parseInt(t.wildCardRank) || 99;
           ctx[abbr].wcGB = t.wildCardGamesBack ?? '999';
@@ -244,7 +239,7 @@ async function fetchTeamRecords() {
     }
     teamRecords = rec;
     playoffContext = ctx;
-    populateL10Cache(data);
+    populateL10Cache(regData);
   } catch (e) { console.warn('Records fetch failed:', e); }
 }
 
@@ -1286,11 +1281,6 @@ function renderGamedayView(gd) {
   const mapX = (px) => 100 + (px * 40);
   const mapZ = (pz) => 175 - (pz * 33);
 
-  // BOLT OPTIMIZATION: Check if data changed before rendering
-  const gdKey = `${gd.pitches.length}-${gd.batterId}-${gd.pitcherName}`;
-  // We can't easily check the container's state here as it's a string return,
-  // but the caller (renderExpandPanel) can handle it.
-
   const szL = mapX(-0.708);
   const szR = mapX(0.708);
   const szT = mapZ(szTop);
@@ -1395,12 +1385,6 @@ function renderExpandPanel(panel, data) {
   const homeRuns     = data.homeRuns || [];
   const lineup       = data.lineup || { away: [], home: [] };
   const bullpen      = data.bullpen || { away: [], home: [] };
-
-  // BOLT OPTIMIZATION: Check for changes before heavy DOM replacement
-  const changeKey = `${data.gameday?.pitches?.length}-${boxRows.awayTotals?.runs}-${boxRows.homeTotals?.runs}-${scoringPlays?.length}-${data.lineup?.away?.length}-${data.bullpen?.away?.length}`;
-  if (panel._changeKey === changeKey) return;
-  panel._changeKey = changeKey;
-
   let html = '';
 
   // Live At-Bat (Gameday)
@@ -1613,6 +1597,10 @@ function renderGames(games) {
   const grid = document.getElementById('games-grid');
   const filtered = applySortFilter(games);
 
+  // Remove empty message if it exists
+  const emptyMsg = grid.querySelector('.empty-msg');
+  if (emptyMsg) emptyMsg.remove();
+
   const countEl = document.getElementById('games-count');
   if (countEl) {
     const showing = filtered.length;
@@ -1645,8 +1633,6 @@ function renderGames(games) {
     if (!card) {
       card = document.createElement('div');
       card.setAttribute('data-gpk', pkStr);
-      card.setAttribute('role', 'button');
-      card.setAttribute('tabindex', '0');
       card.addEventListener('click', (event) => {
         if (event.target.closest('button') || event.target.closest('.card-expand-panel')) return;
         openGameDrawer(game.gamePk);
@@ -1659,6 +1645,9 @@ function renderGames(games) {
         }
       });
     }
+    // Ensure accessibility attributes are present even on reconciled nodes
+    if (card.getAttribute('role') !== 'button') card.setAttribute('role', 'button');
+    if (card.getAttribute('tabindex') !== '0') card.setAttribute('tabindex', '0');
 
     const isFinal = /final/i.test(game.gameState);
     const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
@@ -1694,13 +1683,11 @@ function renderGames(games) {
     fragment.appendChild(card);
   });
 
-  // BOLT OPTIMIZATION: Surgical DOM updates
   // Remove any cards that are no longer in the filtered list
   existingCards.forEach((card, pk) => {
     if (!seenPks.has(pk)) card.remove();
   });
 
-  // Re-append in correct order (fragment contains nodes in order)
   grid.appendChild(fragment);
 }
 
@@ -1777,7 +1764,7 @@ async function fetchAllTimeLeaders(category, group = 'hitting') {
   try {
     const data = await requestPool.fetchDedup(
       `${MLB_API}/stats/leaders?leaderCategories=${category}&statGroup=${group}&statType=career&limit=500`,
-      { cacheKey: `allTimeLeaders:${category}`, ttl: 86400000 } // 24hr TTL for career leaders
+      { cacheKey: `allTimeLeaders:${category}` }
     );
     const leaders = data.leagueLeaders?.[0]?.leaders || [];
     allTimeLeaders[category] = leaders.map(l => ({
@@ -1938,18 +1925,15 @@ async function fetchPlayoffRaces(todayGames) {
   try {
     const season = currentSeason();
     const date = selectedDate || todayET();
-    const data = await requestPool.fetchDedup(
-      `${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason,wildCard&hydrate=team`,
-      { cacheKey: `standings:all:${date}`, ttl: 300000 }
-    );
-    populateL10Cache(data);
-
-    const regData = data.records.filter(r => r.standingsType === 'regularSeason');
-    const wcData = data.records.filter(r => r.standingsType === 'wildCard');
+    const [regData, wcData] = await Promise.all([
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${date}`, ttl: 300000 }),
+      requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=wildCard&hydrate=team`, { cacheKey: `standings:wildCard:${date}`, ttl: 300000 })
+    ]);
+    populateL10Cache(regData);
 
     // Build division map
     const divMap = {};
-    for (const group of regData) {
+    for (const group of regData.records) {
       const divId = group.division.id;
       divMap[divId] = group.teamRecords.map(t => ({
         abbr: normalizeAbbr(t.team.abbreviation),
@@ -1970,7 +1954,7 @@ async function fetchPlayoffRaces(todayGames) {
 
     // Build wild card map
     const wcMap = {};
-    for (const group of wcData) {
+    for (const group of wcData.records) {
       const lgId = group.league?.id;
       if (!lgId) continue;
       wcMap[lgId] = group.teamRecords.map(t => ({
@@ -2345,7 +2329,6 @@ function checkReachedMilestones(milestones) {
 }
 
 async function fetchMilestones(todayGames) {
-  let hydratedPeople = {};
   const container = document.getElementById('milestones-container');
   container.innerHTML = '<div class="empty-msg">Loading milestones...</div>';
   const season = currentSeason();
@@ -2446,8 +2429,9 @@ async function fetchMilestones(todayGames) {
       ...seasonMilestonePromises
     ]);
 
-    // Fetch career milestones and heat maps using batched hydration
+    // Fetch career milestones
     try {
+
       const playerMap = {};
       const addPlayers = (data, group) => {
         const splits = data.stats?.[0]?.splits || [];
@@ -2461,81 +2445,73 @@ async function fetchMilestones(todayGames) {
       addPlayers(pitPool2, 'pitching');
 
       const players = Object.values(playerMap);
-      const playerIds = players.map(p => p.pid);
 
-      // Batch fetch career stats AND game logs for all potential players
-      const chunkSize = 50;
-      const hydrationPromises = [];
+      await Promise.all(players.map(async ({ pid, name, team, group }) => {
+        try {
+          // BOLT OPTIMIZATION: Only fetch career stats relevant to the player's primary role to halve network requests.
+          // Ohtani (660271) is always treated as both a hitter and a pitcher.
+          const isHitter = group === 'hitting' || pid === OHTANI_ID;
+          const isPitcher = group === 'pitching' || pid === OHTANI_ID;
 
-      for (let i = 0; i < playerIds.length; i += chunkSize) {
-        const chunk = playerIds.slice(i, i + chunkSize);
-        hydrationPromises.push(batchFetcher.add(async () => {
-          try {
-            const data = await requestPool.fetchDedup(
-              `${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=stats(group=[hitting,pitching],type=[career,gameLog],season=${season},endDate=${date})`,
-              { cacheKey: `milestoneHydration:${date}:${chunk[0]}`, ttl: 3600000 }
-            );
-            (data.people || []).forEach(person => { hydratedPeople[person.id] = person; });
-          } catch (e) { console.warn('Milestone hydration chunk failed:', e); }
-        }));
-      }
-      await Promise.all(hydrationPromises);
+          const [hitData, pitData] = await Promise.all([
+            isHitter ? batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/people/${pid}/stats?stats=career&group=hitting&endDate=${date}`, { ttl: 3600000 })) : Promise.resolve({}),
+            isPitcher ? batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/people/${pid}/stats?stats=career&group=pitching&endDate=${date}`, { ttl: 3600000 })) : Promise.resolve({})
+          ]);
+          const hitStat = hitData.stats?.[0]?.splits?.[0]?.stat;
+          const pitStat = pitData.stats?.[0]?.splits?.[0]?.stat;
+          const tAbbr = team;
+          const playingNow = liveTeams.has(tAbbr);
+          const playingToday = todayTeams.has(tAbbr);
 
-      players.forEach(({ pid, name, team, group }) => {
-        const person = hydratedPeople[pid];
-        if (!person || !person.stats) return;
+          const tryCareer = (val, ms, statLabel, forGroup) => {
+            if (val === undefined || val === null) return;
+            // skip career hitting milestones for pitchers (and vice versa), Ohtani exempt
+            if (pid !== OHTANI_ID) {
+              if (forGroup === 'hitting' && pitcherIds.has(pid)) return;
+              if (forGroup === 'pitching' && !pitcherIds.has(pid)) return;
+            }
+            const next = ms.find(m => m > val);
+            if (!next) return;
+            const diff = next - val;
+            if (diff > 25) return; // Increased threshold for career milestones
+            allMilestones.push({
+              id: pid,
+              name,
+              team: tAbbr,
+              stat: statLabel,
+              current: val,
+              next,
+              diff,
+              type: MILESTONE_META[statLabel]?.type || group,
+              scope: 'career',
+              priority: 0,
+              playingNow,
+              playingToday
+            });
+          };
 
-        const hitStat = person.stats.find(s => s.type.displayName === 'career' && s.group.displayName === 'hitting')?.splits?.[0]?.stat;
-        const pitStat = person.stats.find(s => s.type.displayName === 'career' && s.group.displayName === 'pitching')?.splits?.[0]?.stat;
-
-        const tAbbr = team;
-        const playingNow = liveTeams.has(tAbbr);
-        const playingToday = todayTeams.has(tAbbr);
-
-        const tryCareer = (val, ms, statLabel, forGroup) => {
-          if (val === undefined || val === null) return;
-          if (pid !== OHTANI_ID) {
-            if (forGroup === 'hitting' && pitcherIds.has(pid)) return;
-            if (forGroup === 'pitching' && !pitcherIds.has(pid)) return;
+          if (hitStat) {
+            CAREER_STATS_MAP.hitting.forEach(mDef => {
+              const val = parseInt(hitStat[mDef.api]) || 0;
+              tryCareer(val, mDef.ms, mDef.label, 'hitting');
+            });
           }
-          const next = ms.find(m => m > val);
-          if (!next) return;
-          const diff = next - val;
-          if (diff > 25) return;
-          allMilestones.push({
-            id: pid,
-            name,
-            team: tAbbr,
-            stat: statLabel,
-            current: val,
-            next,
-            diff,
-            type: MILESTONE_META[statLabel]?.type || group,
-            scope: 'career',
-            priority: 0,
-            playingNow,
-            playingToday,
-            person // keep reference for heat map extraction
-          });
-        };
-
-        if (hitStat) {
-          CAREER_STATS_MAP.hitting.forEach(mDef => {
-            const val = parseInt(hitStat[mDef.api]) || 0;
-            tryCareer(val, mDef.ms, mDef.label, 'hitting');
-          });
-        }
-        if (pitStat) {
-          CAREER_STATS_MAP.pitching.forEach(mDef => {
-            let val = (mDef.api === 'inningsPitched') ? Math.floor(parseFloat(pitStat[mDef.api]) || 0) : parseInt(pitStat[mDef.api]) || 0;
-            tryCareer(val, mDef.ms, mDef.label, 'pitching');
-          });
-        }
-      });
+          if (pitStat) {
+            CAREER_STATS_MAP.pitching.forEach(mDef => {
+              let val;
+              if (mDef.api === 'inningsPitched') val = Math.floor(parseFloat(pitStat[mDef.api]) || 0);
+              else val = parseInt(pitStat[mDef.api]) || 0;
+              tryCareer(val, mDef.ms, mDef.label, 'pitching');
+            });
+          }
+        } catch(e) {}
+      }));
     } catch(e) { console.warn('Career milestones fetch failed:', e); }
 
-    // Populate milestone watch teams
-    milestoneWatchTeams = new Set(allMilestones.filter(m => m.diff <= 5).map(m => m.team));
+    // Populate milestone watch teams (players within 5 of a milestone)
+    milestoneWatchTeams = new Set(
+      allMilestones.filter(m => m.diff <= 5).map(m => m.team)
+    );
 
     await Promise.all(allMilestones.map(async m => {
       m.importance = milestoneImportance(m);
@@ -2558,6 +2534,7 @@ async function fetchMilestones(todayGames) {
           try {
             const leaders = await fetchAllTimeLeaders(cat, m.type === 'pitcher' ? 'pitching' : 'hitting');
             const myVal = parseInt(m.current);
+            // Find the player immediately ahead on the leaderboard (smallest value > myVal)
             const nextLegend = [...leaders].reverse().find(l => l.value > myVal);
             if (nextLegend) {
               const legendDiff = nextLegend.value - myVal;
@@ -2570,22 +2547,10 @@ async function fetchMilestones(todayGames) {
         }
       }
 
-      // Heat Map extraction (already hydrated)
-      const person = m.person || hydratedPeople[m.id];
-      if (person?.stats) {
-        const group = m.type === 'pitcher' ? 'pitching' : 'hitting';
-        const log = person.stats.find(s => s.type.displayName === 'gameLog' && s.group.displayName === group);
-        if (log?.splits) {
-          const statMap = {
-            'H': 'hits', 'HR': 'homeRuns', 'RBI': 'rbi', 'SB': 'stolenBases',
-            '2B': 'doubles', '3B': 'triples', 'R': 'runs', 'BB': 'baseOnBalls',
-            'K': 'strikeOuts', 'SV': 'saves', 'W': 'wins', 'IP': 'inningsPitched'
-          };
-          const apiStatKey = statMap[m.shortStat] || m.shortStat;
-          m.heat = log.splits.slice(-10).map(l => (parseFloat(l.stat[apiStatKey]) || 0) > 0 ? 1 : 0);
-        }
-      }
-      if (!m.heat) m.heat = [];
+      // Heat Map
+      try {
+        m.heat = await fetchPlayerHeat(m.id, m.type === 'pitcher' ? 'pitching' : 'hitting', m.shortStat);
+      } catch (e) { m.heat = []; }
     }));
 
     checkReachedMilestones(allMilestones);
@@ -2866,13 +2831,6 @@ function renderSingleGameCard(card, game) {
   const isFinal = /final/i.test(game.inningStatus);
   const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
 
-  // BOLT OPTIMIZATION: Check for changes before re-rendering entire innerHTML
-  const scoreKey = `${game.awayScore}-${game.homeScore}-${game.inningStatus}-${game.outs}-${game.onFirst}-${game.onSecond}-${game.onThird}-${game.watchabilityIndex}`;
-  if (card._scoreKey === scoreKey && !card.innerHTML.includes('loading')) {
-    return;
-  }
-  card._scoreKey = scoreKey;
-
   const prev = prevScores[game.gamePk];
   if (prev && !isFirstLoad && (prev.away !== game.awayScore || prev.home !== game.homeScore)) {
     card.classList.add('score-flash');
@@ -3103,19 +3061,25 @@ async function fetchAwardRaces() {
     const fgWarPromise = fetchFangraphsWAR(season);
 
     const statsPromise = Promise.all([
-      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=80&leagueId=103,104`, { ttl: 900000 })),
-      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=80&leagueId=103,104`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`, { ttl: 900000 })),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
       batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/schedule?sportId=1&season=${season}&endDate=${date}&gameType=R&teamId=147`, { ttl: 900000 }).catch(()=>null)),
     ]);
 
     const rotyPromise = Promise.all([
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=60&leagueId=103,104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=60&leagueId=103,104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
     ]);
 
     const asStatsPromise = Promise.all([
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=500&leagueId=103,104`, { ttl: 900000 }),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=500&leagueId=103,104`, { ttl: 900000 }),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`, { ttl: 900000 }),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`, { ttl: 900000 }),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=103`, { ttl: 900000 }),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=250&leagueId=104`, { ttl: 900000 })
     ]);
 
     // ── 1. Fetch Fangraphs fWAR (cached, 30-min TTL) ────────────────────────
@@ -3155,36 +3119,29 @@ async function fetchAwardRaces() {
     }
 
     // ── 2. Fetch MLB API stats for display (traditional stats alongside WAR) ─
-    const [allHit, allPit, alGames] = await statsPromise;
+    // Using byDateRange for more accurate historical leaderboards
+    const [alHit, nlHit, alPit, nlPit, alGames] = await statsPromise;
 
     // ── 3. Build per-player stat pools from MLB API ──────────────────────────
-    function buildPool(data, targetLeagueId = null) {
+    function buildPool(data) {
       const pool = {};
       const splits = data?.stats?.[0]?.splits || [];
       for (const s of splits) {
         const id = s.player?.id; if (!id) continue;
-        if (targetLeagueId && s.team?.league?.id !== targetLeagueId) {
-          // If the API doesn't filter perfectly, we do it here
-          // but usually it includes the league info
-        }
         if (!pool[id]) pool[id] = {
           id,
           name: s.player.fullName,
           team: normalizeAbbr(s.team?.abbreviation || teamAbbrFromId(s.team?.id) || '?'),
-          leagueId: s.team?.league?.id,
           stats: { ...s.stat }
         };
       }
       return Object.values(pool);
     }
 
-    const allHittersPool = buildPool(allHit);
-    const allPitchersPool = buildPool(allPit);
-
-    const alHitters  = allHittersPool.filter(p => p.leagueId === 103);
-    const nlHitters  = allHittersPool.filter(p => p.leagueId === 104);
-    const alPitchers = allPitchersPool.filter(p => p.leagueId === 103);
-    const nlPitchers = allPitchersPool.filter(p => p.leagueId === 104);
+    const alHitters  = buildPool(alHit);
+    const nlHitters  = buildPool(nlHit);
+    const alPitchers = buildPool(alPit);
+    const nlPitchers = buildPool(nlPit);
 
     // Compute qualified IP threshold: 1 IP per team game played, min 30
     let gamesPlayed = 0;
@@ -3219,32 +3176,116 @@ async function fetchAwardRaces() {
       });
     };
 
+    // Historical-based Award Models
+    const scoreMVPHitter = (p) => {
+      const s = p.stats;
+      const ops = parseFloat(s.onBasePlusSlugging) || 0;
+      const hr = parseInt(s.homeRuns) || 0;
+      const rbi = parseInt(s.runsBattedIn) || 0;
+      const r = parseInt(s.runs) || 0;
+      const avg = parseFloat(s.battingAverage) || 0;
+      const war = p.war ?? 0;
+      // Weights calibrated to historical means (.993 OPS, 34 HR, 114 RBI, 110 R)
+      return (war * 10.0) + (ops * 45.0) + (hr * 0.45) + (rbi * 0.12) + (r * 0.12) + (avg * 25.0);
+    };
+
+    const scoreMVPPitcher = (p) => {
+      const s = p.stats;
+      const w = parseInt(s.wins) || 0;
+      const era = parseFloat(s.earnedRunAverage) || 4.5;
+      const so = parseInt(s.strikeouts) || 0;
+      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
+      const war = p.war ?? 0;
+      // Pitchers need ~20% higher relative dominance to match hitters in MVP voting
+      return ((war * 9.0) + (w * 1.0) + ((3.5 - era) * 10.0) + (so * 0.06) + ((1.2 - whip) * 18.0)) * 0.82;
+    };
+
+    const mvpScore = (p) => p.isPitcher ? scoreMVPPitcher(p) : scoreMVPHitter(p);
+
+    const scoreCY = p => {
+      const s = p.stats;
+      const era = parseFloat(s.earnedRunAverage) || 4.5;
+      const k = parseInt(s.strikeouts) || 0;
+      const w = parseInt(s.wins) || 0;
+      const ip = parseFloat(s.inningsPitched) || 0;
+      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
+      const sho = parseInt(s.shutouts) || 0;
+      const war = p.war ?? 0;
+      // Calibrated to 2.46 ERA, 19 W, 213 SO, 1.04 WHIP means. Reduced WAR weight.
+      return (w * 2.2) + ((3.2 - era) * 18) + (k * 0.16) + (ip * 0.1) + ((1.15 - whip) * 26) + (sho * 4) + (war * 2.5);
+    };
+
+    // ── Votes simulation ─────────────────────────────────────────────────────
+    // Simulates a 5-voter panel with varied statistical focuses.
+    const VOTE_PTS = [14, 9, 7, 4, 2];
+    function simulateVotes(candidates, scoreFn) {
+      const votes = {};
+      candidates.forEach(p => { votes[p.id] = 0; });
+      const voterProfiles = [
+        { name: 'Traditionalist', weights: { stats: 1.2, war: 0.5, noise: 0.3 } },
+        { name: 'Sabermetrician', weights: { stats: 0.4, war: 1.5, noise: 0.1 } },
+        { name: 'Balanced', weights: { stats: 1.0, war: 1.0, noise: 0.2 } },
+        { name: 'Clutch/Narrative', weights: { stats: 0.8, war: 0.7, noise: 0.6 } },
+        { name: 'Dominance-Focused', weights: { stats: 1.3, war: 0.8, noise: 0.2 } }
+      ];
+
+      for (const voter of voterProfiles) {
+        const sorted = [...candidates].sort((a, b) => {
+          const sa = (scoreFn(a) * voter.weights.stats) + ((a.war ?? 0) * voter.weights.war) + (Math.random() * voter.weights.noise * 10);
+          const sb = (scoreFn(b) * voter.weights.stats) + ((b.war ?? 0) * voter.weights.war) + (Math.random() * voter.weights.noise * 10);
+          return sb - sa;
+        });
+        sorted.slice(0, 5).forEach((p, i) => { votes[p.id] = (votes[p.id] || 0) + VOTE_PTS[i]; });
+      }
+      return votes;
+    }
+
+    const rankAward = (arr, scoreFn) => {
+      const top10 = [...arr].sort((a, b) => scoreFn(b) - scoreFn(a)).slice(0, 10);
+      if (!top10.length) return [];
+      const votes = simulateVotes(top10, scoreFn);
+      return top10
+        .map(p => ({ ...p, voteTotal: votes[p.id] || 0 }))
+        .sort((a, b) => b.voteTotal - a.voteTotal)
+        .slice(0, 5);
+    };
+
     const hasFG = Object.keys(warByName).length > 20;
 
-    // ── 5, 6, 7. Perform simulations in Web Worker ──────────────────────────
-    const [allRookH, allRookP] = await rotyPromise;
-    const allRookHPool = buildPool(allRookH);
-    const allRookPPool = buildPool(allRookP);
-    const alRookHitters  = attachWAR(allRookHPool.filter(p => p.leagueId === 103), false);
-    const nlRookHitters  = attachWAR(allRookHPool.filter(p => p.leagueId === 104), false);
-    const alRookPitchers = attachWAR(allRookPPool.filter(p => p.leagueId === 103), true);
-    const nlRookPitchers = attachWAR(allRookPPool.filter(p => p.leagueId === 104), true);
+    const mvpAL = rankAward(mergeForMVP(alH, alP), mvpScore);
+    const mvpNL = rankAward(mergeForMVP(nlH, nlP), mvpScore);
 
-    const awardsWorker = new Worker('js/awards-worker.js');
-    const awardsResult = await new Promise((resolve) => {
-      awardsWorker.onmessage = (e) => {
-        if (e.data.task === 'awardsResult') {
-          resolve(e.data.result);
-          awardsWorker.terminate();
-        }
-      };
-      awardsWorker.postMessage({
-        task: 'simulateAwards',
-        data: { alH, nlH, alP, nlP, alRookHitters, nlRookHitters, alRookPitchers, nlRookPitchers, qualifiedIP }
-      });
-    });
+    // ── 5. Cy Young: qualified starters only (≥ qualifiedIP) ─────────────────
+    const CY_VOTE_PTS = [15, 10, 7, 4, 1]; // BBWAA Cy Young is 5-voter, 5-place ballot
+    function simulateCYVotes(candidates) {
+      const votes = {};
+      candidates.forEach(p => { votes[p.id] = 0; });
+      for (let v = 0; v < 5; v++) {
+        [...candidates].sort((a,b) => scoreCY(b) - scoreCY(a) + (Math.random()-0.5)*6)
+          .slice(0,5).forEach((p,i) => { votes[p.id] = (votes[p.id]||0) + CY_VOTE_PTS[i]; });
+      }
+      return votes;
+    }
+    const rankCY = (pitchers) => {
+      const qualified = pitchers.filter(p => parseFloat(p.stats.inningsPitched||0) >= qualifiedIP);
+      const pool = qualified.length >= 5 ? qualified : pitchers;
+      return rankAward(pool, scoreCY);
+    };
+    const cyAL = rankCY(alP);
+    const cyNL = rankCY(nlP);
 
-    const { mvpAL, mvpNL, cyAL, cyNL, rotyAL, rotyNL } = awardsResult;
+    // ── 6. ROTY: rookies only, hitters + pitchers, ranked by WAR then stats ──
+    // MLB API has a playerPool=rookies param — fetch both groups
+    // BOLT OPTIMIZATION: Use requestPool for deduplication and persistent caching
+    const [alRookH, nlRookH, alRookP, nlRookP] = await rotyPromise;
+
+    const alRookHitters  = attachWAR(buildPool(alRookH), false);
+    const nlRookHitters  = attachWAR(buildPool(nlRookH), false);
+    const alRookPitchers = attachWAR(buildPool(alRookP), true);
+    const nlRookPitchers = attachWAR(buildPool(nlRookP), true);
+
+    const rotyAL = rankAward(mergeForMVP(alRookHitters, alRookPitchers), mvpScore);
+    const rotyNL = rankAward(mergeForMVP(nlRookHitters, nlRookPitchers), mvpScore);
 
     // ── 7. Format stat display lines ─────────────────────────────────────────
     function fmtMVP(p) {
@@ -3324,13 +3365,14 @@ async function fetchAwardRaces() {
 
     async function buildSilverSluggers(leagueId) {
       try {
-        const data = await requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=60&leagueId=${leagueId}`, { ttl: 3600000 });
+        const data = await requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=60&leagueId=${leagueId}`);
         const pool = buildPool(data);
 
+        // Fetch all person data in a single batch call instead of individual calls
         const ids = pool.map(p => p.id).filter(Boolean);
         const meta = {};
         if (ids.length > 0) {
-          const pd = await requestPool.fetchDedup(`${MLB_API}/people?personIds=${ids.join(',')}&hydrate=currentTeam`, { ttl: 86400000 });
+          const pd = await requestPool.fetchDedup(`${MLB_API}/people?personIds=${ids.join(',')}&hydrate=currentTeam`);
           (pd.people || []).forEach(person => { meta[person.id] = person; });
         }
 
@@ -3356,7 +3398,12 @@ async function fetchAwardRaces() {
 
     const ssPromise = Promise.all([buildSilverSluggers(103), buildSilverSluggers(104)]);
 
-    // All-Star roster projection — 34 players: 21 bats, 13 pitchers ────
+    // ── 9. All-Star roster projection — 32 players: 20 bats, 12 pitchers ────
+    const MLB_TEAMS_BY_LEAGUE = {
+      AL: ['BAL','BOS','NYY','TB','TOR','CWS','CLE','DET','KC','MIN','HOU','LAA','OAK','SEA','TEX'],
+      NL: ['ATL','MIA','NYM','PHI','WSH','CHC','CIN','MIL','PIT','STL','ARI','COL','LAD','SD','SF']
+    };
+
     const normalizeRosterPos = (pos) => {
       if (['C','1B','2B','3B','SS','DH'].includes(pos)) return pos;
       if (['LF','CF','RF','OF'].includes(pos)) return 'OF';
@@ -3376,7 +3423,7 @@ async function fetchAwardRaces() {
       await Promise.all(chunks.map(chunk =>
         batchFetcher.add(async () => {
           try {
-            const pd = await requestPool.fetchDedup(`${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=currentTeam`, { ttl: 86400000 });
+            const pd = await requestPool.fetchDedup(`${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=currentTeam`);
             (pd.people || []).forEach(person => { meta[person.id] = person; });
           } catch {}
         })
@@ -3389,33 +3436,132 @@ async function fetchAwardRaces() {
       });
     }
 
+    const allStarHitterScore = p => {
+      const s = p.stats || {};
+      const ops = parseFloat(s.onBasePlusSlugging) || 0;
+      const avg = parseFloat(s.battingAverage) || 0;
+      const hr = parseInt(s.homeRuns) || 0;
+      const rbi = parseInt(s.runsBattedIn) || 0;
+      const r = parseInt(s.runs) || 0;
+      const h = parseInt(s.hits) || 0;
+      const war = p.war ?? 0;
+      // All-Star voting heavily favors "counting" stats and popularity (OPS/AVG/HR)
+      return (war * 50) + (ops * 120) + (avg * 80) + (hr * 4.5) + (rbi * 1.5) + (r * 1.2) + (h * 0.5);
+    };
+
+    const allStarPitcherScore = p => {
+      const s = p.stats || {};
+      const era = parseFloat(s.earnedRunAverage) || 4.5;
+      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
+      const k = parseInt(s.strikeouts) || 0;
+      const w = parseInt(s.wins) || 0;
+      const sv = parseInt(s.saves) || 0;
+      const ip = parseFloat(s.inningsPitched) || 0;
+      const war = p.war ?? 0;
+
+      const isReliever = sv >= 4 || ip < qualifiedIP * 0.5;
+      const dominance = ((3.5 - era) * 25) + ((1.2 - whip) * 35) + (k * 0.4);
+      const roleBonus = isReliever ? (sv * 6.0) : (w * 4.0 + ip * 0.5);
+      return (war * 45) + dominance + roleBonus;
+    };
+
+    function uniqueById(players) {
+      const seen = new Set();
+      return players.filter(p => {
+        if (!p?.id || seen.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
+    }
+
+    function addBest(list, roster, count, label, predicate = () => true) {
+      const added = [];
+      for (const p of list) {
+        if (added.length >= count) break;
+        if (roster.some(r => r.id === p.id)) continue;
+        if (!predicate(p)) continue;
+        const pick = { ...p, rosterLabel: label };
+        roster.push(pick);
+        added.push(pick);
+      }
+      return added;
+    }
+
+    function buildAllStarRoster(hitters, pitchers, leagueCode) {
+      const scoredHitters = uniqueById(hitters)
+        .filter(p => p.rosterPos)
+        .map(p => ({ ...p, allStarScore: allStarHitterScore(p), isPitcher: false }))
+        .sort((a, b) => b.allStarScore - a.allStarScore);
+      const scoredPitchers = uniqueById(pitchers)
+        .map(p => {
+          const s = p.stats || {};
+          const ip = parseFloat(s.inningsPitched) || 0;
+          const sv = parseInt(s.saves) || 0;
+          const pitcherRole = (sv >= 5 || ip < qualifiedIP * 0.55) ? 'RP' : 'SP';
+          return { ...p, allStarScore: allStarPitcherScore(p), pitcherRole, isPitcher: true };
+        })
+        .sort((a, b) => b.allStarScore - a.allStarScore);
+
+      const positionPlayers = [];
+      ['C','1B','2B','3B','SS','DH'].forEach(pos => addBest(scoredHitters, positionPlayers, 1, `Starter ${pos}`, p => p.rosterPos === pos));
+      addBest(scoredHitters, positionPlayers, 3, 'Starter OF', p => p.rosterPos === 'OF');
+      ['C','1B','2B','3B','SS'].forEach(pos => addBest(scoredHitters, positionPlayers, 1, `Reserve ${pos}`, p => p.rosterPos === pos));
+      addBest(scoredHitters, positionPlayers, 3, 'Reserve OF', p => p.rosterPos === 'OF');
+      addBest(scoredHitters, positionPlayers, 21 - positionPlayers.length, 'Reserve bat');
+
+      const pitchersRoster = [];
+      addBest(scoredPitchers, pitchersRoster, 5, 'SP', p => p.pitcherRole === 'SP');
+      addBest(scoredPitchers, pitchersRoster, 4, 'RP', p => p.pitcherRole === 'RP');
+      addBest(scoredPitchers, pitchersRoster, 13 - pitchersRoster.length, 'Pitcher');
+
+      let roster = [...positionPlayers, ...pitchersRoster];
+      const requiredTeams = MLB_TEAMS_BY_LEAGUE[leagueCode] || [];
+      const represented = new Set(roster.map(p => normalizeAbbr(p.team)));
+      const allCandidates = [...scoredHitters, ...scoredPitchers].sort((a, b) => b.allStarScore - a.allStarScore);
+      for (const team of requiredTeams) {
+        if (represented.has(team)) continue;
+        const replacement = allCandidates.find(p => normalizeAbbr(p.team) === team && !roster.some(r => r.id === p.id));
+        if (!replacement) continue;
+        const poolType = replacement.isPitcher ? 'pitcher' : 'bat';
+        const removable = roster
+          .filter(p => (poolType === 'pitcher' ? p.isPitcher : !p.isPitcher) && !requiredTeams.some(t => t === normalizeAbbr(p.team) && roster.filter(r => normalizeAbbr(r.team) === t).length === 1))
+          .sort((a, b) => a.allStarScore - b.allStarScore)[0];
+        if (!removable) continue;
+        roster = roster.filter(p => p.id !== removable.id);
+        roster.push({ ...replacement, rosterLabel: 'Team rep' });
+        represented.add(team);
+      }
+
+      const starters = roster.filter(p => !p.isPitcher && /^Starter/.test(p.rosterLabel));
+      const selectedIds = new Set(roster.map(p => p.id));
+      const snubs = allCandidates
+        .filter(p => !selectedIds.has(p.id))
+        .slice(0, 10);
+      return {
+        starters,
+        reserves: roster.filter(p => !p.isPitcher && !/^Starter/.test(p.rosterLabel)).sort((a, b) => b.allStarScore - a.allStarScore),
+        pitchers: roster.filter(p => p.isPitcher).sort((a, b) => {
+          if (a.pitcherRole !== b.pitcherRole) return a.pitcherRole === 'SP' ? -1 : 1;
+          return b.allStarScore - a.allStarScore;
+        }),
+        roster,
+        snubs,
+        representedCount: new Set(roster.map(p => normalizeAbbr(p.team))).size
+      };
+    }
 
     async function buildAllStarRosters(asStatsPromise) {
-      const [allHitAS, allPitAS] = await asStatsPromise;
-      const allHitASPool = buildPool(allHitAS);
-      const allPitASPool = buildPool(allPitAS);
-
+      const [alHitAS, nlHitAS, alPitAS, nlPitAS] = await asStatsPromise;
       const [alHitMeta, nlHitMeta, alPitMeta, nlPitMeta] = await Promise.all([
-        enrichPlayersForAllStar(attachWAR(allHitASPool.filter(p => p.leagueId === 103), false), false),
-        enrichPlayersForAllStar(attachWAR(allHitASPool.filter(p => p.leagueId === 104), false), false),
-        enrichPlayersForAllStar(attachWAR(allPitASPool.filter(p => p.leagueId === 103), true), true),
-        enrichPlayersForAllStar(attachWAR(allPitASPool.filter(p => p.leagueId === 104), true), true)
+        enrichPlayersForAllStar(attachWAR(buildPool(alHitAS), false), false),
+        enrichPlayersForAllStar(attachWAR(buildPool(nlHitAS), false), false),
+        enrichPlayersForAllStar(attachWAR(buildPool(alPitAS), true), true),
+        enrichPlayersForAllStar(attachWAR(buildPool(nlPitAS), true), true)
       ]);
-
-      const asWorker = new Worker('js/awards-worker.js');
-      const result = await new Promise((resolve) => {
-        asWorker.onmessage = (e) => {
-          if (e.data.task === 'allStarResult') {
-            resolve(e.data.result);
-            asWorker.terminate();
-          }
-        };
-        asWorker.postMessage({
-          task: 'buildAllStar',
-          data: { alHitMeta, alPitMeta, nlHitMeta, nlPitMeta, qualifiedIP }
-        });
-      });
-      return result;
+      return {
+        AL: buildAllStarRoster(alHitMeta, alPitMeta, 'AL'),
+        NL: buildAllStarRoster(nlHitMeta, nlPitMeta, 'NL')
+      };
     }
 
     const [ssResults, allStarRosters] = await Promise.all([
@@ -3985,20 +4131,6 @@ async function startPolling() {
 
   pollGames();
 
-  // BOLT OPTIMIZATION: Background prefetch secondary data after core dashboard is stable
-  setTimeout(() => {
-    if (!polling) return;
-    console.log('[Prefetch] Starting background load for secondary tabs...');
-    // Prefetch without awaiting to keep main thread free
-    fetchMilestones(lastGames);
-    fetchPlayoffRaces(lastGames);
-    setTimeout(() => {
-      if (!polling) return;
-      fetchAwardRaces();
-      fetchAndRenderHomeRuns(lastGames);
-    }, 5000);
-  }, 4000);
-
   // Re-render game cards as async pitcher stats trickle in
   setTimeout(() => { if (lastGames) renderGames(lastGames); }, 5000);
   setTimeout(() => { if (lastGames) renderGames(lastGames); }, 12000);
@@ -4067,19 +4199,16 @@ async function pollGames() {
     games.forEach(g => { gameDetailsByPk[g.gamePk] = g; });
     checkFavoriteAlerts(games);
     renderGames(games);
-
-    // Refresh active tab if it's live-data dependent
+    // Refresh only the active tab if it's one of the live ones
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+    // if (activeTab === 'homeruns') fetchAndRenderHomeRuns(games); // Redundant, handled below
     if (activeTab === 'ticker') fetchAndRenderTicker(games);
     if (activeTab === 'duel') fetchAndRenderDuel(games);
-
-    // Milestone/Standings/Awards refresh on every 10th poll if active, OR if pre-loaded
-    if (pollCount % 10 === 0) {
-      if (activeTab === 'playoffs') fetchPlayoffRaces(games);
-      if (activeTab === 'milestones') fetchMilestones(games);
-    }
+    if (activeTab === 'playoffs' && pollCount % 4 === 0) fetchPlayoffRaces(games);
+    if (activeTab === 'milestones' && pollCount % 4 === 0) fetchMilestones(games);
 
     checkHighLeverageAlerts(games);
+    // If HR tab is active, refresh it; otherwise queue it
     const hrTab = document.getElementById('tab-homeruns');
     if (hrTab && hrTab.classList.contains('active')) {
       fetchAndRenderHomeRuns(games);
@@ -4092,6 +4221,9 @@ async function pollGames() {
       lastAuxRefresh = Date.now();
       fetchStatLeaders();
       fetchTeamRecords();
+      // Only refresh secondary data if they are active
+      if (activeTab === 'playoffs') fetchPlayoffRaces(games);
+      if (activeTab === 'milestones') fetchMilestones(games);
     }
 
     // Refresh open details panel
@@ -4107,13 +4239,17 @@ async function pollGames() {
       }
     }
 
-    // First load: parallel core only. Secondary tabs are prefetched in startPolling background timer.
+    // First load: also fetch standings, milestones & award races
     if (isFirstLoad) {
       await Promise.all([
         fetchFangraphsStarTiers(),
         fetchStatLeaders(),
         fetchTeamRecords()
       ]);
+      fetchPlayoffRaces(games);
+      fetchMilestones(games);
+      fetchAwardRaces();
+      fetchAndRenderHomeRuns(games); // pre-load HR data
       isFirstLoad = false;
     }
   } catch (e) {
