@@ -778,6 +778,7 @@ async function fetchLiveGamesData() {
         watchabilityIndex: 25,
         isNoHitter: false,
         isPerfectGame: false,
+        startTime: new Date(g.gameDate).getTime(),
         awayProbablePitcher: awayPP ? { id: awayPP.id, name: awayPP.fullName } : null,
         homeProbablePitcher: homePP ? { id: homePP.id, name: homePP.fullName } : null,
         nationalTV: dedupedTV
@@ -925,6 +926,7 @@ async function fetchLiveGamesData() {
         watchabilityIndex: 0,
         isNoHitter,
         isPerfectGame,
+        startTime: new Date(g.gameDate).getTime(),
         finalDetails: isFinal ? extractFinalDetails(feed) : null
       };
       obj.watchabilityBreakdown = calculateWatchabilityBreakdown(obj);
@@ -1562,6 +1564,7 @@ function applySortFilter(games) {
       if (fav) return fav;
       const ap = getGameStatusPriority(a), bp = getGameStatusPriority(b);
       if (ap !== bp) return ap - bp;
+      if (ap === 1) return a.startTime - b.startTime;
       return b.watchabilityIndex - a.watchabilityIndex;
     });
   } else if (currentSort === 'score') {
@@ -1570,6 +1573,7 @@ function applySortFilter(games) {
       if (fav) return fav;
       const ap = getGameStatusPriority(a), bp = getGameStatusPriority(b);
       if (ap !== bp) return ap - bp;
+      if (ap === 1) return a.startTime - b.startTime;
       const ad = Math.abs(a.awayScore - a.homeScore);
       const bd = Math.abs(b.awayScore - b.homeScore);
       return ad - bd; // closest first
@@ -1580,6 +1584,7 @@ function applySortFilter(games) {
       if (fav) return fav;
       const ap = getGameStatusPriority(a), bp = getGameStatusPriority(b);
       if (ap !== bp) return ap - bp;
+      if (ap === 1) return a.startTime - b.startTime;
       return (b.currentInning || 0) - (a.currentInning || 0);
     });
   }
@@ -4185,6 +4190,9 @@ async function pollGames() {
     games.sort((a, b) => {
       const ap = getGameStatusPriority(a), bp = getGameStatusPriority(b);
       if (ap !== bp) return ap - bp;
+      if (ap === 1) { // Scheduled
+        return a.startTime - b.startTime;
+      }
       return b.watchabilityIndex - a.watchabilityIndex;
     });
     lastGames = games;
