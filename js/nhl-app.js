@@ -103,7 +103,6 @@ async function fetchNHLScoreboard() {
     return games.map(g => {
       const isFinal = g.gameState === 'OFF' || g.gameState === 'FINAL';
       const isLive = g.gameState === 'LIVE' || g.gameState === 'CRIT';
-      const isPreview = g.gameState === 'FUT' || g.gameState === 'PRE';
 
       let periodStatus = '';
       if (isFinal) {
@@ -115,6 +114,7 @@ async function fetchNHLScoreboard() {
         periodStatus = formatGameTime(g.startTimeUTC);
       }
 
+      const sitCode = g.situationCode || '1551';
       const obj = {
         gamePk: g.id,
         awayTeam: g.awayTeam.abbrev,
@@ -128,9 +128,9 @@ async function fetchNHLScoreboard() {
         inIntermission: g.clock?.inIntermission || false,
         periodStatus,
         startTime: new Date(g.startTimeUTC).getTime(),
-        isPowerPlay: g.situationCode ? g.situationCode !== '1551' : false,
-        homeGoaliePulled: false,
-        awayGoaliePulled: false
+        isPowerPlay: sitCode !== '1551' && sitCode[1] !== sitCode[2],
+        homeGoaliePulled: sitCode[3] === '0',
+        awayGoaliePulled: sitCode[0] === '0'
       };
 
       obj.watchabilityBreakdown = calculateNHLWatchability(obj);
@@ -146,8 +146,8 @@ async function fetchNHLScoreboard() {
 async function fetchNHLStarPower() {
   try {
     const [skaters, goalies] = await Promise.all([
-      requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }),
-      requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 })
+      requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({})),
+      requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({}))
     ]);
 
     const stars = new Set();
@@ -162,11 +162,11 @@ async function fetchNHLStarPower() {
       });
     };
 
-    addStarsFromList(skaters.points);
-    addStarsFromList(skaters.goals);
-    addStarsFromList(skaters.assists);
-    addStarsFromList(goalies.savePctg);
-    addStarsFromList(goalies.wins);
+    addStarsFromList(skaters?.points);
+    addStarsFromList(skaters?.goals);
+    addStarsFromList(skaters?.assists);
+    addStarsFromList(goalies?.savePctg);
+    addStarsFromList(goalies?.wins);
 
     nhlStarPlayers = stars;
     nhlStarTeams = teams;
@@ -216,9 +216,12 @@ async function fetchNHLLeaders() {
     html += renderLeaderBox('Points', skaters.points);
     html += renderLeaderBox('Goals', skaters.goals);
     html += renderLeaderBox('Assists', skaters.assists);
+    html += renderLeaderBox('Plus/Minus', skaters.plusMinus);
+    html += renderLeaderBox('TOI', skaters.toi);
     html += renderLeaderBox('Save %', goalies.savePctg);
     html += renderLeaderBox('GAA', goalies.goalsAgainstAverage);
     html += renderLeaderBox('Wins', goalies.wins);
+    html += renderLeaderBox('Shutouts', goalies.shutouts);
 
     html += '</div>';
     container.innerHTML = html;
@@ -234,24 +237,70 @@ async function fetchNHLMilestones() {
   container.innerHTML = '<div class="empty-msg">Loading milestones...</div>';
 
   try {
-    // Curated milestones for NHL
-    const staticMilestones = [
-      { name: "Alex Ovechkin", team: "WSH", stat: "Goals", current: "894", next: "895", desc: "Pursuit of Gretzky's All-Time Record (894)" },
-      { name: "Sidney Crosby", team: "PIT", stat: "Points", current: "1596", next: "1600", desc: "Approaching 1600 Career Points" },
-      { name: "Connor McDavid", team: "EDM", stat: "Points", current: "982", next: "1000", desc: "Race to 1000 Career Points" },
-      { name: "Marc-Andre Fleury", team: "MIN", stat: "Wins", current: "561", next: "570", desc: "Climbing All-Time Wins List" }
+    // 1. Static/Curated Milestones
+    const milestones = [
+      { name: "Alex Ovechkin", team: "WSH", stat: "Goals", current: "894", next: "895", desc: "Pursuit of Gretzky's All-Time Record (894)", importance: "HISTORIC" },
+      { name: "Sidney Crosby", team: "PIT", stat: "Points", current: "1596", next: "1600", desc: "Approaching 1600 Career Points", importance: "ELITE" },
+      { name: "Connor McDavid", team: "EDM", stat: "Points", current: "982", next: "1000", desc: "Race to 1000 Career Points", importance: "ELITE" },
+      { name: "Marc-Andre Fleury", team: "MIN", stat: "Wins", current: "561", next: "570", desc: "Climbing All-Time Wins List", importance: "LEGACY" }
     ];
 
-    // In a real app, we might fetch these from an API or calculate them.
-    // Here we'll just render the curated list for impact.
+    // 2. Dynamic Milestones from Leaders
+    try {
+      const [skaters, goalies] = await Promise.all([
+        requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({})),
+        requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({}))
+      ]);
+
+      const checkSkaters = (list, statName, target) => {
+        if (!list) return;
+        list.forEach(p => {
+          if (p.value >= target * 0.8 && p.value < target) {
+            milestones.push({
+              name: `${p.firstName.default} ${p.lastName.default}`,
+              team: p.teamAbbrev,
+              stat: statName,
+              current: p.value,
+              next: target,
+              desc: `Approaching ${target} ${statName} this season`,
+              importance: "SEASON"
+            });
+          }
+        });
+      };
+
+      checkSkaters(skaters.goals, "Goals", 50);
+      checkSkaters(skaters.points, "Points", 100);
+      if (goalies.wins) {
+        goalies.wins.forEach(p => {
+          if (p.value >= 35 && p.value < 40) {
+            milestones.push({
+              name: `${p.firstName.default} ${p.lastName.default}`,
+              team: p.teamAbbrev,
+              stat: "Wins",
+              current: p.value,
+              next: 40,
+              desc: "Approaching 40-Win Season",
+              importance: "SEASON"
+            });
+          }
+        });
+      }
+    } catch (innerE) {
+      console.warn('Dynamic milestones fetch failed', innerE);
+    }
 
     let html = '<div class="milestone-board rich">';
-    staticMilestones.forEach(m => {
-      const progress = Math.min(99, Math.round((parseFloat(m.current) / parseFloat(m.next)) * 100));
+    milestones.forEach(m => {
+      const currentVal = parseFloat(m.current);
+      const nextVal = parseFloat(m.next);
+      const progress = Math.min(99, Math.round((currentVal / nextVal) * 100));
+      const importanceClass = m.importance.toLowerCase();
+
       html += `
         <article class="milestone-card rich">
           <div class="milestone-topline">
-            <span class="milestone-importance major">HISTORIC CHASE</span>
+            <span class="milestone-importance ${importanceClass}">${m.importance} CHASE</span>
           </div>
           <div class="milestone-player">${teamLogo(m.team)} ${m.name}</div>
           <div class="milestone-team">${m.team} · ${m.stat}</div>
@@ -262,13 +311,14 @@ async function fetchNHLMilestones() {
           </div>
           <div class="milestone-progress"><div style="width:${progress}%"></div></div>
           <div class="milestone-card-footer">
-            <span>${parseFloat(m.next) - parseFloat(m.current)} away</span>
+            <span>${(nextVal - currentVal).toFixed(m.stat === 'GAA' || m.stat === 'Save %' ? 3 : 0)} away</span>
           </div>
         </article>`;
     });
     html += '</div>';
     container.innerHTML = html;
   } catch (e) {
+    console.error('Milestone error:', e);
     container.innerHTML = '<div class="empty-msg">Failed to load milestones</div>';
   }
 }
@@ -685,6 +735,7 @@ function renderFavoriteGrid() {
 // ─── APP CONTROL ─────────────────────────────────────────────────────────────
 
 async function pollGames() {
+  clearTimeout(pollTimer);
   pollCount++;
   try {
     const games = await fetchNHLScoreboard();
@@ -697,11 +748,19 @@ async function pollGames() {
         fetchNHLStandings()
       ]);
       isFirstLoad = false;
+
+      const activeTab = document.querySelector('.tab-content.active')?.id?.replace('tab-', '');
+      if (activeTab === 'standings') fetchNHLStandings();
+      else if (activeTab === 'leaders') fetchNHLLeaders();
+      else if (activeTab === 'milestones') fetchNHLMilestones();
     }
 
     if (pollCount % 10 === 0) fetchNHLStandings();
 
-    document.getElementById('last-update').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    const lastUpdateEl = document.getElementById('last-update');
+    if (lastUpdateEl) {
+      lastUpdateEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    }
   } catch (e) {
     console.error('Poll error:', e);
   } finally {
@@ -710,6 +769,7 @@ async function pollGames() {
 }
 
 function startPolling() {
+  if (polling) return;
   polling = true;
   document.getElementById('start-btn').disabled = true;
   document.getElementById('stop-btn').disabled = false;
@@ -730,8 +790,11 @@ function stopPolling() {
 let selectedDate = todayET();
 function setGameDate(d) {
   selectedDate = d;
+  const dateInput = document.getElementById('game-date');
+  if (dateInput) dateInput.value = d;
+
   isFirstLoad = true;
-  if (polling) pollGames();
+  pollGames();
 }
 
 let currentSort = 'watchability';
@@ -885,3 +948,9 @@ window.clearAllFavorites = clearAllFavorites;
 window.toggleSpoilerTeam = toggleSpoilerTeam;
 window.clearAllSpoilers = clearAllSpoilers;
 window.revealSpoiler = revealSpoiler;
+
+// Initialize date input and state
+document.addEventListener('DOMContentLoaded', () => {
+  const dateInput = document.getElementById('game-date');
+  if (dateInput) dateInput.value = selectedDate || todayET();
+});
