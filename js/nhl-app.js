@@ -231,25 +231,62 @@ function renderGames(games) {
     countEl.textContent = `${filtered.length} game${filtered.length !== 1 ? 's' : ''}`;
   }
 
+  // BOLT OPTIMIZATION: DOM Reconciliation
+  // Reuses existing card elements to avoid full grid teardown/rebuild
+  const existingCards = new Map();
+  grid.querySelectorAll('.game-card').forEach(el => {
+    const pk = el.getAttribute('data-gpk');
+    if (pk) existingCards.set(pk, el);
+  });
+
   if (filtered.length === 0) {
     grid.innerHTML = '<div class="empty-msg">No games matching criteria</div>';
     return;
   }
 
+  // Ensure "No games" message or other non-card content is removed before rendering cards
+  const emptyMsg = grid.querySelector('.empty-msg');
+  if (emptyMsg) emptyMsg.remove();
+
   const fragment = document.createDocumentFragment();
+  const seenPks = new Set();
+
   filtered.forEach(game => {
-    let card = document.createElement('div');
-    card.setAttribute('data-gpk', game.gamePk);
-    card.className = `game-card${game.watchabilityIndex > 75 ? ' fire' : game.watchabilityIndex > 55 ? ' hot' : ''}`;
+    const pkStr = String(game.gamePk);
+    seenPks.add(pkStr);
+    let card = existingCards.get(pkStr);
+    const wi = game.watchabilityIndex;
+    const targetClass = `game-card${wi > 75 ? ' fire' : wi > 55 ? ' hot' : ''}`;
+
+    if (!card) {
+      card = document.createElement('div');
+      card.setAttribute('data-gpk', pkStr);
+      // Ensure card acts as a button for accessibility
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.addEventListener('click', () => openGameDrawer(game.gamePk));
+      card.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openGameDrawer(game.gamePk);
+        }
+      });
+    }
+    card.className = targetClass;
 
     const isSpoilered = (spoilerTeams.has(game.awayTeam) || spoilerTeams.has(game.homeTeam)) && !revealedGames.has(game.gamePk);
 
     if (isSpoilered) {
-       card.innerHTML = `
+       const spoilerHtml = `
         <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
         <div class="inning-line" style="color:var(--text-dim)">Spoiler Mode</div>
         <div class="spoiler-mask" onclick="revealSpoiler(this, ${game.gamePk})">🙈 Tap to reveal</div>
       `;
+      if (card.innerHTML !== spoilerHtml) {
+        card.innerHTML = spoilerHtml;
+        // Invalidate state key so revealing always forces a re-render of details
+        card._lastStateKey = null;
+      }
     } else {
       renderSingleGameCard(card, game);
     }
@@ -261,7 +298,12 @@ function renderGames(games) {
     fragment.appendChild(card);
   });
 
-  grid.innerHTML = '';
+  // Remove any cards that are no longer in the filtered list
+  existingCards.forEach((card, pk) => {
+    if (!seenPks.has(pk)) card.remove();
+  });
+
+  // Appending the fragment efficiently reorders existing nodes and adds new ones
   grid.appendChild(fragment);
 }
 
@@ -286,6 +328,12 @@ function renderSituationGraphic(game) {
 function renderSingleGameCard(card, game) {
   const wi = game.watchabilityIndex;
   const isFinal = game.gameState === 'OFF' || game.gameState === 'FINAL';
+
+  // BOLT OPTIMIZATION: State-based change detection
+  // Only update innerHTML if the core game state has changed
+  const stateKey = `${game.awayScore}-${game.homeScore}-${game.periodStatus}-${game.isPowerPlay}-${game.homeGoaliePulled}-${game.awayGoaliePulled}-${wi}`;
+  if (card._lastStateKey === stateKey) return;
+  card._lastStateKey = stateKey;
 
   let badgeHtml = '';
   if (isRivalry(game.awayTeam, game.homeTeam)) badgeHtml += '<div class="badge rivalry">Rivalry</div>';
@@ -316,7 +364,7 @@ function renderSingleGameCard(card, game) {
       ${game.watchabilityBreakdown.parts.map(p => `<span class="score-chip">${p.label} +${p.value}</span>`).join('')}
     </div>
     ${renderSituationGraphic(game)}
-    <button class="card-expand-toggle" onclick="openGameDrawer(${game.gamePk})">Details</button>
+    <button class="card-expand-toggle" onclick="event.stopPropagation(); openGameDrawer(${game.gamePk})">Details</button>
   `;
 }
 
