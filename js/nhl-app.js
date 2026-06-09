@@ -71,28 +71,31 @@ async function fetchNHLScoreboard() {
     let games = data.games;
     let actualDate = date;
 
-    // Fallback logic: if no games today and we are looking at "now", find the most recent date with games
-    if ((!games || games.length === 0) && date === todayET() && data.gamesByDate) {
-      const sortedDates = data.gamesByDate
-        .filter(d => d.games && d.games.length > 0)
-        .sort((a, b) => b.date.localeCompare(a.date));
+    // The NHL API structure might have changed: games might be in gamesByDate
+    if ((!games || games.length === 0) && data.gamesByDate) {
+      // If we're looking for a specific date, try to find it in gamesByDate
+      const dateEntry = data.gamesByDate.find(d => d.date === actualDate);
+      if (dateEntry && dateEntry.games && dateEntry.games.length > 0) {
+        games = dateEntry.games;
+      } else if (date === todayET()) {
+        // Fallback logic: if no games today, find the most recent date with games
+        const sortedDates = data.gamesByDate
+          .filter(d => d.games && d.games.length > 0)
+          .sort((a, b) => b.date.localeCompare(a.date));
 
-      if (sortedDates.length > 0) {
-        games = sortedDates[0].games;
-        actualDate = sortedDates[0].date;
-        console.log(`[NHL] No games today, falling back to ${actualDate}`);
+        if (sortedDates.length > 0) {
+          games = sortedDates[0].games;
+          actualDate = sortedDates[0].date;
+          console.log(`[NHL] No games today, falling back to ${actualDate}`);
 
-        // Update the UI date picker if it matches today
-        const dateInput = document.getElementById('game-date');
-        if (dateInput && dateInput.value === todayET()) {
-          dateInput.value = actualDate;
-          selectedDate = actualDate;
+          // Update the UI date picker if it matches today
+          const dateInput = document.getElementById('game-date');
+          if (dateInput && dateInput.value === todayET()) {
+            dateInput.value = actualDate;
+            selectedDate = actualDate;
+          }
         }
       }
-    }
-
-    if (!games && data.gamesByDate) {
-      games = data.gamesByDate.find(d => d.date === actualDate)?.games;
     }
 
     if (!games || games.length === 0) return [];
@@ -150,9 +153,10 @@ async function fetchNHLStarPower() {
     const stars = new Set();
     const teams = new Set();
     const addStarsFromList = (list) => {
-      if (!list) return;
+      if (!list || !Array.isArray(list)) return;
       list.slice(0, 10).forEach(p => {
-        stars.add(p.lastName.default || p.lastName);
+        const last = p.lastName?.default || p.lastName;
+        if (last) stars.add(last);
         const team = p.teamAbbrev?.default || p.teamAbbrev;
         if (team) teams.add(team);
       });
@@ -196,7 +200,7 @@ async function fetchNHLLeaders() {
           <div class="leader-row ${i === 0 ? 'top' : ''}">
             <span class="rank">${i + 1}</span>
             <span class="name">${escapeHTML(first)} ${escapeHTML(last)} <small>${escapeHTML(team)}</small></span>
-            <span class="value">${p.value}${unit || ''}</span>
+            <span class="value">${p.value ?? ''}${unit || ''}</span>
           </div>`;
       });
       box += '</div>';
@@ -282,7 +286,7 @@ async function fetchNHLStandings() {
 
     const records = {};
     data.standings.forEach(t => {
-      const abbr = t.teamAbbrev?.default || t.teamAbbrev;
+      const abbr = typeof t.teamAbbrev === 'object' ? t.teamAbbrev.default : t.teamAbbrev;
       if (!abbr) return;
       records[abbr] = {
         wins: t.wins,
@@ -582,7 +586,7 @@ function renderNHLStandings(standings) {
 
     // Sort division by points
     divisions[divName].sort((a, b) => b.points - a.points).forEach((t, i) => {
-      const abbr = t.teamAbbrev?.default || t.teamAbbrev;
+      const abbr = typeof t.teamAbbrev === 'object' ? t.teamAbbrev.default : t.teamAbbrev;
       const isPlayoff = i < 3 || (t.wildcardSequence > 0 && t.wildcardSequence <= 2);
       const clinch = t.clinchIndicator ? `<span class="clinch-tag" title="Clinched ${t.clinchIndicator}">${t.clinchIndicator.toUpperCase()}</span>` : '';
 
