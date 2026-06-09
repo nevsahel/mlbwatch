@@ -16,6 +16,28 @@
   --green: #4ade80;
   --red: #ef4444;
   --blue: #60a5fa;
+  --success: #4ade80;
+  --danger: #ef4444;
   --border-primary: #2a4a3a;
   --border-secondary: #1e1e2e;
+}
+
+.mlb-theme {
+  --bg-primary: #12261d;
+  --bg-secondary: #0a1a13;
+  --bg-card: #1b3328;
+  --accent-primary: #8b2635;
+  --accent-secondary: #a62c2b;
+  --border-primary: #2a4a3a;
+  --text-secondary: #f5e6be;
+}
+
+.nhl-theme {
+  --bg-primary: #0f172a;
+  --bg-secondary: #020617;
+  --bg-card: #1e293b;
+  --accent-primary: #3b82f6;
+  --accent-secondary: #2563eb;
+  --border-primary: #334155;
+  --text-secondary: #cbd5e1;
 }
