@@ -3128,12 +3128,23 @@ async function fetchAwardRaces() {
       const splits = data?.stats?.[0]?.splits || [];
       for (const s of splits) {
         const id = s.player?.id; if (!id) continue;
-        if (!pool[id]) pool[id] = {
-          id,
-          name: s.player.fullName,
-          team: normalizeAbbr(s.team?.abbreviation || teamAbbrFromId(s.team?.id) || '?'),
-          stats: { ...s.stat }
-        };
+        if (!pool[id]) {
+          const stats = { ...s.stat };
+          // Normalize common API aliases to ensure consistent internal naming
+          if (stats.ops && !stats.onBasePlusSlugging) stats.onBasePlusSlugging = stats.ops;
+          if (stats.avg && !stats.battingAverage) stats.battingAverage = stats.avg;
+          if (stats.rbi && !stats.runsBattedIn) stats.runsBattedIn = stats.rbi;
+          if (stats.strikeOuts && !stats.strikeouts) stats.strikeouts = stats.strikeOuts;
+          if (stats.era && !stats.earnedRunAverage) stats.earnedRunAverage = stats.era;
+          if (stats.whip && !stats.walksAndHitsPerInningPitched) stats.walksAndHitsPerInningPitched = stats.whip;
+
+          pool[id] = {
+            id,
+            name: s.player.fullName,
+            team: normalizeAbbr(s.team?.abbreviation || teamAbbrFromId(s.team?.id) || '?'),
+            stats: stats
+          };
+        }
       }
       return Object.values(pool);
     }
@@ -3365,7 +3376,7 @@ async function fetchAwardRaces() {
 
     async function buildSilverSluggers(leagueId) {
       try {
-        const data = await requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=60&leagueId=${leagueId}`);
+        const data = await requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=100&leagueId=${leagueId}&sortStat=onBasePlusSlugging&order=desc&personPool=qualified`);
         const pool = buildPool(data);
 
         // Fetch all person data in a single batch call instead of individual calls
