@@ -1,7 +1,7 @@
 {
-  "name": "MLB Watchability Index",
-  "short_name": "MLB Watch",
-  "description": "A live MLB watchability dashboard with favorites, spoilers, impact plays, and home run tracking.",
+  "name": "Watchability Index",
+  "short_name": "Watchability",
+  "description": "A live sports watchability dashboard for MLB and NHL with favorites, spoilers, and deep analytics.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

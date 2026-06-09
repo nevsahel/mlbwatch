@@ -1,9 +1,14 @@
-const CACHE_NAME = 'mlb-watchability-v2';
+const CACHE_NAME = 'watchability-v3';
 const APP_SHELL = [
   './',
   './index.html',
+  './mlb.html',
+  './nhl.html',
   './styles.css',
   './app.js',
+  './js/nhl-app.js',
+  './js/constants.js',
+  './js/nhl-constants.js',
   './utils/core.js',
   './utils/performance.js',
   './manifest.webmanifest',
