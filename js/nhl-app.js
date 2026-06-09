@@ -66,7 +66,8 @@ async function fetchNHLScoreboard() {
       ? `${NHL_API}/scoreboard/now`
       : `${NHL_API}/scoreboard/${date}`;
 
-    const data = await requestPool.fetchDedup(url, { ttl: 20000 });
+    // Use a very short TTL for live scoreboard data to ensure freshness during polling
+    const data = await requestPool.fetchDedup(url, { ttl: 5000 });
 
     let games = data.games;
     let actualDate = date;
@@ -734,9 +735,19 @@ function renderFavoriteGrid() {
 
 // ─── APP CONTROL ─────────────────────────────────────────────────────────────
 
+let isPollingInProgress = false;
 async function pollGames() {
+  if (isPollingInProgress) return;
+  isPollingInProgress = true;
+
   clearTimeout(pollTimer);
   pollCount++;
+
+  const grid = document.getElementById('games-grid');
+  if (isFirstLoad && grid && (!lastGames || lastGames.length === 0)) {
+    grid.innerHTML = '<div class="empty-msg">Loading NHL data...</div>';
+  }
+
   try {
     const games = await fetchNHLScoreboard();
     lastGames = games;
@@ -763,7 +774,12 @@ async function pollGames() {
     }
   } catch (e) {
     console.error('Poll error:', e);
+    if (isFirstLoad) {
+        const grid = document.getElementById('games-grid');
+        if (grid) grid.innerHTML = `<div class="empty-msg" style="color:var(--error)">Error loading games: ${escapeHTML(e.message)}</div>`;
+    }
   } finally {
+    isPollingInProgress = false;
     if (polling) pollTimer = setTimeout(pollGames, 15000);
   }
 }
