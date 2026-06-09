@@ -41,3 +41,13 @@
   --border-primary: #334155;
   --text-secondary: #cbd5e1;
 }
+
+.nba-theme {
+  --bg-primary: #0c0c18;
+  --bg-secondary: #05050a;
+  --bg-card: #15152a;
+  --accent-primary: #1d428a;
+  --accent-secondary: #c8102e;
+  --border-primary: #2a2a4a;
+  --text-secondary: #e2e8f0;
+}
