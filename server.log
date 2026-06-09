@@ -1,0 +1,13 @@
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /nhl.html HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /js/nhl-app.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /js/nhl-constants.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /utils/performance.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /utils/core.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /css/variables.css HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /service-worker.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /manifest.webmanifest HTTP/1.1" 200 -
+127.0.0.1 - - [09/Jun/2026 19:58:26] "GET /icon.svg HTTP/1.1" 200 -
