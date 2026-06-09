@@ -9,3 +9,7 @@
 ## 2026-06-05 - Prioritize Active Content
 **Learning:** For real-time dashboards, users usually care most about what's happening *right now*. Prioritizing "Live" states over "Scheduled" or "Final" states by default reduces cognitive load and helps users find relevant information faster.
 **Action:** Implement a 3-tier status priority (Ongoing > Scheduled > Completed) for default sorting of real-time data feeds.
+
+## 2026-06-09 - High-Contrast Secondary Metadata
+**Learning:** In dark-themed dashboards, there's a tendency to use dimmed colors (like #555) for secondary labels to create hierarchy. However, on near-black backgrounds, this often fails WCAG AA contrast (4.5:1). Using a "Slate 400" (#94a3b8) maintains the visual hierarchy while ensuring accessibility.
+**Action:** Use #94a3b8 for secondary text and "kicker" labels on dark backgrounds to balance hierarchy and legibility.
