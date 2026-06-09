@@ -1204,6 +1204,13 @@
 
   /* box score mini table */
   .expand-box { margin-bottom: 10px; }
+  .expand-box.nhl-box .expand-box-row {
+    padding: 4px 0;
+  }
+  .expand-box.nhl-box .total {
+    font-weight: 900;
+    color: var(--gold);
+  }
   .expand-box-row {
     display: grid; grid-template-columns: 3fr repeat(auto-fill, minmax(18px, 1fr)); gap: 2px;
     font-size: 0.7rem; color: #ccc; padding: 2px 0;
@@ -1218,12 +1225,15 @@
   .expand-play {
     font-size: 0.7rem; color: #bbb; padding: 5px 0;
     border-bottom: 1px solid #131320; line-height: 1.45;
-    display: grid; grid-template-columns: auto 1fr; gap: 8px;
+    display: grid; grid-template-columns: 5.5rem 1fr; gap: 8px;
   }
   .expand-play:last-child { border-bottom: none; }
   .expand-play-inn { color: #555; font-size: 0.65rem; font-weight: 700; white-space: nowrap; }
   .expand-play-desc { color: #ccc; }
-  .expand-play-score { color: #f59e0b; font-weight: 700; font-size: 0.65rem; }
+  .expand-play-desc strong { color: #fff; }
+  .expand-play-desc small { display: block; color: #777; font-size: 0.65rem; margin-top: 2px; }
+  .expand-play-score { display: block; color: #f59e0b; font-weight: 700; font-size: 0.65rem; margin-top: 3px; }
+  .expand-play.penalty { border-left: 2px solid #ef4444; padding-left: 8px; }
 
   .expand-section-label {
     font-size: 0.62rem; font-weight: 700; color: #555; text-transform: uppercase;
@@ -1243,3 +1253,20 @@
   .expand-pitcher-row span:first-child { text-align: left; }
   .expand-load-msg { font-size: 0.68rem; color: #555; text-align: center; padding: 8px 0; }
 
+
+  /* Leaders */
+  .leaders-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 10px; }
+  .leader-box { background: #1b3328; border: 2px solid #2a4a3a; border-radius: 4px; padding: 16px; box-shadow: 0 4px 0 #0a1a13; }
+  .leader-box h3 { font-size: 0.75rem; font-weight: 900; color: #f5e6be; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #2a4a3a; padding-bottom: 6px; }
+  .leader-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #2a4a3a; font-size: 0.8rem; }
+  .leader-row:last-child { border-bottom: none; }
+  .leader-row.top { color: #f59e0b; font-weight: 800; }
+  .leader-row .rank { width: 20px; font-weight: 900; color: #555; }
+  .leader-row .name { flex: 1; }
+  .leader-row .name small { color: #555; margin-left: 4px; }
+  .leader-row .value { font-weight: 900; font-variant-numeric: tabular-nums; }
+
+  /* Playoff Races specific */
+  .playoff-races { display: flex; flex-direction: column; gap: 20px; }
+  .standings-table tr.playoff td.team-name { color: #4ade80; }
+  .clinch-tag { font-size: 0.6rem; background: #4ade80; color: #0a1a0f; padding: 1px 4px; border-radius: 3px; margin-left: 5px; vertical-align: middle; }
