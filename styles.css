@@ -261,6 +261,7 @@
     transition: color 0.2s, background 0.2s;
   }
   .notif-close:hover { color: var(--text-primary); background: rgba(255,255,255,0.1); }
+  .notif-close:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; color: var(--text-primary); background: rgba(255,255,255,0.1); }
   .notification.milestone {
     background: linear-gradient(135deg, var(--gold), var(--gold));
     border: 1px solid var(--gold);
