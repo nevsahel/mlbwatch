@@ -417,7 +417,7 @@ function formatGameTime(iso) {
     return new Date(iso).toLocaleTimeString('en-US', {
       hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York'
     }) + ' ET';
-  } catch { return 'TBD'; }
+  } catch (e) { return 'TBD'; }
 }
 
 function setGameDate(date) {
@@ -673,8 +673,8 @@ async function fetchGameHRs(gamePk) {
   try {
     const [data, feed, winProb] = await Promise.all([
       requestPool.fetchDedup(`https://baseballsavant.mlb.com/gf?game_pk=${gamePk}`, { cacheKey: `homeRuns:${gamePk}`, timeoutMs: 12000 }),
-      requestPool.fetchDedup(`https://statsapi.mlb.com/api/v1.1/game/${gamePk}/feed/live`, { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }).catch(() => null),
-      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch(() => [])
+      requestPool.fetchDedup(`https://statsapi.mlb.com/api/v1.1/game/${gamePk}/feed/live`, { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }).catch((e) => null),
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch((e) => [])
     ]);
     const evEvents = data.exit_velocity || [];
     const allPlays = feed?.liveData?.plays?.allPlays || [];
@@ -808,7 +808,7 @@ async function fetchLiveGamesData() {
           ? requestPool.fetchDedup(
               `${MLB_API}/game/${g.gamePk}/winProbability`,
               { cacheKey: `winProbability:${g.gamePk}`, timeoutMs: 7000, ttl: gameTtl }
-            ).catch(() => [])
+            ).catch((e) => [])
           : Promise.resolve([])
       ]);
 
@@ -1012,7 +1012,7 @@ async function fetchHotZones(playerId) {
     const zones = data.people?.[0]?.stats?.find(s => s.group?.code === 'hitting')?.zones || [];
     hotZonesCache[playerId] = zones;
     return zones;
-  } catch { return []; }
+  } catch (e) { return []; }
 }
 
 async function openSidePanel(gamePk) {
@@ -1038,7 +1038,7 @@ async function openSidePanel(gamePk) {
   try {
     const [feed, wpData] = await Promise.all([
       requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
-      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch((e) => [])
     ]);
     const data = parseExpandData(feed, wpData);
     if (data.gameday?.batterId) {
@@ -1082,7 +1082,7 @@ async function openGameDrawer(gamePk) {
   try {
     const [feed, wpData] = await Promise.all([
       requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
-      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch((e) => [])
     ]);
     const data = parseExpandData(feed, wpData);
     renderExpandPanel(body, data);
@@ -1108,7 +1108,7 @@ async function loadExpandData(gamePk, panel) {
   try {
     const [feed, wpData] = await Promise.all([
       requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}` }),
-      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch(() => [])
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch((e) => [])
     ]);
     const data = parseExpandData(feed, wpData);
     if (data.gameday?.batterId) {
@@ -3082,14 +3082,14 @@ async function fetchAwardRaces() {
       batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
       batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=103`, { ttl: 900000 })),
       batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
-      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/schedule?sportId=1&season=${season}&endDate=${date}&gameType=R&teamId=147`, { ttl: 900000 }).catch(()=>null)),
+      batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/schedule?sportId=1&season=${season}&endDate=${date}&gameType=R&teamId=147`, { ttl: 900000 }).catch((e) =>null)),
     ]);
 
     const rotyPromise = Promise.all([
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch(()=>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch((e) =>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch((e) =>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch((e) =>({})),
+      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=30&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch((e) =>({})),
     ]);
 
     const asStatsPromise = Promise.all([
@@ -3453,7 +3453,7 @@ async function fetchAwardRaces() {
           try {
             const pd = await requestPool.fetchDedup(`${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=currentTeam`);
             (pd.people || []).forEach(person => { meta[person.id] = person; });
-          } catch {}
+          } catch (e) {}
         })
       ));
       return players.map(p => {
@@ -4016,7 +4016,7 @@ async function fetchImpactPlays(gamePk) {
   try {
     const [feed, wpData] = await Promise.all([
       requestPool.fetchDedup('https://statsapi.mlb.com/api/v1.1/game/' + gamePk + '/feed/live', { cacheKey: `feed:${gamePk}`, timeoutMs: 12000 }),
-      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch(() => [])
+      requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 12000 }).catch((e) => [])
     ]);
     const gd = feed.gameData?.teams || {};
     const away = normalizeAbbr(gd.away?.abbreviation || 'Away');
@@ -4060,7 +4060,7 @@ async function fetchImpactPlays(gamePk) {
         sortKey: idx ?? 0
       };
     }).filter(Boolean);
-  } catch {
+  } catch (e) {
     return [];
   }
 }
@@ -4381,7 +4381,7 @@ async function getPlayerIdByName(name) {
   try {
     const data = await requestPool.fetchDedup(`${MLB_API}/people/search?names=${encodeURIComponent(name)}`);
     return data.people?.[0]?.id;
-  } catch { return null; }
+  } catch (e) { return null; }
 }
 
 async function runSimulatedDuel(bId, pId, container) {
