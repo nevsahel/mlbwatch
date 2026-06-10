@@ -1164,6 +1164,30 @@
     border-bottom: 1px solid var(--border-secondary);
     padding-bottom: 8px;
   }
+
+.boxscore-table .expand-box-row {
+  font-size: 0.85rem;
+  padding: 6px 0;
+}
+
+.boxscore-table .player-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-weight: 500;
+}
+
+.team-stats-box .expand-box-row span:nth-child(2) {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.badge.series {
+  background: var(--accent-secondary);
+  color: white;
+}
   .gameday-title { font-size: 0.75rem; font-weight: 800; color: var(--gold); text-transform: uppercase; }
   .gameday-viz-wrap {
     display: grid;

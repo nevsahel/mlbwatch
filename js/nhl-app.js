@@ -15,6 +15,7 @@ let lastAuxRefresh = 0;
 let isFirstLoad = true;
 let nhlStarPlayers = new Set();
 let nhlStarTeams = new Set();
+let nhlStarGoalieTeams = new Set();
 
 // ─── TEAM DATA HELPERS ────────────────────────────────────────────────────────
 
@@ -52,7 +53,6 @@ function switchTab(tab) {
     if (lastGames) {
       if (tab === 'standings') fetchNHLStandings();
       if (tab === 'leaders') fetchNHLLeaders();
-      if (tab === 'milestones') fetchNHLMilestones();
     }
   }, 'tab-' + tab, 'Tab failed to load');
 }
@@ -69,34 +69,33 @@ async function fetchNHLScoreboard() {
     // Use a very short TTL for live scoreboard data to ensure freshness during polling
     const data = await requestPool.fetchDedup(url, { ttl: 5000 });
 
-    let games = data.games;
+    let games = [];
     let actualDate = date;
 
-    // The NHL API structure might have changed: games might be in gamesByDate
-    if ((!games || games.length === 0) && data.gamesByDate) {
-      // If we're looking for a specific date, try to find it in gamesByDate
+    if (data.gamesByDate && Array.isArray(data.gamesByDate)) {
       const dateEntry = data.gamesByDate.find(d => d.date === actualDate);
-      if (dateEntry && dateEntry.games && dateEntry.games.length > 0) {
+      if (dateEntry && dateEntry.games) {
         games = dateEntry.games;
-      } else if (date === todayET()) {
-        // Fallback logic: if no games today, find the most recent date with games
-        const sortedDates = data.gamesByDate
+      } else if (date === todayET() || !dateEntry) {
+         // If no games for the requested date, try to find the closest date in the response
+         const sortedDates = data.gamesByDate
           .filter(d => d.games && d.games.length > 0)
-          .sort((a, b) => b.date.localeCompare(a.date));
+          .sort((a, b) => Math.abs(new Date(a.date) - new Date(actualDate)) - Math.abs(new Date(b.date) - new Date(actualDate)));
 
         if (sortedDates.length > 0) {
           games = sortedDates[0].games;
           actualDate = sortedDates[0].date;
-          console.log(`[NHL] No games today, falling back to ${actualDate}`);
+          console.log(`[NHL] Requested ${date} not found, using closest date: ${actualDate}`);
 
-          // Update the UI date picker if it matches today
           const dateInput = document.getElementById('game-date');
-          if (dateInput && dateInput.value === todayET()) {
+          if (dateInput) {
             dateInput.value = actualDate;
             selectedDate = actualDate;
           }
         }
       }
+    } else if (data.games) {
+      games = data.games;
     }
 
     if (!games || games.length === 0) return [];
@@ -116,10 +115,13 @@ async function fetchNHLScoreboard() {
       }
 
       const sitCode = g.situationCode || '1551';
+      const awayAbbrev = typeof g.awayTeam.abbrev === 'object' ? g.awayTeam.abbrev.default : g.awayTeam.abbrev;
+      const homeAbbrev = typeof g.homeTeam.abbrev === 'object' ? g.homeTeam.abbrev.default : g.homeTeam.abbrev;
+
       const obj = {
         gamePk: g.id,
-        awayTeam: g.awayTeam.abbrev,
-        homeTeam: g.homeTeam.abbrev,
+        awayTeam: awayAbbrev,
+        homeTeam: homeAbbrev,
         awayScore: g.awayTeam.score ?? 0,
         homeScore: g.homeTeam.score ?? 0,
         gameState: g.gameState,
@@ -131,7 +133,8 @@ async function fetchNHLScoreboard() {
         startTime: new Date(g.startTimeUTC).getTime(),
         isPowerPlay: sitCode !== '1551' && sitCode[1] !== sitCode[2],
         homeGoaliePulled: sitCode[3] === '0',
-        awayGoaliePulled: sitCode[0] === '0'
+        awayGoaliePulled: sitCode[0] === '0',
+        seriesStatus: g.seriesStatusText || g.seriesStatus || ''
       };
 
       obj.watchabilityBreakdown = calculateNHLWatchability(obj);
@@ -153,24 +156,30 @@ async function fetchNHLStarPower() {
 
     const stars = new Set();
     const teams = new Set();
-    const addStarsFromList = (list) => {
+    const goalieTeams = new Set();
+
+    const addStarsFromList = (list, isGoalie = false) => {
       if (!list || !Array.isArray(list)) return;
       list.slice(0, 10).forEach(p => {
         const last = p.lastName?.default || p.lastName;
         if (last) stars.add(last);
-        const team = p.teamAbbrev?.default || p.teamAbbrev;
-        if (team) teams.add(team);
+        const team = typeof p.teamAbbrev === 'object' ? p.teamAbbrev.default : p.teamAbbrev;
+        if (team) {
+          teams.add(team);
+          if (isGoalie) goalieTeams.add(team);
+        }
       });
     };
 
     addStarsFromList(skaters?.points);
     addStarsFromList(skaters?.goals);
     addStarsFromList(skaters?.assists);
-    addStarsFromList(goalies?.savePctg);
-    addStarsFromList(goalies?.wins);
+    addStarsFromList(goalies?.savePctg, true);
+    addStarsFromList(goalies?.wins, true);
 
     nhlStarPlayers = stars;
     nhlStarTeams = teams;
+    nhlStarGoalieTeams = goalieTeams;
     console.log(`[NHL StarPower] Loaded ${stars.size} star players across ${teams.size} teams`);
   } catch (e) {
     console.warn('NHL Star Power fetch failed:', e);
@@ -196,7 +205,7 @@ async function fetchNHLLeaders() {
       list.slice(0, 5).forEach((p, i) => {
         const first = p.firstName?.default || p.firstName || '';
         const last = p.lastName?.default || p.lastName || 'Unknown';
-        const team = p.teamAbbrev?.default || p.teamAbbrev || '???';
+        const team = typeof p.teamAbbrev === 'object' ? p.teamAbbrev.default : (p.teamAbbrev || '???');
         box += `
           <div class="leader-row ${i === 0 ? 'top' : ''}">
             <span class="rank">${i + 1}</span>
@@ -214,113 +223,21 @@ async function fetchNHLLeaders() {
       return;
     }
 
-    html += renderLeaderBox('Points', skaters.points);
-    html += renderLeaderBox('Goals', skaters.goals);
-    html += renderLeaderBox('Assists', skaters.assists);
-    html += renderLeaderBox('Plus/Minus', skaters.plusMinus);
-    html += renderLeaderBox('TOI', skaters.toi);
-    html += renderLeaderBox('Save %', goalies.savePctg);
-    html += renderLeaderBox('GAA', goalies.goalsAgainstAverage);
-    html += renderLeaderBox('Wins', goalies.wins);
-    html += renderLeaderBox('Shutouts', goalies.shutouts);
+    if (skaters.points) html += renderLeaderBox('Points', skaters.points);
+    if (skaters.goals) html += renderLeaderBox('Goals', skaters.goals);
+    if (skaters.assists) html += renderLeaderBox('Assists', skaters.assists);
+    if (skaters.plusMinus) html += renderLeaderBox('Plus/Minus', skaters.plusMinus);
+    if (skaters.toi) html += renderLeaderBox('TOI', skaters.toi);
+    if (goalies.savePctg) html += renderLeaderBox('Save %', goalies.savePctg);
+    if (goalies.goalsAgainstAverage) html += renderLeaderBox('GAA', goalies.goalsAgainstAverage);
+    if (goalies.wins) html += renderLeaderBox('Wins', goalies.wins);
+    if (goalies.shutouts) html += renderLeaderBox('Shutouts', goalies.shutouts);
 
     html += '</div>';
     container.innerHTML = html;
   } catch (e) {
     console.error('[NHL Leaders]', e);
     container.innerHTML = '<div class="empty-msg">Failed to load leaders</div>';
-  }
-}
-
-async function fetchNHLMilestones() {
-  const container = document.getElementById('milestones-container');
-  if (!container) return;
-  container.innerHTML = '<div class="empty-msg">Loading milestones...</div>';
-
-  try {
-    // 1. Static/Curated Milestones
-    const milestones = [
-      { name: "Alex Ovechkin", team: "WSH", stat: "Goals", current: "894", next: "895", desc: "Pursuit of Gretzky's All-Time Record (894)", importance: "HISTORIC" },
-      { name: "Sidney Crosby", team: "PIT", stat: "Points", current: "1596", next: "1600", desc: "Approaching 1600 Career Points", importance: "ELITE" },
-      { name: "Connor McDavid", team: "EDM", stat: "Points", current: "982", next: "1000", desc: "Race to 1000 Career Points", importance: "ELITE" },
-      { name: "Marc-Andre Fleury", team: "MIN", stat: "Wins", current: "561", next: "570", desc: "Climbing All-Time Wins List", importance: "LEGACY" }
-    ];
-
-    // 2. Dynamic Milestones from Leaders
-    try {
-      const [skaters, goalies] = await Promise.all([
-        requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({})),
-        requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({}))
-      ]);
-
-      const checkSkaters = (list, statName, target) => {
-        if (!list) return;
-        list.forEach(p => {
-          if (p.value >= target * 0.8 && p.value < target) {
-            milestones.push({
-              name: `${p.firstName.default} ${p.lastName.default}`,
-              team: p.teamAbbrev,
-              stat: statName,
-              current: p.value,
-              next: target,
-              desc: `Approaching ${target} ${statName} this season`,
-              importance: "SEASON"
-            });
-          }
-        });
-      };
-
-      checkSkaters(skaters.goals, "Goals", 50);
-      checkSkaters(skaters.points, "Points", 100);
-      if (goalies.wins) {
-        goalies.wins.forEach(p => {
-          if (p.value >= 35 && p.value < 40) {
-            milestones.push({
-              name: `${p.firstName.default} ${p.lastName.default}`,
-              team: p.teamAbbrev,
-              stat: "Wins",
-              current: p.value,
-              next: 40,
-              desc: "Approaching 40-Win Season",
-              importance: "SEASON"
-            });
-          }
-        });
-      }
-    } catch (innerE) {
-      console.warn('Dynamic milestones fetch failed', innerE);
-    }
-
-    let html = '<div class="milestone-board rich">';
-    milestones.forEach(m => {
-      const currentVal = parseFloat(m.current);
-      const nextVal = parseFloat(m.next);
-      const progress = Math.min(99, Math.round((currentVal / nextVal) * 100));
-      const importanceClass = m.importance.toLowerCase();
-
-      html += `
-        <article class="milestone-card rich">
-          <div class="milestone-topline">
-            <span class="milestone-importance ${importanceClass}">${m.importance} CHASE</span>
-          </div>
-          <div class="milestone-player">${teamLogo(m.team)} ${m.name}</div>
-          <div class="milestone-team">${m.team} · ${m.stat}</div>
-          <div class="milestone-chase">${m.desc}</div>
-          <div class="milestone-target">
-            <strong>${m.current}</strong>
-            <span>/ ${m.next}</span>
-          </div>
-          <div class="milestone-progress"><div style="width:${progress}%"></div></div>
-          <div class="milestone-card-footer">
-            <span>${(nextVal - currentVal).toFixed(m.stat === 'GAA' || m.stat === 'Save %' ? 3 : 0)} away</span>
-          </div>
-        </article>`;
-    });
-    html += '</div>';
-    container.innerHTML = html;
-  } catch (e) {
-    console.error('Milestone error:', e);
-    container.innerHTML = '<div class="empty-msg">Failed to load milestones</div>';
   }
 }
 
@@ -372,6 +289,7 @@ function calculateNHLWatchability(g) {
   const isPreview = g.gameState === 'FUT' || g.gameState === 'PRE';
 
   const rival = isRivalry(g.awayTeam, g.homeTeam);
+  const isOriginalSix = ORIGINAL_SIX.has(g.awayTeam) && ORIGINAL_SIX.has(g.homeTeam);
   const teamQA = teamRecords[g.awayTeam]?.pointPct || 0.5;
   const teamQH = teamRecords[g.homeTeam]?.pointPct || 0.5;
   const teamQ = Math.min(Math.round(((teamQA + teamQH) / 2) * 20), cfg.caps.teamQuality);
@@ -383,6 +301,7 @@ function calculateNHLWatchability(g) {
   );
 
   const rivalBonus = rival ? cfg.context.rivalry : 0;
+  const o6Bonus = isOriginalSix ? 7 : 0;
 
   // Star power detection
   let starBonus = 0;
@@ -392,6 +311,12 @@ function calculateNHLWatchability(g) {
   // Marquee matchup bonus
   if (teamQA > 0.6 && teamQH > 0.6) starBonus += 5;
 
+  // Goalie Duel bonus
+  let goalieDuelBonus = 0;
+  if (nhlStarGoalieTeams.has(g.awayTeam) && nhlStarGoalieTeams.has(g.homeTeam)) {
+    goalieDuelBonus = 8;
+  }
+
   let upsetBonus = 0;
   if (!isPreview) {
     const diff = teamQA - teamQH;
@@ -399,12 +324,14 @@ function calculateNHLWatchability(g) {
     if (diff < -0.15 && g.awayScore > g.homeScore) upsetBonus = cfg.context.upset;
   }
 
-  const context = Math.min(teamQ + playoffScore + rivalBonus + upsetBonus + starBonus, cfg.caps.context);
+  const context = Math.min(teamQ + playoffScore + rivalBonus + o6Bonus + upsetBonus + starBonus + goalieDuelBonus, cfg.caps.context);
   const parts = [
     { label: 'Teams', value: teamQ },
     { label: 'Playoff', value: playoffScore },
     { label: 'Rivalry', value: rivalBonus },
+    { label: 'O6', value: o6Bonus },
     { label: 'Stars', value: starBonus },
+    { label: 'Duel', value: goalieDuelBonus },
     { label: 'Upset', value: upsetBonus }
   ].filter(p => p.value);
 
@@ -556,13 +483,60 @@ function renderSituationGraphic(game) {
   `;
 }
 
+function checkHighLeverageAlerts(games) {
+  const alertEl = document.getElementById('high-leverage-alert');
+  const msgEl = document.getElementById('hl-alert-msg');
+  const btnEl = document.getElementById('hl-alert-btn');
+  if (!alertEl || !msgEl || !btnEl) return;
+
+  // Find most critical game (90+ watchability or close game late in 3rd)
+  const criticalGame = games.find(g => {
+    const isLive = g.gameState === 'LIVE' || g.gameState === 'CRIT';
+    if (!isLive) return false;
+
+    // Max watchability
+    if (g.watchabilityIndex >= 90) return true;
+
+    // Close game late in 3rd
+    if (g.period === 3 && g.timeRemaining) {
+      const mins = parseInt(g.timeRemaining.split(':')[0]);
+      const diff = Math.abs(g.awayScore - g.homeScore);
+      if (mins < 5 && diff <= 1) return true;
+    }
+
+    // OT is always high leverage
+    if (g.periodType !== 'REG') return true;
+
+    return false;
+  });
+
+  if (criticalGame && lastAlertedPk !== criticalGame.gamePk) {
+    let reason = 'MAX WATCHABILITY!';
+    if (criticalGame.periodType !== 'REG') reason = 'OVERTIME ALERT!';
+    else if (criticalGame.period === 3) reason = 'CRUNCH TIME ALERT!';
+
+    msgEl.textContent = `${reason} ${criticalGame.awayTeam} @ ${criticalGame.homeTeam} (${criticalGame.watchabilityIndex})`;
+    btnEl.onclick = () => {
+      openGameDrawer(criticalGame.gamePk);
+      alertEl.classList.remove('visible');
+    };
+    alertEl.classList.add('visible');
+    lastAlertedPk = criticalGame.gamePk;
+
+    // Auto hide after 20s
+    setTimeout(() => alertEl.classList.remove('visible'), 20000);
+  } else if (!criticalGame) {
+    alertEl.classList.remove('visible');
+  }
+}
+
 function renderSingleGameCard(card, game) {
   const wi = game.watchabilityIndex;
   const isFinal = game.gameState === 'OFF' || game.gameState === 'FINAL';
 
   // BOLT OPTIMIZATION: State-based change detection
   // Only update innerHTML if the core game state has changed
-  const stateKey = `${game.awayScore}-${game.homeScore}-${game.periodStatus}-${game.isPowerPlay}-${game.homeGoaliePulled}-${game.awayGoaliePulled}-${wi}`;
+  const stateKey = `${game.awayScore}-${game.homeScore}-${game.periodStatus}-${game.isPowerPlay}-${game.homeGoaliePulled}-${game.awayGoaliePulled}-${wi}-${game.seriesStatus}`;
   if (card._lastStateKey === stateKey) return;
   card._lastStateKey = stateKey;
 
@@ -571,6 +545,7 @@ function renderSingleGameCard(card, game) {
   if (game.periodType !== 'REG' && !isFinal) badgeHtml += '<div class="badge perfect">OVERTIME</div>';
   if (game.isPowerPlay) badgeHtml += '<div class="badge followed-badge">POWER PLAY</div>';
   if (game.homeGoaliePulled || game.awayGoaliePulled) badgeHtml += '<div class="badge nohitter">EMPTY NET</div>';
+  if (game.seriesStatus) badgeHtml += `<div class="badge series">${game.seriesStatus}</div>`;
 
   const scoreLine = `<div class="score-line">${game.awayScore} - ${game.homeScore}</div>`;
 
@@ -606,7 +581,7 @@ function renderNHLStandings(standings) {
   // Group by division
   const divisions = {};
   standings.forEach(t => {
-    const div = t.divisionName || t.divisionAbbrev;
+      const div = typeof t.divisionName === 'object' ? t.divisionName.default : (t.divisionName || t.divisionAbbrev);
     if (!divisions[div]) divisions[div] = [];
     divisions[div].push(t);
   });
@@ -640,9 +615,10 @@ function renderNHLStandings(standings) {
       const abbr = typeof t.teamAbbrev === 'object' ? t.teamAbbrev.default : t.teamAbbrev;
       const isPlayoff = i < 3 || (t.wildcardSequence > 0 && t.wildcardSequence <= 2);
       const clinch = t.clinchIndicator ? `<span class="clinch-tag" title="Clinched ${t.clinchIndicator}">${t.clinchIndicator.toUpperCase()}</span>` : '';
+      const teamName = typeof t.teamName === 'object' ? t.teamName.default : t.teamName;
 
       html += `<tr class="${isPlayoff ? 'playoff' : ''}">
-        <td class="team-name">${teamLogo(abbr)} ${abbr} ${clinch}</td>
+        <td class="team-name" title="${teamName}">${teamLogo(abbr)} ${abbr} ${clinch}</td>
         <td>${t.wins}</td>
         <td>${t.losses}</td>
         <td>${t.otLosses}</td>
@@ -752,6 +728,7 @@ async function pollGames() {
     const games = await fetchNHLScoreboard();
     lastGames = games;
     renderGames(games);
+    checkHighLeverageAlerts(games);
 
     if (isFirstLoad) {
       await Promise.all([
@@ -763,7 +740,6 @@ async function pollGames() {
       const activeTab = document.querySelector('.tab-content.active')?.id?.replace('tab-', '');
       if (activeTab === 'standings') fetchNHLStandings();
       else if (activeTab === 'leaders') fetchNHLLeaders();
-      else if (activeTab === 'milestones') fetchNHLMilestones();
     }
 
     if (pollCount % 10 === 0) fetchNHLStandings();
@@ -936,6 +912,90 @@ async function openGameDrawer(pk) {
       html += '</div>';
     }
 
+    // 4. Team Stats Comparison
+    if (data.summary?.teamGameStats) {
+      html += '<div class="expand-section-label">Team Comparison</div>';
+      html += '<div class="expand-box nhl-box team-stats-box">';
+      const statsMap = {
+        sog: 'Shots on Goal',
+        faceoffWinningPctg: 'Faceoff %',
+        powerPlay: 'Power Play',
+        pim: 'PIM',
+        hits: 'Hits',
+        blockedShots: 'Blocked Shots'
+      };
+
+      html += `<div class="expand-box-row header" style="grid-template-columns: 1fr 2fr 1fr">
+        <span>${data.awayTeam.abbrev}</span>
+        <span>Stat</span>
+        <span>${data.homeTeam.abbrev}</span>
+      </div>`;
+
+      Object.entries(statsMap).forEach(([key, label]) => {
+        const aVal = data.summary.teamGameStats.find(s => s.category === key)?.awayValue || '0';
+        const hVal = data.summary.teamGameStats.find(s => s.category === key)?.homeValue || '0';
+        html += `<div class="expand-box-row" style="grid-template-columns: 1fr 2fr 1fr">
+          <span>${aVal}</span>
+          <span style="color:var(--text-dim);font-size:0.75rem">${label}</span>
+          <span>${hVal}</span>
+        </div>`;
+      });
+      html += '</div>';
+    }
+
+    // 5. Player Stats (Box Score)
+    const renderSkaterTable = (teamAbbrev, skaters) => {
+      if (!skaters || skaters.length === 0) return '';
+      let res = `<div class="expand-section-label">${teamAbbrev} Skaters</div>`;
+      res += '<div class="expand-box nhl-box boxscore-table">';
+      res += `<div class="expand-box-row header" style="grid-template-columns: 2fr repeat(6, 1fr)">
+        <span>Player</span><span>G</span><span>A</span><span>P</span><span>+/-</span><span>SOG</span><span>TOI</span>
+      </div>`;
+
+      skaters.sort((a,b) => (b.points || 0) - (a.points || 0) || (b.goals || 0) - (a.goals || 0)).forEach(p => {
+        res += `<div class="expand-box-row" style="grid-template-columns: 2fr repeat(6, 1fr)">
+          <span class="player-name">${p.name.default} <small>${p.position}</small></span>
+          <span>${p.goals}</span>
+          <span>${p.assists}</span>
+          <span>${p.points}</span>
+          <span>${p.plusMinus > 0 ? '+' + p.plusMinus : p.plusMinus}</span>
+          <span>${p.sog}</span>
+          <span>${p.toi}</span>
+        </div>`;
+      });
+      res += '</div>';
+      return res;
+    };
+
+    const renderGoalieTable = (teamAbbrev, goalies) => {
+      if (!goalies || goalies.length === 0) return '';
+      let res = `<div class="expand-section-label">${teamAbbrev} Goalies</div>`;
+      res += '<div class="expand-box nhl-box boxscore-table">';
+      res += `<div class="expand-box-row header" style="grid-template-columns: 2fr repeat(4, 1fr)">
+        <span>Player</span><span>SA</span><span>GA</span><span>SVS</span><span>SV%</span>
+      </div>`;
+
+      goalies.forEach(p => {
+        res += `<div class="expand-box-row" style="grid-template-columns: 2fr repeat(4, 1fr)">
+          <span class="player-name">${p.name.default}</span>
+          <span>${p.shotsAgainst}</span>
+          <span>${p.goalsAgainst}</span>
+          <span>${p.saves}</span>
+          <span>${p.savePctg || '.000'}</span>
+        </div>`;
+      });
+      res += '</div>';
+      return res;
+    };
+
+    if (data.summary?.playerByGameStats) {
+      const s = data.summary.playerByGameStats;
+      html += renderSkaterTable(data.awayTeam.abbrev, s.awayTeam.skaters);
+      html += renderGoalieTable(data.awayTeam.abbrev, s.awayTeam.goalies);
+      html += renderSkaterTable(data.homeTeam.abbrev, s.homeTeam.skaters);
+      html += renderGoalieTable(data.homeTeam.abbrev, s.homeTeam.goalies);
+    }
+
     body.innerHTML = html || '<div class="empty-msg">No summary data available for this game yet.</div>';
   } catch(e) {
     console.error('Drawer load error:', e);
@@ -964,6 +1024,7 @@ window.clearAllFavorites = clearAllFavorites;
 window.toggleSpoilerTeam = toggleSpoilerTeam;
 window.clearAllSpoilers = clearAllSpoilers;
 window.revealSpoiler = revealSpoiler;
+window.pollGames = pollGames;
 
 // Initialize date input and state
 document.addEventListener('DOMContentLoaded', () => {
