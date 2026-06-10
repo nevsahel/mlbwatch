@@ -12,9 +12,11 @@ const revealedGames = new Set();
 
 // ─── RIVALRY PAIRS ─────────────────────────────────────────────────────────────
 
+// BOLT OPTIMIZATION: Use a Set for O(1) rivalry lookups instead of linear search
+const RIVALRY_SET = new Set(RIVALRY_PAIRS.map(([x, y]) => x < y ? x + '-' + y : y + '-' + x));
 
 function isRivalry(a, b) {
-  return RIVALRY_PAIRS.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
+  return RIVALRY_SET.has(a < b ? a + '-' + b : b + '-' + a);
 }
 
 // ─── TEAM DATA (logos + colors) ───────────────────────────────────────────────
@@ -978,6 +980,9 @@ function checkHighLeverageAlerts(games) {
 }
 
 function toggleExpandCard(gamePk, btn) {
+  const card = btn.closest('.game-card');
+  if (card) card._lastStateKey = null; // Invalidate cache for immediate update
+
   // Mobile/Legacy expand
   const panel = document.querySelector('.card-expand-panel[data-gpk="' + gamePk + '"]');
   if (panel) {
@@ -1655,15 +1660,16 @@ function renderGames(games) {
 
     if (isSpoilered) {
       card.className = targetClass + ' spoilered';
-      const spoilerHtml = `
-        <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
-        <div class="inning-line" style="color:var(--text-dim)">${isScheduled ? game.inningStatus : isFinal ? 'FINAL' : 'Live'}</div>
-        <div class="spoiler-mask" role="button" tabindex="0" onclick="revealSpoiler(this, ${game.gamePk})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();revealSpoiler(this, ${game.gamePk})}">
-          🙈 Spoiler Mode — tap to reveal
-        </div>
-      `;
-      if (card.innerHTML !== spoilerHtml) {
-        card.innerHTML = spoilerHtml;
+      const spoilerStateKey = `spoiler-${game.awayTeam}-${game.homeTeam}-${game.inningStatus}-${isScheduled}-${isFinal}`;
+      if (card._lastStateKey !== spoilerStateKey) {
+        card.innerHTML = `
+          <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
+          <div class="inning-line" style="color:var(--text-dim)">${isScheduled ? game.inningStatus : isFinal ? 'FINAL' : 'Live'}</div>
+          <div class="spoiler-mask" role="button" tabindex="0" onclick="revealSpoiler(this, ${game.gamePk})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();revealSpoiler(this, ${game.gamePk})}">
+            🙈 Spoiler Mode — tap to reveal
+          </div>
+        `;
+        card._lastStateKey = spoilerStateKey;
       }
       card._fullGame = game;
     } else {
@@ -2814,6 +2820,7 @@ function switchSidebarTab(tab) {
 function revealSpoiler(el, gamePk) {
   const card = el.closest('.game-card');
   if (!card || !card._fullGame) return;
+  card._lastStateKey = null; // Invalidate cache for reveal
   const game = card._fullGame;
   revealedGames.add(gamePk);
   card.classList.remove('spoilered');
@@ -2830,6 +2837,16 @@ function renderSingleGameCard(card, game) {
   const wi = game.watchabilityIndex;
   const isFinal = /final/i.test(game.inningStatus);
   const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
+
+  // BOLT OPTIMIZATION: State-based reconciliation to skip expensive innerHTML writes
+  const isExpanded = expandedCards.has(game.gamePk);
+  const isFav = isFavoriteGame(game);
+  const followedBatter = game.currentBatter && Array.from(followedChases).some(key => key.startsWith(`${game.currentBatter.id}-`));
+  const followedPitcher = game.currentPitcher && Array.from(followedChases).some(key => key.startsWith(`${game.currentPitcher.id}-`));
+  const stateKey = `${game.awayScore}-${game.homeScore}-${game.inningStatus}-${game.balls}-${game.strikes}-${game.outs}-${game.onFirst}-${game.onSecond}-${game.onThird}-${wi}-${game.isPerfectGame}-${game.isNoHitter}-${isFav}-${isExpanded}-${followedBatter}-${followedPitcher}-${game.currentBatter?.id}-${game.currentPitcher?.id}`;
+
+  if (card._lastStateKey === stateKey) return;
+  card._lastStateKey = stateKey;
 
   const prev = prevScores[game.gamePk];
   if (prev && !isFirstLoad && (prev.away !== game.awayScore || prev.home !== game.homeScore)) {
