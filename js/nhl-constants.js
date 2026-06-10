@@ -93,3 +93,5 @@ const NHL_RIVALRY_PAIRS = [
   ['EDM','VAN'], ['SEA','VAN'], ['FLA','TBL'],
   ['COL','DET'], ['DAL','NSH'], ['BOS','BUF']
 ];
+
+const ORIGINAL_SIX = new Set(['BOS', 'CHI', 'DET', 'MTL', 'NYR', 'TOR']);
