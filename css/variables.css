@@ -32,16 +32,6 @@
   --text-secondary: #f0f4f8;
 }
 
-.nhl-theme {
-  --bg-primary: #000000;
-  --bg-secondary: #0a0a0a;
-  --bg-card: #151515;
-  --accent-primary: #a2aaad;
-  --accent-secondary: #4c92c3;
-  --border-primary: #2a2a2a;
-  --text-secondary: #e5e7eb;
-}
-
 .nba-theme {
   --bg-primary: #051c2c;
   --bg-secondary: #03101a;

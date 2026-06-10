@@ -83,7 +83,7 @@ Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestr
 ├── app.js               # Core orchestration, scoring logic, and UI rendering
 ├── index.html           # Sport selector landing page
 ├── mlb.html             # MLB dashboard main layout
-├── nhl.html             # NHL dashboard main layout
+├── nba.html             # NBA dashboard main layout
 ├── styles.css           # Comprehensive dark-themed design system
 ├── js/
 │   ├── constants.js     # Team metadata, rivalry pairs, and scoring config
