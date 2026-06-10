@@ -18,25 +18,25 @@ function escapeHTML(value) {
 
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(APP_PREFS_KEY) || '{}'); }
-  catch { return {}; }
+  catch (e) { return {}; }
 }
 
 function savePrefs(next = {}) {
   try {
     const merged = { ...loadPrefs(), ...next };
     localStorage.setItem(APP_PREFS_KEY, JSON.stringify(merged));
-  } catch {}
+  } catch (e) {}
 }
 
 function readCache(key) {
   try { return JSON.parse(localStorage.getItem(DATA_CACHE_PREFIX + key) || 'null'); }
-  catch { return null; }
+  catch (e) { return null; }
 }
 
 function writeCache(key, data) {
   try {
     localStorage.setItem(DATA_CACHE_PREFIX + key, JSON.stringify({ savedAt: Date.now(), data }));
-  } catch {}
+  } catch (e) {}
 }
 
 async function fetchJson(url, { cacheKey = null, timeoutMs = 10000 } = {}) {

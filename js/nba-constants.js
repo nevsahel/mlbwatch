@@ -1,4 +1,5 @@
 const NBA_API = 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard';
+const NBA_STANDINGS_API = 'https://site.api.espn.com/apis/v2/sports/basketball/nba/standings';
 const NBA_WATCHABILITY_CONFIG = {
   caps: { teamQuality: 10, playoff: 15, context: 35, liveSituation: 55, finalSituation: 30 },
   context: { rivalry: 8, upset: 10 },

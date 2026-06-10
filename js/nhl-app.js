@@ -147,8 +147,8 @@ async function fetchNHLScoreboard() {
 async function fetchNHLStarPower() {
   try {
     const [skaters, goalies] = await Promise.all([
-      requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({})),
-      requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({}))
+      requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }).catch((e) => ({})),
+      requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 }).catch((e) => ({}))
     ]);
 
     const stars = new Set();
@@ -184,8 +184,8 @@ async function fetchNHLLeaders() {
 
   try {
     const [skaters, goalies] = await Promise.all([
-      requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({})),
-      requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({}))
+      requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }).catch((e) => ({})),
+      requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 }).catch((e) => ({}))
     ]);
 
     let html = '<div class="leaders-grid">';
@@ -249,8 +249,8 @@ async function fetchNHLMilestones() {
     // 2. Dynamic Milestones from Leaders
     try {
       const [skaters, goalies] = await Promise.all([
-        requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({})),
-        requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 }).catch(() => ({}))
+        requestPool.fetchDedup(`${NHL_API}/skater-stats-leaders/current`, { ttl: 3600000 }).catch((e) => ({})),
+        requestPool.fetchDedup(`${NHL_API}/goalie-stats-leaders/current`, { ttl: 3600000 }).catch((e) => ({}))
       ]);
 
       const checkSkaters = (list, statName, target) => {

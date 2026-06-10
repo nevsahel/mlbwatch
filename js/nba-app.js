@@ -11,6 +11,7 @@ let pollTimer = null;
 let pollCount = 0;
 let isFirstLoad = true;
 let selectedDate = todayET();
+let nbaStarTeams = new Set();
 
 // ─── TEAM DATA HELPERS ────────────────────────────────────────────────────────
 
@@ -43,16 +44,33 @@ function switchTab(tab) {
   }
 
   if (tab === 'standings') fetchNBAStandings();
+  if (tab === 'leaders') fetchNBALeaders();
+  if (tab === 'milestones') fetchNBAMilestones();
 }
 
 // ─── DATA FETCHING ───────────────────────────────────────────────────────────
 
 async function fetchNBAScoreboard() {
-  const dateStr = (selectedDate || todayET()).replace(/-/g, '');
-  try {
-    const url = `${NBA_API}?dates=${dateStr}`;
-    const data = await requestPool.fetchDedup(url, { ttl: 15000 });
-    if (!data.events) return [];
+    const dateStr = (selectedDate || todayET()).replace(/-/g, '');
+    try {
+        const url = `${NBA_API}?dates=${dateStr}`;
+        const data = await requestPool.fetchDedup(url, { ttl: 15000 });
+
+        if (isFirstLoad && data.events) {
+            nbaStarTeams = fetchNBAStarPower(data.events);
+            fetchNBAStandings();
+            isFirstLoad = false;
+        }
+
+        return processNBAScoreboard(data);
+    } catch (e) {
+        console.error('NBA Scoreboard fetch failed:', e);
+        return [];
+    }
+}
+
+function processNBAScoreboard(data) {
+    if (!data || !data.events) return [];
 
     return data.events.map(e => {
       const game = e.competitions[0];
@@ -94,38 +112,77 @@ async function fetchNBAScoreboard() {
       obj.watchabilityIndex = obj.watchabilityBreakdown.score;
       return obj;
     });
-  } catch (e) {
-    console.error('NBA Scoreboard fetch failed:', e);
-    return [];
-  }
 }
 
 async function fetchNBAStandings() {
     const container = document.getElementById('standings-container');
-    if (!container) return;
-
-    // ESPN doesn't have a simple standalone standings endpoint easily accessible like this,
-    // but we can often find it or just show a message. For barebones, we'll use the records
-    // we've collected from the scoreboard or show a placeholder.
-
-    if (Object.keys(teamRecords).length === 0) {
-        container.innerHTML = '<div class="empty-msg">Start polling to see team records from today\'s games.</div>';
-        return;
+    if (container && (isFirstLoad || container.querySelector('.empty-msg'))) {
+        container.innerHTML = '<div class="empty-msg">Loading standings...</div>';
     }
 
-    let html = '<div class="playoff-races"><div class="standings-division"><div class="standings-div-title">League Records (from today\'s scoreboard)</div>';
-    html += '<table class="standings-table"><thead><tr><th>Team</th><th>Record</th><th>Win %</th></tr></thead><tbody>';
+    try {
+        const data = await requestPool.fetchDedup(NBA_STANDINGS_API, { ttl: 600000 });
+        if (!data || !data.children) {
+            if (container) container.innerHTML = '<div class="empty-msg">Standings data currently unavailable.</div>';
+            return;
+        }
 
-    Object.entries(teamRecords)
-        .sort(([,a], [,b]) => b.winPct - a.winPct)
-        .forEach(([abbr, rec]) => {
-            html += `<tr>
-                <td class="team-name">${teamLogo(abbr)} ${abbr}</td>
-                <td>${rec.record}</td>
-                <td>${rec.winPct.toFixed(3)}</td>
+        const records = {};
+        data.children.forEach(conf => {
+            conf.standings.entries.forEach(entry => {
+                const abbr = entry.team.abbreviation;
+                const stats = entry.stats;
+                const winPct = stats.find(s => s.type === 'winpercent')?.value || 0;
+                const record = stats.find(s => s.type === 'total')?.summary || '0-0';
+
+                records[abbr] = { winPct, record };
+            });
+        });
+
+        teamRecords = { ...teamRecords, ...records };
+        if (container) renderNBAStandings(data.children);
+    } catch (e) {
+        console.error('NBA Standings fetch failed:', e);
+        if (container) container.innerHTML = '<div class="empty-msg">Failed to load standings</div>';
+    }
+}
+
+function renderNBAStandings(conferences) {
+    const container = document.getElementById('standings-container');
+    if (!container) return;
+
+    let html = '<div class="playoff-races">';
+
+    conferences.forEach(conf => {
+        html += `<div class="standings-division"><div class="standings-div-title">${conf.name}</div>`;
+        html += '<table class="standings-table"><thead><tr><th>Team</th><th>W</th><th>L</th><th>PCT</th><th>STRK</th><th>L10</th></tr></thead><tbody>';
+
+        conf.standings.entries.forEach(entry => {
+            const team = entry.team;
+            const stats = entry.stats;
+            const wins = stats.find(s => s.type === 'wins')?.displayValue || '0';
+            const losses = stats.find(s => s.type === 'losses')?.displayValue || '0';
+            const pct = stats.find(s => s.type === 'winpercent')?.displayValue || '.000';
+            const streak = stats.find(s => s.type === 'streak')?.displayValue || '-';
+            const l10 = stats.find(s => s.type === 'lasttengames')?.displayValue || '-';
+            const seed = stats.find(s => s.type === 'playoffseed')?.value || 0;
+
+            const isPlayoff = seed > 0 && seed <= 10;
+            const clinch = stats.find(s => s.type === 'clincher')?.displayValue || '';
+
+            html += `<tr class="${isPlayoff ? 'playoff' : ''}">
+                <td class="team-name">${teamLogo(team.abbreviation)} ${team.abbreviation} ${clinch ? `<span class="clinch-tag">${clinch}</span>` : ''}</td>
+                <td>${wins}</td>
+                <td>${losses}</td>
+                <td>${pct}</td>
+                <td>${streak}</td>
+                <td>${l10}</td>
             </tr>`;
         });
-    html += '</tbody></table></div></div>';
+        html += '</tbody></table></div>';
+    });
+
+    html += '</div>';
     container.innerHTML = html;
 }
 
@@ -141,11 +198,20 @@ function calculateNBAWatchability(g) {
 
   const rivalBonus = rival ? cfg.context.rivalry : 0;
 
-  const context = Math.min(teamQ + rivalBonus + 10, cfg.caps.context); // +10 base context
+  let starBonus = 0;
+  if (nbaStarTeams.has(g.awayTeam)) starBonus += 5;
+  if (nbaStarTeams.has(g.homeTeam)) starBonus += 5;
+
+  const context = Math.min(teamQ + rivalBonus + starBonus + 10, cfg.caps.context); // +10 base context
+  const contextParts = [
+    { label: 'Teams', value: teamQ },
+    { label: 'Rivalry', value: rivalBonus },
+    { label: 'Stars', value: starBonus }
+  ].filter(p => p.value > 0);
 
   if (g.isPreview) {
     const raw = cfg.bases.preview + Math.round(context * cfg.scaling.previewContext);
-    return { score: clamp(raw), parts: [{ label: 'Teams', value: teamQ }, { label: 'Rivalry', value: rivalBonus }] };
+    return { score: clamp(raw), parts: contextParts };
   }
 
   const scoreDiff = Math.abs(g.awayScore - g.homeScore);
@@ -194,40 +260,95 @@ function renderGames(games) {
   const countEl = document.getElementById('games-count');
   if (countEl) countEl.textContent = `${filtered.length} game${filtered.length !== 1 ? 's' : ''}`;
 
+  // BOLT OPTIMIZATION: DOM Reconciliation
+  const existingCards = new Map();
+  grid.querySelectorAll('.game-card').forEach(el => {
+    const pk = el.getAttribute('data-gpk');
+    if (pk) existingCards.set(pk, el);
+  });
+
   if (filtered.length === 0) {
     grid.innerHTML = '<div class="empty-msg">No games matching criteria</div>';
     return;
   }
 
-  grid.innerHTML = filtered.map(game => {
+  const emptyMsg = grid.querySelector('.empty-msg');
+  if (emptyMsg) emptyMsg.remove();
+
+  const fragment = document.createDocumentFragment();
+  const seenPks = new Set();
+
+  filtered.forEach(game => {
+    const pkStr = String(game.gamePk);
+    seenPks.add(pkStr);
+    let card = existingCards.get(pkStr);
     const wi = game.watchabilityIndex;
+    const targetClass = `game-card${wi > 75 ? ' fire' : wi > 55 ? ' hot' : ''}`;
+
+    if (!card) {
+      card = document.createElement('div');
+      card.setAttribute('data-gpk', pkStr);
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.addEventListener('click', () => openGameDrawer(game.gamePk));
+      card.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openGameDrawer(game.gamePk);
+        }
+      });
+    }
+    card.className = targetClass;
+
     const isSpoilered = (spoilerTeams.has(game.awayTeam) || spoilerTeams.has(game.homeTeam)) && !revealedGames.has(game.gamePk);
-    const homeColor = teamColor(game.homeTeam);
-    const cardClass = `game-card${wi > 75 ? ' fire' : wi > 55 ? ' hot' : ''}`;
 
     if (isSpoilered) {
-      return `
-        <div class="${cardClass}" style="border-left: 6px solid ${homeColor}">
-          <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
-          <div class="inning-line" style="color:var(--text-dim)">Spoiler Mode</div>
-          <div class="spoiler-mask" onclick="revealSpoiler(this, '${game.gamePk}')">🙈 Tap to reveal</div>
-        </div>`;
+      const spoilerHtml = `
+        <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
+        <div class="inning-line" style="color:var(--text-dim)">Spoiler Mode</div>
+        <div class="spoiler-mask" onclick="revealSpoiler(this, '${game.gamePk}')">🙈 Tap to reveal</div>
+      `;
+      if (card.innerHTML !== spoilerHtml) {
+        card.innerHTML = spoilerHtml;
+        card._lastStateKey = null;
+      }
+    } else {
+      renderSingleGameCard(card, game);
     }
 
-    return `
-      <div class="${cardClass}" style="border-left: 6px solid ${homeColor}; background-image: linear-gradient(to right, ${homeColor}11, transparent)">
-        <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
-        <div class="score-line">${game.awayScore} - ${game.homeScore}</div>
-        <div class="inning-line">${game.periodStatus}</div>
-        <div class="watch-bar-wrap">
-          <div class="watch-bar-label"><span>Watchability</span><span class="score-num">${wi}</span></div>
-          <div class="watch-bar-bg"><div class="watch-bar-fill" style="width:${wi}%"></div></div>
-        </div>
-        <div class="score-breakdown">
-          ${game.watchabilityBreakdown.parts.map(p => `<span class="score-chip">${p.label} +${p.value}</span>`).join('')}
-        </div>
-      </div>`;
-  }).join('');
+    const homeColor = teamColor(game.homeTeam);
+    card.style.borderLeft = `6px solid ${homeColor}`;
+    card.style.backgroundImage = `linear-gradient(to right, ${homeColor}11, transparent)`;
+
+    fragment.appendChild(card);
+  });
+
+  existingCards.forEach((card, pk) => {
+    if (!seenPks.has(pk)) card.remove();
+  });
+
+  grid.appendChild(fragment);
+}
+
+function renderSingleGameCard(card, game) {
+  const wi = game.watchabilityIndex;
+  const stateKey = `${game.awayScore}-${game.homeScore}-${game.periodStatus}-${wi}`;
+  if (card._lastStateKey === stateKey) return;
+  card._lastStateKey = stateKey;
+
+  card.innerHTML = `
+    <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
+    <div class="score-line">${game.awayScore} - ${game.homeScore}</div>
+    <div class="inning-line">${game.periodStatus}</div>
+    <div class="watch-bar-wrap">
+      <div class="watch-bar-label"><span>Watchability</span><span class="score-num">${wi}</span></div>
+      <div class="watch-bar-bg"><div class="watch-bar-fill" style="width:${wi}%"></div></div>
+    </div>
+    <div class="score-breakdown">
+      ${game.watchabilityBreakdown.parts.map(p => `<span class="score-chip">${p.label} +${p.value}</span>`).join('')}
+    </div>
+    <button class="card-expand-toggle" onclick="event.stopPropagation(); openGameDrawer('${game.gamePk}')">Details</button>
+  `;
 }
 
 // ─── SETTINGS & SIDEBAR ───────────────────────────────────────────────────────
@@ -306,6 +427,21 @@ function renderFavoriteGrid() {
 
 // ─── APP CONTROL ─────────────────────────────────────────────────────────────
 
+function fetchNBAStarPower(events) {
+  const stars = new Set();
+  if (!events) return stars;
+
+  events.forEach(e => {
+    const comp = e.competitions[0];
+    comp.competitors.forEach(team => {
+      if (team.leaders && team.leaders.length > 0) {
+        stars.add(team.team.abbreviation);
+      }
+    });
+  });
+  return stars;
+}
+
 async function pollGames() {
   pollCount++;
   try {
@@ -383,8 +519,62 @@ function revealSpoiler(el, pk) {
   if (lastGames) renderGames(lastGames);
 }
 
+async function openGameDrawer(pk) {
+  const drawer = document.getElementById('game-drawer');
+  const title = document.getElementById('drawer-title');
+  const body = document.getElementById('drawer-body');
+  const game = lastGames?.find(g => String(g.gamePk) === String(pk));
+
+  if (!game) return;
+
+  title.textContent = `${game.awayTeam} @ ${game.homeTeam}`;
+  body.innerHTML = '<div class="expand-load-msg">Loading game summary (Stub)...</div>';
+  drawer.classList.add('open');
+  document.getElementById('drawer-overlay').classList.add('open');
+
+  // Future: fetch real data from ESPN here
+}
+
+function closeGameDrawer() {
+  document.getElementById('game-drawer').classList.remove('open');
+  document.getElementById('drawer-overlay').classList.remove('open');
+}
+
+function openSidePanel(pk) {
+    const panel = document.getElementById('side-panel');
+    const title = document.getElementById('side-panel-title');
+    const body = document.getElementById('side-panel-body');
+    const game = lastGames?.find(g => String(g.gamePk) === String(pk));
+
+    if (!game) return;
+
+    title.textContent = `${game.awayTeam} @ ${game.homeTeam}`;
+    body.innerHTML = '<div class="expand-load-msg">Loading detailed metrics (Stub)...</div>';
+    panel.classList.add('open');
+}
+
+function closeSidePanel() {
+    document.getElementById('side-panel').classList.remove('open');
+}
+
 // Global attachment
+async function fetchNBALeaders() {
+  const container = document.getElementById('leaders-container');
+  if (!container) return;
+  container.innerHTML = '<div class="empty-msg">Loading leaders (Stub)...</div>';
+}
+
+async function fetchNBAMilestones() {
+  const container = document.getElementById('milestones-container');
+  if (!container) return;
+  container.innerHTML = '<div class="empty-msg">Loading milestones (Stub)...</div>';
+}
+
 window.switchTab = switchTab;
+window.openGameDrawer = openGameDrawer;
+window.closeGameDrawer = closeGameDrawer;
+window.openSidePanel = openSidePanel;
+window.closeSidePanel = closeSidePanel;
 window.startPolling = startPolling;
 window.stopPolling = stopPolling;
 window.setGameDate = setGameDate;
