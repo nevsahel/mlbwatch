@@ -2843,7 +2843,9 @@ function renderSingleGameCard(card, game) {
   const isFav = isFavoriteGame(game);
   const followedBatter = game.currentBatter && Array.from(followedChases).some(key => key.startsWith(`${game.currentBatter.id}-`));
   const followedPitcher = game.currentPitcher && Array.from(followedChases).some(key => key.startsWith(`${game.currentPitcher.id}-`));
-  const stateKey = `${game.awayScore}-${game.homeScore}-${game.inningStatus}-${game.balls}-${game.strikes}-${game.outs}-${game.onFirst}-${game.onSecond}-${game.onThird}-${wi}-${game.isPerfectGame}-${game.isNoHitter}-${isFav}-${isExpanded}-${followedBatter}-${followedPitcher}-${game.currentBatter?.id}-${game.currentPitcher?.id}`;
+  const hasAwayStats = !!(game.awayProbablePitcher && pitcherStatsCache[game.awayProbablePitcher.id]);
+  const hasHomeStats = !!(game.homeProbablePitcher && pitcherStatsCache[game.homeProbablePitcher.id]);
+  const stateKey = `${game.awayScore}-${game.homeScore}-${game.inningStatus}-${game.balls}-${game.strikes}-${game.outs}-${game.onFirst}-${game.onSecond}-${game.onThird}-${wi}-${game.isPerfectGame}-${game.isNoHitter}-${isFav}-${isExpanded}-${followedBatter}-${followedPitcher}-${game.currentBatter?.id}-${game.currentPitcher?.id}-${hasAwayStats}-${hasHomeStats}`;
 
   if (card._lastStateKey === stateKey) return;
   card._lastStateKey = stateKey;
@@ -2860,8 +2862,6 @@ function renderSingleGameCard(card, game) {
   let badgeHtml = '';
   if (isFavoriteGame(game)) badgeHtml += '<div class="badge favorite-badge">Favorite</div>';
 
-  const followedBatter = game.currentBatter && Array.from(followedChases).some(key => key.startsWith(`${game.currentBatter.id}-`));
-  const followedPitcher = game.currentPitcher && Array.from(followedChases).some(key => key.startsWith(`${game.currentPitcher.id}-`));
   if (followedBatter || followedPitcher) {
     badgeHtml += '<div class="badge followed-badge">WATCHING</div>';
   }

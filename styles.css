@@ -159,15 +159,6 @@
   .player-info strong { color: var(--text-primary); }
 
   .situation-graphic { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
-  .situation-graphic.nhl { justify-content: space-between; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 6px; }
-  .nhl-strength { display: flex; flex-direction: column; align-items: flex-start; }
-  .strength-label { font-size: 0.55rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
-  .strength-indicator { font-size: 0.7rem; font-weight: 800; color: var(--text-dim); }
-  .strength-indicator.active { color: var(--gold); }
-  .nhl-goalie-status { display: flex; align-items: center; gap: 6px; }
-  .goalie-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
-  .goalie-dot.pulled { background: var(--danger); box-shadow: 0 0 5px var(--danger); }
-  .goalie-label { font-size: 0.6rem; font-weight: 700; color: var(--text-dim); }
   .bases { position: relative; width: 30px; height: 18px; }
   .base { position: absolute; width: 8px; height: 8px; border: 1px solid var(--text-dim); transform: rotate(45deg); }
   .base.occupied { background: var(--gold); border-color: var(--gold); }
@@ -1164,6 +1155,30 @@
     border-bottom: 1px solid var(--border-secondary);
     padding-bottom: 8px;
   }
+
+.boxscore-table .expand-box-row {
+  font-size: 0.85rem;
+  padding: 6px 0;
+}
+
+.boxscore-table .player-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-weight: 500;
+}
+
+.team-stats-box .expand-box-row span:nth-child(2) {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.badge.series {
+  background: var(--accent-secondary);
+  color: white;
+}
   .gameday-title { font-size: 0.75rem; font-weight: 800; color: var(--gold); text-transform: uppercase; }
   .gameday-viz-wrap {
     display: grid;
@@ -1215,13 +1230,6 @@
 
   /* box score mini table */
   .expand-box { margin-bottom: 10px; }
-  .expand-box.nhl-box .expand-box-row {
-    padding: 4px 0;
-  }
-  .expand-box.nhl-box .total {
-    font-weight: 900;
-    color: var(--gold);
-  }
   .expand-box-row {
     display: grid; grid-template-columns: 3fr repeat(auto-fill, minmax(18px, 1fr)); gap: 2px;
     font-size: 0.7rem; color: var(--text-secondary); padding: 2px 0;
