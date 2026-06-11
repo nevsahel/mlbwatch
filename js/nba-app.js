@@ -10,7 +10,7 @@ let polling = false;
 let pollTimer = null;
 let pollCount = 0;
 let isFirstLoad = true;
-let selectedDate = todayET();
+let selectedDate = loadPrefs().selectedDateNBA || todayET();
 let nbaStarTeams = new Set();
 
 // ─── RIVALRY PAIRS ─────────────────────────────────────────────────────────────
@@ -126,7 +126,10 @@ async function fetchNBAStandings() {
     }
 
     try {
-        const data = await requestPool.fetchDedup(NBA_STANDINGS_API, { ttl: 600000 });
+        const season = getNBASeason(selectedDate);
+        const dateParam = selectedDate.replace(/-/g, '');
+        const url = `${NBA_STANDINGS_API}?season=${season}&date=${dateParam}`;
+        const data = await requestPool.fetchDedup(url, { ttl: 600000 });
         if (!data || !data.children) {
             if (container) container.innerHTML = '<div class="empty-msg">Standings data currently unavailable.</div>';
             return;
@@ -497,9 +500,31 @@ function stopPolling() {
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
-function setGameDate(d) {
-  selectedDate = d;
-  if (polling) pollGames();
+function getNBASeason(dateStr) {
+  const date = new Date(dateStr + 'T12:00:00Z');
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth(); // 0-indexed, 9 = October
+  return month >= 9 ? year + 1 : year;
+}
+
+function setGameDate(date) {
+  selectedDate = date || todayET();
+  savePrefs({ selectedDateNBA: selectedDate });
+  const input = document.getElementById('game-date');
+  if (input) input.value = selectedDate;
+  isFirstLoad = true;
+  pollCount = 0;
+  lastGames = null;
+  document.getElementById('last-update').textContent = selectedDate === todayET() ? 'Date set to today' : `Date set to ${selectedDate}`;
+
+  if (pollTimer) clearTimeout(pollTimer);
+
+  const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+  if (activeTab === 'standings') fetchNBAStandings();
+  if (activeTab === 'leaders') fetchNBALeaders();
+  if (activeTab === 'milestones') fetchNBAMilestones();
+
+  pollGames();
 }
 
 let currentSort = 'watchability';
@@ -560,7 +585,7 @@ async function openGameDrawer(pk) {
 
 function closeGameDrawer() {
   document.getElementById('game-drawer').classList.remove('open');
-  document.getElementById('drawer-overlay').classList.remove('open');
+  document.getElementById('drawer-overlay').classList.add('open');
 }
 
 function openSidePanel(pk) {
@@ -584,12 +609,15 @@ function closeSidePanel() {
 async function fetchNBALeaders() {
   const container = document.getElementById('leaders-container');
   if (!container) return;
-  if (container.querySelector('.leader-card')) return; // Already loaded
-
-  container.innerHTML = '<div class="empty-msg">Loading leaders...</div>';
+  if (isFirstLoad || container.querySelector('.empty-msg')) {
+    container.innerHTML = '<div class="empty-msg">Loading leaders...</div>';
+  }
 
   try {
-    const data = await requestPool.fetchDedup(NBA_LEADERS_API, { ttl: 3600000 });
+    const season = getNBASeason(selectedDate);
+    // Replace the year segment in the URL (e.g., .../seasons/2024/...) with the current season
+    const url = NBA_LEADERS_API.replace(/\/seasons\/\d+\//, `/seasons/${season}/`);
+    const data = await requestPool.fetchDedup(url, { ttl: 3600000 });
     if (!data || !data.categories) {
       container.innerHTML = '<div class="empty-msg">Leaders data currently unavailable.</div>';
       return;
@@ -656,12 +684,14 @@ function renderNBALeaders(leaders) {
 async function fetchNBAMilestones() {
   const container = document.getElementById('milestones-container');
   if (!container) return;
-  if (container.querySelector('.milestone-card')) return; // Already loaded
-
-  container.innerHTML = '<div class="empty-msg">Loading milestones...</div>';
+  if (isFirstLoad || container.querySelector('.empty-msg')) {
+    container.innerHTML = '<div class="empty-msg">Loading milestones...</div>';
+  }
 
   try {
-    const data = await requestPool.fetchDedup(NBA_LEADERS_API, { ttl: 3600000 });
+    const season = getNBASeason(selectedDate);
+    const url = NBA_LEADERS_API.replace(/\/seasons\/\d+\//, `/seasons/${season}/`);
+    const data = await requestPool.fetchDedup(url, { ttl: 3600000 });
     const milestones = [];
 
     // Prominent Career Milestones (Static for now as ESPN API for career stats is complex)
