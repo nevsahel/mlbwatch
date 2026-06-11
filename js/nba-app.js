@@ -160,26 +160,44 @@ function renderNBAStandings(conferences) {
 
     conferences.forEach(conf => {
         html += `<div class="standings-division"><div class="standings-div-title">${conf.name}</div>`;
-        html += '<table class="standings-table"><thead><tr><th>Team</th><th>W</th><th>L</th><th>PCT</th><th>STRK</th><th>L10</th></tr></thead><tbody>';
+        html += '<table class="standings-table"><thead><tr><th>Seed</th><th>Team</th><th>W</th><th>L</th><th>PCT</th><th>GB</th><th>STRK</th><th>L10</th></tr></thead><tbody>';
 
-        conf.standings.entries.forEach(entry => {
+        // BOLT: Accurate sorting by PCT, then Wins, then Point Differential
+        const sortedEntries = [...conf.standings.entries].sort((a, b) => {
+            const pctA = a.stats.find(s => s.type === 'winpercent')?.value || 0;
+            const pctB = b.stats.find(s => s.type === 'winpercent')?.value || 0;
+            if (pctB !== pctA) return pctB - pctA;
+
+            const winsA = a.stats.find(s => s.type === 'wins')?.value || 0;
+            const winsB = b.stats.find(s => s.type === 'wins')?.value || 0;
+            if (winsB !== winsA) return winsB - winsA;
+
+            const diffA = a.stats.find(s => s.type === 'pointdifferential')?.value || 0;
+            const diffB = b.stats.find(s => s.type === 'pointdifferential')?.value || 0;
+            return diffB - diffA;
+        });
+
+        sortedEntries.forEach((entry, idx) => {
             const team = entry.team;
             const stats = entry.stats;
             const wins = stats.find(s => s.type === 'wins')?.displayValue || '0';
             const losses = stats.find(s => s.type === 'losses')?.displayValue || '0';
             const pct = stats.find(s => s.type === 'winpercent')?.displayValue || '.000';
+            const gb = stats.find(s => s.type === 'gamesbehind')?.displayValue || '-';
             const streak = stats.find(s => s.type === 'streak')?.displayValue || '-';
             const l10 = stats.find(s => s.type === 'lasttengames')?.displayValue || '-';
-            const seed = stats.find(s => s.type === 'playoffseed')?.value || 0;
+            const seed = idx + 1;
 
-            const isPlayoff = seed > 0 && seed <= 10;
+            const isPlayoff = seed <= 10;
             const clinch = stats.find(s => s.type === 'clincher')?.displayValue || '';
 
             html += `<tr class="${isPlayoff ? 'playoff' : ''}">
+                <td style="text-align:center; color:var(--text-dim); font-size:0.85rem;">${seed}</td>
                 <td class="team-name">${teamLogo(team.abbreviation)} ${team.abbreviation} ${clinch ? `<span class="clinch-tag">${clinch}</span>` : ''}</td>
                 <td>${wins}</td>
                 <td>${losses}</td>
                 <td>${pct}</td>
+                <td>${gb}</td>
                 <td>${streak}</td>
                 <td>${l10}</td>
             </tr>`;
