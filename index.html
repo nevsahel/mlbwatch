@@ -69,11 +69,18 @@
             backdrop-filter: blur(10px);
         }
 
-        .sport-card:hover {
+        .sport-card:hover,
+        .sport-card:focus-visible {
             transform: translateY(-10px);
             background: rgba(255, 255, 255, 0.07);
             border-color: var(--gold);
             box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            outline: none;
+        }
+
+        .sport-card:focus-visible {
+            outline: 2px solid var(--gold);
+            outline-offset: 4px;
         }
 
         .sport-icon {
@@ -83,8 +90,19 @@
             transition: transform 0.3s ease;
         }
 
-        .sport-card:hover .sport-icon {
+        .sport-card:hover .sport-icon,
+        .sport-card:focus-visible .sport-icon {
             transform: scale(1.1);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .sport-card, .sport-icon, .live-count {
+                animation: none !important;
+                transition: none !important;
+            }
+            .sport-card:hover, .sport-card:focus-visible {
+                transform: none !important;
+            }
         }
 
         .sport-name {
@@ -159,7 +177,7 @@
 
     <div class="selector-container">
         <a href="mlb.html" class="sport-card" id="mlb-card">
-            <div class="sport-icon">⚾</div>
+            <div class="sport-icon" aria-hidden="true">⚾</div>
             <div class="sport-name">MLB</div>
             <div class="peek-container" id="mlb-peek">
                 <div class="peek-content">Connecting to StatsAPI...</div>
@@ -167,7 +185,7 @@
         </a>
 
         <a href="nba.html" class="sport-card" id="nba-card">
-            <div class="sport-icon">🏀</div>
+            <div class="sport-icon" aria-hidden="true">🏀</div>
             <div class="sport-name">NBA</div>
             <div class="peek-container" id="nba-peek">
                 <div class="peek-content">Connecting to ESPN API...</div>

@@ -13,3 +13,7 @@
 ## 2026-06-09 - High-Contrast Secondary Metadata
 **Learning:** In dark-themed dashboards, there's a tendency to use dimmed colors (like #555) for secondary labels to create hierarchy. However, on near-black backgrounds, this often fails WCAG AA contrast (4.5:1). Using a "Slate 400" (#94a3b8) maintains the visual hierarchy while ensuring accessibility.
 **Action:** Use #94a3b8 for secondary text and "kicker" labels on dark backgrounds to balance hierarchy and legibility.
+
+## 2026-06-12 - Cohesive Keyboard & Motion UX
+**Learning:** Interactive elements must provide visual feedback for keyboard users that matches hover states to ensure a cohesive experience. Additionally, repetitive animations and transitions can be distracting or problematic for some users; respecting `prefers-reduced-motion` is essential for inclusive design.
+**Action:** Always pair `:hover` effects with `:focus-visible` and implement `@media (prefers-reduced-motion: reduce)` to disable non-essential animations and transitions.
