@@ -13,6 +13,11 @@ let isFirstLoad = true;
 let selectedDate = todayET();
 let nbaStarTeams = new Set();
 
+// ─── RIVALRY PAIRS ─────────────────────────────────────────────────────────────
+
+// BOLT OPTIMIZATION: Use a Set for O(1) rivalry lookups instead of linear search
+const NBA_RIVALRY_SET = new Set(NBA_RIVALRY_PAIRS.map(([x, y]) => x < y ? x + '-' + y : y + '-' + x));
+
 // ─── TEAM DATA HELPERS ────────────────────────────────────────────────────────
 
 function teamLogo(abbr) {
@@ -24,7 +29,7 @@ function teamColor(abbr) {
 }
 
 function isRivalry(a, b) {
-  return NBA_RIVALRY_PAIRS.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
+  return NBA_RIVALRY_SET.has(a < b ? a + '-' + b : b + '-' + a);
 }
 
 // ─── TABS ────────────────────────────────────────────────────────────────────
