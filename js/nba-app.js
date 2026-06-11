@@ -566,13 +566,182 @@ function closeSidePanel() {
 async function fetchNBALeaders() {
   const container = document.getElementById('leaders-container');
   if (!container) return;
-  container.innerHTML = '<div class="empty-msg">Loading leaders (Stub)...</div>';
+  if (container.querySelector('.leader-card')) return; // Already loaded
+
+  container.innerHTML = '<div class="empty-msg">Loading leaders...</div>';
+
+  try {
+    const data = await requestPool.fetchDedup(NBA_LEADERS_API, { ttl: 3600000 });
+    if (!data || !data.categories) {
+      container.innerHTML = '<div class="empty-msg">Leaders data currently unavailable.</div>';
+      return;
+    }
+
+    const categories = ['pointsPerGame', 'assistsPerGame', 'reboundsPerGame', 'stealsPerGame', 'blocksPerGame'];
+    const filteredCats = data.categories.filter(c => categories.includes(c.name));
+
+    const results = await Promise.all(filteredCats.map(async cat => {
+      const topLeader = cat.leaders[0];
+      if (!topLeader) return null;
+
+      const [athlete, team] = await Promise.all([
+        resolveAthleteRef(topLeader.athlete.$ref),
+        resolveTeamRef(topLeader.team.$ref)
+      ]);
+
+      return {
+        label: cat.shortDisplayName,
+        name: athlete.displayName,
+        team: team.abbreviation,
+        value: topLeader.displayValue
+      };
+    }));
+
+    renderNBALeaders(results.filter(Boolean));
+  } catch (e) {
+    console.error('NBA Leaders fetch failed:', e);
+    container.innerHTML = '<div class="empty-msg">Failed to load leaders</div>';
+  }
+}
+
+async function resolveAthleteRef(ref) {
+  return requestPool.fetchDedup(ref.replace('http:', 'https:'), { ttl: 86400000 });
+}
+
+async function resolveTeamRef(ref) {
+  return requestPool.fetchDedup(ref.replace('http:', 'https:'), { ttl: 86400000 });
+}
+
+function renderNBALeaders(leaders) {
+  const container = document.getElementById('leaders-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'leaders-row';
+
+  leaders.forEach(l => {
+    const card = document.createElement('div');
+    card.className = 'leader-card';
+    card.innerHTML = `
+      <div class="leader-cat">${l.label}</div>
+      <div class="leader-name">${l.name}</div>
+      <div class="leader-team">${l.team}</div>
+      <div class="leader-val">${l.value}</div>
+    `;
+    grid.appendChild(card);
+  });
+
+  container.appendChild(grid);
 }
 
 async function fetchNBAMilestones() {
   const container = document.getElementById('milestones-container');
   if (!container) return;
-  container.innerHTML = '<div class="empty-msg">Loading milestones (Stub)...</div>';
+  if (container.querySelector('.milestone-card')) return; // Already loaded
+
+  container.innerHTML = '<div class="empty-msg">Loading milestones...</div>';
+
+  try {
+    const data = await requestPool.fetchDedup(NBA_LEADERS_API, { ttl: 3600000 });
+    const milestones = [];
+
+    // Prominent Career Milestones (Static for now as ESPN API for career stats is complex)
+    milestones.push({
+      name: 'LeBron James',
+      team: 'LAL',
+      stat: 'Career Points',
+      current: '40,474',
+      next: '41,000',
+      progress: 98,
+      importance: 'Historic',
+      urgency: 'This season',
+      priority: 100
+    });
+
+    milestones.push({
+      name: 'Stephen Curry',
+      team: 'GSW',
+      stat: 'Career 3PM',
+      current: '3,747',
+      next: '4,000',
+      progress: 93,
+      importance: 'Major',
+      urgency: 'This season',
+      priority: 95
+    });
+
+    // Extract season milestones from leaders data
+    if (data && data.categories) {
+      const ppgCat = data.categories.find(c => c.name === 'pointsPerGame');
+      if (ppgCat && ppgCat.leaders[0]) {
+        const top = ppgCat.leaders[0];
+        const [athlete, team] = await Promise.all([
+          resolveAthleteRef(top.athlete.$ref),
+          resolveTeamRef(top.team.$ref)
+        ]);
+        const val = parseFloat(top.displayValue);
+        if (val >= 28) {
+          milestones.push({
+            name: athlete.displayName,
+            team: team.abbreviation,
+            stat: 'Season PPG',
+            current: top.displayValue,
+            next: '30.0',
+            progress: Math.round((val / 30) * 100),
+            importance: 'Major',
+            urgency: 'Closing in',
+            priority: 85
+          });
+        }
+      }
+    }
+
+    renderNBAMilestones(milestones);
+  } catch (e) {
+    console.error('NBA Milestones fetch failed:', e);
+    container.innerHTML = '<div class="empty-msg">Failed to load milestones</div>';
+  }
+}
+
+function renderNBAMilestones(milestones) {
+  const container = document.getElementById('milestones-container');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="milestone-hero">
+      <div class="milestone-hero-main">
+        <div class="milestone-hero-kicker">NBA Milestone Watch</div>
+        <div class="milestone-hero-title">History in the Making</div>
+        <div class="milestone-hero-sub">Tracking the NBA's elite as they approach statistical milestones.</div>
+      </div>
+    </div>
+    <div class="milestones-grid rich">
+      ${milestones.map(renderNBAMilestoneCard).join('')}
+    </div>
+  `;
+}
+
+function renderNBAMilestoneCard(m) {
+  const importanceClass = m.importance.toLowerCase();
+  return `
+    <article class="milestone-card rich">
+      <div class="milestone-topline">
+        <span class="milestone-importance ${importanceClass}">${m.importance}</span>
+        <span class="milestone-priority">${m.priority} PRIO</span>
+      </div>
+      <div class="milestone-player">${teamLogo(m.team)} ${m.name}</div>
+      <div class="milestone-team">${m.team} · ${m.stat}</div>
+      <div class="milestone-target">
+        <strong>${m.current}</strong>
+        <span>/ ${m.next}</span>
+      </div>
+      <div class="milestone-progress"><div style="width:${m.progress}%"></div></div>
+      <div class="milestone-card-footer">
+        <span>${m.urgency}</span>
+      </div>
+    </article>
+  `;
 }
 
 window.switchTab = switchTab;
