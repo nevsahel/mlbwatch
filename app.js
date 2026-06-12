@@ -2220,9 +2220,17 @@ function setMilestoneFilter(filter) {
 }
 
 const followedChases = new Set(loadPrefs().followedChases || []);
+// BOLT OPTIMIZATION: Keep a Set of IDs for O(1) lookup during game card rendering
+const followedPlayerIds = new Set(Array.from(followedChases).map(k => k.split('-')[0]));
+
 function toggleFollowChase(playerKey) {
   if (followedChases.has(playerKey)) followedChases.delete(playerKey);
   else followedChases.add(playerKey);
+
+  // BOLT: Keep optimized ID set in sync
+  followedPlayerIds.clear();
+  followedChases.forEach(k => followedPlayerIds.add(k.split('-')[0]));
+
   savePrefs({ followedChases: [...followedChases] });
   if (window.lastMilestones) renderMilestoneBoard(window.lastMilestones);
 }
@@ -2841,8 +2849,9 @@ function renderSingleGameCard(card, game) {
   // BOLT OPTIMIZATION: State-based reconciliation to skip expensive innerHTML writes
   const isExpanded = expandedCards.has(game.gamePk);
   const isFav = isFavoriteGame(game);
-  const followedBatter = game.currentBatter && Array.from(followedChases).some(key => key.startsWith(`${game.currentBatter.id}-`));
-  const followedPitcher = game.currentPitcher && Array.from(followedChases).some(key => key.startsWith(`${game.currentPitcher.id}-`));
+  // BOLT OPTIMIZATION: Use O(1) Set lookup instead of O(N) array iteration
+  const followedBatter = game.currentBatter && followedPlayerIds.has(String(game.currentBatter.id));
+  const followedPitcher = game.currentPitcher && followedPlayerIds.has(String(game.currentPitcher.id));
   const hasAwayStats = !!(game.awayProbablePitcher && pitcherStatsCache[game.awayProbablePitcher.id]);
   const hasHomeStats = !!(game.homeProbablePitcher && pitcherStatsCache[game.homeProbablePitcher.id]);
   const stateKey = `${game.awayScore}-${game.homeScore}-${game.inningStatus}-${game.balls}-${game.strikes}-${game.outs}-${game.onFirst}-${game.onSecond}-${game.onThird}-${wi}-${game.isPerfectGame}-${game.isNoHitter}-${isFav}-${isExpanded}-${followedBatter}-${followedPitcher}-${game.currentBatter?.id}-${game.currentPitcher?.id}-${hasAwayStats}-${hasHomeStats}`;
