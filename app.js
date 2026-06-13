@@ -1837,7 +1837,7 @@ function renderLeaderRow(results, container) {
     card.innerHTML = `
       <div class="leader-cat">${l.label}</div>
       <div class="leader-name">${l.name}</div>
-      <div class="leader-team">${l.team}</div>
+      <div class="leader-team">${teamLogo(l.team)} ${l.team}</div>
       <div class="leader-val">${l.value}</div>
     `;
     row.appendChild(card);
