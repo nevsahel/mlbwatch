@@ -17,3 +17,7 @@
 ## 2026-06-12 - Cohesive Keyboard & Motion UX
 **Learning:** Interactive elements must provide visual feedback for keyboard users that matches hover states to ensure a cohesive experience. Additionally, repetitive animations and transitions can be distracting or problematic for some users; respecting `prefers-reduced-motion` is essential for inclusive design.
 **Action:** Always pair `:hover` effects with `:focus-visible` and implement `@media (prefers-reduced-motion: reduce)` to disable non-essential animations and transitions.
+
+## 2026-06-15 - Qualitative Visual Feedback
+**Learning:** Using color-coding to threshold quantitative metrics (like the 0-100 Watchability score) allows users to process data qualitatively at a glance. Transitioning from neutral/gold to a success color (Green) at a high threshold (e.g., >70) provides immediate visual gratification and helps high-priority items stand out.
+**Action:** Apply qualitative color-coding to numeric scores where specific ranges signify different levels of interest or urgency.
