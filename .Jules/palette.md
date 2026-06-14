@@ -17,3 +17,7 @@
 ## 2026-06-12 - Cohesive Keyboard & Motion UX
 **Learning:** Interactive elements must provide visual feedback for keyboard users that matches hover states to ensure a cohesive experience. Additionally, repetitive animations and transitions can be distracting or problematic for some users; respecting `prefers-reduced-motion` is essential for inclusive design.
 **Action:** Always pair `:hover` effects with `:focus-visible` and implement `@media (prefers-reduced-motion: reduce)` to disable non-essential animations and transitions.
+
+## 2026-06-14 - Dashboard Consistency & State Feedback
+**Learning:** When multiple dashboards share similar UX patterns (e.g., MLB and NBA), users expect consistent accessibility support. Providing immediate ARIA-live feedback (like "Date set to...") for control changes ensures that all users, including those using assistive technologies, understand that their action had an effect, even if the main content hasn't refreshed yet.
+**Action:** Synchronize accessibility features across related dashboards and use existing `aria-live` regions to confirm user actions.

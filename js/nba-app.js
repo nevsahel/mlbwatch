@@ -389,11 +389,17 @@ function closeSidebar() {
 }
 
 function switchSidebarTab(tab) {
-  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.sidebar-tab').forEach(t => {
+    t.classList.remove('active');
+    t.setAttribute('aria-selected', 'false');
+  });
   document.querySelectorAll('.sidebar-section').forEach(s => s.classList.remove('active'));
   document.getElementById('sb-' + tab).classList.add('active');
   const targetBtn = document.querySelector(`.sidebar-tab[onclick*="'${tab}'"]`);
-  if (targetBtn) targetBtn.classList.add('active');
+  if (targetBtn) {
+    targetBtn.classList.add('active');
+    targetBtn.setAttribute('aria-selected', 'true');
+  }
 }
 
 function toggleFavoriteTeam(abbr) {
@@ -431,7 +437,7 @@ function renderSpoilerGrid() {
   if (!grid) return;
   grid.innerHTML = Object.keys(NBA_TEAM_DATA).sort().map(abbr => {
     const isSpoiled = spoilerTeams.has(abbr);
-    return `<div class="team-toggle${isSpoiled ? ' spoilered' : ''}" onclick="toggleSpoilerTeam('${abbr}')">
+    return `<div class="team-toggle${isSpoiled ? ' spoilered' : ''}" role="button" tabindex="0" aria-pressed="${isSpoiled}" onclick="toggleSpoilerTeam('${abbr}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSpoilerTeam('${abbr}')}">
       ${teamLogo(abbr)} <span>${abbr}</span>
     </div>`;
   }).join('');
@@ -442,7 +448,7 @@ function renderFavoriteGrid() {
   if (!grid) return;
   grid.innerHTML = Object.keys(NBA_TEAM_DATA).sort().map(abbr => {
     const isFav = favoriteTeams.has(abbr);
-    return `<div class="team-toggle${isFav ? ' favorite' : ''}" onclick="toggleFavoriteTeam('${abbr}')">
+    return `<div class="team-toggle${isFav ? ' favorite' : ''}" role="button" tabindex="0" aria-pressed="${isFav}" onclick="toggleFavoriteTeam('${abbr}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFavoriteTeam('${abbr}')}">
       ${teamLogo(abbr)} <span>${abbr}</span>
     </div>`;
   }).join('');
@@ -498,7 +504,11 @@ function stopPolling() {
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 function setGameDate(d) {
-  selectedDate = d;
+  selectedDate = d || todayET();
+  const updateEl = document.getElementById('last-update');
+  if (updateEl) {
+    updateEl.textContent = selectedDate === todayET() ? 'Date set to today' : `Date set to ${selectedDate}`;
+  }
   if (polling) pollGames();
 }
 
