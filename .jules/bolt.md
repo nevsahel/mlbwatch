@@ -13,3 +13,7 @@
 ## 2025-05-15 - Eager Cache Pre-loading Anti-pattern
 **Learning:** Attempted to optimize `PersistentCache` by pre-loading all `localStorage` items into memory at startup. This was rejected because it breaks cross-tab data consistency (other tabs' writes aren't seen) and can significantly increase Time to Interactive (TTI) if the cache is large.
 **Action:** Favor lazy-loading from `localStorage` and use a memory cache only for the current session's reads to maintain consistency and startup performance.
+
+## 2025-05-16 - O(N) linear search in high-frequency rendering loop
+**Learning:** Found a pattern in the MLB dashboard where every game card was performing an O(N) search through followed milestones using `Array.from(followedChases).some(...)`. This was executed on every poll/render cycle, leading to unnecessary CPU overhead as the number of followed milestones grows.
+**Action:** Maintain a secondary Set of unique player IDs (`followedPlayerIds`) synchronized with the primary milestone Set to allow for O(1) lookups during the rendering phase.
