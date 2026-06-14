@@ -385,7 +385,7 @@ function renderSingleGameCard(card, game) {
     <div class="inning-line">${game.periodStatus}</div>
     <div class="watch-bar-wrap">
       <div class="watch-bar-label"><span>Watchability</span><span class="score-num">${wi}</span></div>
-      <div class="watch-bar-bg"><div class="watch-bar-fill" style="width:${wi}%"></div></div>
+      <div class="watch-bar-bg"><div class="watch-bar-fill" style="width:${wi}%;background:${wi > 70 ? 'var(--success)' : 'var(--gold)'}"></div></div>
     </div>
     <div class="score-breakdown">
       ${game.watchabilityBreakdown.parts.map(p => `<span class="score-chip">${p.label} +${p.value}</span>`).join('')}
