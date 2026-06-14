@@ -296,7 +296,7 @@
   .leader-cat { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; }
   .leader-cat .qual { font-weight: 400; color: var(--text-dim); text-transform: none; letter-spacing: 0; }
   .leader-name { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
-  .leader-team { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 4px; }
+  .leader-team { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 4px; }
   .leader-val { font-size: 1.2rem; font-weight: 800; color: var(--gold); }
 
   .empty-msg { color: var(--text-dim); font-size: 0.85rem; grid-column: 1 / -1; text-align: center; padding: 32px 0; }
@@ -1289,3 +1289,34 @@
   .playoff-races { display: flex; flex-direction: column; gap: 20px; }
   .standings-table tr.playoff td.team-name { color: var(--success); }
   .clinch-tag { font-size: 0.6rem; background: var(--success); color: var(--bg-secondary); padding: 1px 4px; border-radius: 3px; margin-left: 5px; vertical-align: middle; }
+
+/* Accessibility: Support for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.live,
+  .badge.followed-badge,
+  .hl-alert-icon,
+  .game-card.score-flash,
+  .game-card.extras-flash,
+  .notification,
+  .sim-result {
+    animation: none !important;
+  }
+
+  .game-card,
+  .gc-btn,
+  .sidebar,
+  .sidebar-toggle,
+  .game-drawer,
+  .notification,
+  .hl-alert,
+  .card-expand-toggle,
+  .card-expand-toggle .toggle-arrow,
+  .watch-bar-fill,
+  .win-prob-away,
+  .win-prob-home,
+  .pitch-dot,
+  .team-toggle,
+  .spoiler-mask {
+    transition: none !important;
+  }
+}

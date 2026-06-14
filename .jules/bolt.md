@@ -13,3 +13,7 @@
 ## 2025-05-15 - Eager Cache Pre-loading Anti-pattern
 **Learning:** Attempted to optimize `PersistentCache` by pre-loading all `localStorage` items into memory at startup. This was rejected because it breaks cross-tab data consistency (other tabs' writes aren't seen) and can significantly increase Time to Interactive (TTI) if the cache is large.
 **Action:** Favor lazy-loading from `localStorage` and use a memory cache only for the current session's reads to maintain consistency and startup performance.
+
+## 2025-05-16 - Costly String Iteration in Render Loop
+**Learning:** In the MLB dashboard, `renderSingleGameCard` was performing an O(N) search on `followedChases` by converting the Set to an array and using `.some()` with string prefix matching on every game card during every poll refresh.
+**Action:** Implement a companion Set (`followedPlayerIds`) containing only the numeric IDs to enable O(1) `.has()` lookups, drastically reducing CPU time in the main UI thread during live updates.
