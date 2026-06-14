@@ -17,3 +17,6 @@
 ## 2025-05-16 - O(N) linear search in high-frequency rendering loop
 **Learning:** Found a pattern in the MLB dashboard where every game card was performing an O(N) search through followed milestones using `Array.from(followedChases).some(...)`. This was executed on every poll/render cycle, leading to unnecessary CPU overhead as the number of followed milestones grows.
 **Action:** Maintain a secondary Set of unique player IDs (`followedPlayerIds`) synchronized with the primary milestone Set to allow for O(1) lookups during the rendering phase.
+## 2025-05-16 - Costly String Iteration in Render Loop
+**Learning:** In the MLB dashboard, `renderSingleGameCard` was performing an O(N) search on `followedChases` by converting the Set to an array and using `.some()` with string prefix matching on every game card during every poll refresh.
+**Action:** Implement a companion Set (`followedPlayerIds`) containing only the numeric IDs to enable O(1) `.has()` lookups, drastically reducing CPU time in the main UI thread during live updates.
