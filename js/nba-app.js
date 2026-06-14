@@ -13,6 +13,19 @@ let isFirstLoad = true;
 let selectedDate = loadPrefs().selectedDateNBA || todayET();
 let nbaStarTeams = new Set();
 
+function getNBASeason(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1; // 1-indexed
+  return month >= 10 ? year + 1 : year;
+}
+
+function parseStatValue(val) {
+  if (typeof val === 'number') return val;
+  if (!val) return 0;
+  return parseFloat(String(val).replace(/,/g, '')) || 0;
+}
+
 // ─── RIVALRY PAIRS ─────────────────────────────────────────────────────────────
 
 // BOLT OPTIMIZATION: Use a Set for O(1) rivalry lookups instead of linear search
@@ -50,7 +63,11 @@ function switchTab(tab) {
 
   if (tab === 'standings') fetchNBAStandings();
   if (tab === 'leaders') fetchNBALeaders();
-  if (tab === 'milestones') fetchNBAMilestones();
+  if (tab === 'milestones') {
+    const milestones = window.lastNBAMilestones;
+    if (milestones) renderMilestoneBoard(milestones);
+    else fetchNBAMilestones();
+  }
 }
 
 // ─── DATA FETCHING ───────────────────────────────────────────────────────────
@@ -474,6 +491,11 @@ async function pollGames() {
     const games = await fetchNBAScoreboard();
     lastGames = games;
     renderGames(games);
+
+    const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+    if (activeTab === 'leaders') fetchNBALeaders();
+    if (activeTab === 'milestones') fetchNBAMilestones();
+
     document.getElementById('last-update').textContent = `Updated ${new Date().toLocaleTimeString()}`;
   } catch (e) {
     console.error('Poll error:', e);
@@ -606,8 +628,10 @@ function closeSidePanel() {
 }
 
 // Global attachment
+window.fetchNBALeaders = fetchNBALeaders;
 async function fetchNBALeaders() {
   const container = document.getElementById('leaders-container');
+  const title = document.getElementById('tab-leaders')?.querySelector('.section-title');
   if (!container) return;
   if (isFirstLoad || container.querySelector('.empty-msg')) {
     container.innerHTML = '<div class="empty-msg">Loading leaders...</div>';
@@ -623,8 +647,8 @@ async function fetchNBALeaders() {
       return;
     }
 
-    const categories = ['pointsPerGame', 'assistsPerGame', 'reboundsPerGame', 'stealsPerGame', 'blocksPerGame'];
-    const filteredCats = data.categories.filter(c => categories.includes(c.name));
+    const targetNames = NBA_LEADER_DEFS.map(d => d.name);
+    const filteredCats = data.categories.filter(c => targetNames.includes(c.name));
 
     const results = await Promise.all(filteredCats.map(async cat => {
       const topLeader = cat.leaders[0];
@@ -635,8 +659,9 @@ async function fetchNBALeaders() {
         resolveTeamRef(topLeader.team.$ref)
       ]);
 
+      const def = NBA_LEADER_DEFS.find(d => d.name === cat.name);
       return {
-        label: cat.shortDisplayName,
+        label: def ? def.label : cat.shortDisplayName,
         name: athlete.displayName,
         team: team.abbreviation,
         value: topLeader.displayValue
@@ -663,24 +688,119 @@ function renderNBALeaders(leaders) {
   if (!container) return;
 
   container.innerHTML = '';
-  const grid = document.createElement('div');
-  grid.className = 'leaders-row';
 
-  leaders.forEach(l => {
-    const card = document.createElement('div');
-    card.className = 'leader-card';
-    card.innerHTML = `
-      <div class="leader-cat">${l.label}</div>
-      <div class="leader-name">${l.name}</div>
-      <div class="leader-team">${l.team}</div>
-      <div class="leader-val">${l.value}</div>
-    `;
-    grid.appendChild(card);
+  const groups = [
+    { title: 'Scoring & Efficiency', items: ['PPG', 'FG%', '3P%', '3PM/G'] },
+    { title: 'Playmaking & Ball Handling', items: ['APG', 'TOV/G'] },
+    { title: 'Defense & Rebounding', items: ['RPG', 'SPG', 'BPG'] },
+    { title: 'All-Around Performance', items: ['Double-Double', 'Triple-Double'] }
+  ];
+
+  groups.forEach(group => {
+    const groupLeaders = leaders.filter(l => group.items.includes(l.label));
+    if (groupLeaders.length === 0) return;
+
+    const section = document.createElement('div');
+    section.className = 'leaders-section';
+    section.style.marginBottom = '20px';
+    section.innerHTML = `<div class="leaders-section-title" style="font-size: 0.85rem; font-weight: 700; color: var(--gold); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em;">${group.title}</div>`;
+
+    const grid = document.createElement('div');
+    grid.className = 'leaders-row';
+
+    groupLeaders.forEach(l => {
+      const card = document.createElement('div');
+      card.className = 'leader-card';
+      card.innerHTML = `
+        <div class="leader-cat">${l.label}</div>
+        <div class="leader-name">${l.name}</div>
+        <div class="leader-team">${l.team}</div>
+        <div class="leader-val">${l.value}</div>
+      `;
+      grid.appendChild(card);
+    });
+
+    section.appendChild(grid);
+    container.appendChild(section);
   });
 
-  container.appendChild(grid);
+  // Any remaining leaders not in groups
+  const groupedLabels = groups.flatMap(g => g.items);
+  const remaining = leaders.filter(l => !groupedLabels.includes(l.label));
+  if (remaining.length > 0) {
+    const grid = document.createElement('div');
+    grid.className = 'leaders-row';
+    remaining.forEach(l => {
+      const card = document.createElement('div');
+      card.className = 'leader-card';
+      card.innerHTML = `
+        <div class="leader-cat">${l.label}</div>
+        <div class="leader-name">${l.name}</div>
+        <div class="leader-team">${l.team}</div>
+        <div class="leader-val">${l.value}</div>
+      `;
+      grid.appendChild(card);
+    });
+    container.appendChild(grid);
+  }
 }
 
+let milestoneFilter = loadPrefs().milestoneFilter || 'all';
+const followedChases = new Set(loadPrefs().followedChasesNBA || []);
+
+function setMilestoneFilter(filter) {
+  milestoneFilter = filter;
+  savePrefs({ milestoneFilter: filter });
+  if (window.lastNBAMilestones) renderMilestoneBoard(window.lastNBAMilestones);
+}
+
+function toggleFollowChase(playerKey) {
+  if (followedChases.has(playerKey)) followedChases.delete(playerKey);
+  else followedChases.add(playerKey);
+  savePrefs({ followedChasesNBA: [...followedChases] });
+  if (window.lastNBAMilestones) renderMilestoneBoard(window.lastNBAMilestones);
+}
+
+function milestoneImportance(m) {
+  const meta = NBA_MILESTONE_META[m.stat] || {};
+  if ((meta.historic || []).includes(Number(m.next))) return 'Historic';
+  if ((meta.major || []).includes(Number(m.next))) return 'Major';
+  return 'Season';
+}
+
+function milestoneUrgency(m) {
+  if (m.playingNow && m.diff <= 10) return 'Could happen today';
+  if (m.playingToday && m.diff <= 15) return 'Could happen today';
+  if (m.diff <= 30) return 'This week';
+  return 'Longer watch';
+}
+
+function milestonePriority(m) {
+  const importance = milestoneImportance(m);
+  let score = 100 - Math.min(m.diff, 100);
+  if (m.playingNow) score += 20;
+  else if (m.playingToday) score += 10;
+  if (favoriteTeams.has(m.team)) score += 15;
+  if (importance === 'Historic') score += 25;
+  else if (importance === 'Major') score += 12;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function milestoneProgress(m) {
+  const current = parseStatValue(m.current);
+  const next = parseFloat(m.next) || 1;
+  return Math.round(Math.max(0, Math.min(100, (current / next) * 100)));
+}
+
+function milestonePaceText(m) {
+  const diff = parseFloat(m.diff) || 0;
+  if (m.playingNow && diff <= 5) return 'live watch';
+  if (diff <= 10) return 'very close';
+  if (diff <= 25) return 'week watch';
+  return 'longer chase';
+}
+
+window.fetchNBAMilestones = fetchNBAMilestones;
 async function fetchNBAMilestones() {
   const container = document.getElementById('milestones-container');
   if (!container) return;
@@ -707,87 +827,161 @@ async function fetchNBAMilestones() {
       priority: 100
     });
 
-    milestones.push({
-      name: 'Stephen Curry',
-      team: 'GSW',
-      stat: 'Career 3PM',
-      current: '3,747',
-      next: '4,000',
-      progress: 93,
-      importance: 'Major',
-      urgency: 'This season',
-      priority: 95
-    });
+    const allMilestones = [];
 
-    // Extract season milestones from leaders data
     if (data && data.categories) {
-      const ppgCat = data.categories.find(c => c.name === 'pointsPerGame');
-      if (ppgCat && ppgCat.leaders[0]) {
-        const top = ppgCat.leaders[0];
-        const [athlete, team] = await Promise.all([
-          resolveAthleteRef(top.athlete.$ref),
-          resolveTeamRef(top.team.$ref)
-        ]);
-        const val = parseFloat(top.displayValue);
-        if (val >= 28) {
-          milestones.push({
+      await Promise.all(NBA_MILESTONE_DEFS.map(async def => {
+        const cat = data.categories.find(c => c.name === def.api);
+        if (!cat) return;
+
+        // Take top 10 from each category to look for milestones
+        const topLeaders = cat.leaders.slice(0, 10);
+        await Promise.all(topLeaders.map(async leader => {
+          const val = parseStatValue(leader.value);
+          const next = def.milestones.find(m => m > val);
+          if (!next) return;
+          const diff = next - val;
+          if (diff > (def.lookahead || 100)) return; // Only show milestones within reach
+
+          const [athlete, team] = await Promise.all([
+            resolveAthleteRef(leader.athlete.$ref),
+            resolveTeamRef(leader.team.$ref)
+          ]);
+
+          allMilestones.push({
+            id: athlete.id,
             name: athlete.displayName,
             team: team.abbreviation,
-            stat: 'Season PPG',
-            current: top.displayValue,
-            next: '30.0',
-            progress: Math.round((val / 30) * 100),
-            importance: 'Major',
-            urgency: 'Closing in',
-            priority: 85
+            stat: def.label,
+            current: leader.displayValue,
+            next: next,
+            diff: diff,
+            icon: def.icon,
+            playingNow: liveTeams.has(team.abbreviation),
+            playingToday: todayTeams.has(team.abbreviation)
           });
-        }
-      }
+        }));
+      }));
     }
 
-    renderNBAMilestones(milestones);
+    allMilestones.forEach(m => {
+      m.importance = milestoneImportance(m);
+      m.urgency = milestoneUrgency(m);
+      m.priority = milestonePriority(m);
+      m.progress = milestoneProgress(m);
+      m.paceText = milestonePaceText(m);
+    });
+
+    allMilestones.sort((a, b) => b.priority - a.priority || a.diff - b.diff);
+    window.lastNBAMilestones = allMilestones;
+
+    if (allMilestones.length === 0) {
+      container.innerHTML = '<div class="empty-msg">No upcoming milestones to track</div>';
+      return;
+    }
+
+    renderMilestoneBoard(allMilestones);
   } catch (e) {
     console.error('NBA Milestones fetch failed:', e);
     container.innerHTML = '<div class="empty-msg">Failed to load milestones</div>';
   }
 }
 
-function renderNBAMilestones(milestones) {
+function renderMilestoneBoard(allMilestones) {
   const container = document.getElementById('milestones-container');
   if (!container) return;
+
+  const filterFns = {
+    all: () => true,
+    live: m => m.playingNow,
+    today: m => m.playingToday,
+    favorites: m => favoriteTeams.has(m.team),
+    historic: m => m.importance === 'Historic' || m.importance === 'Major'
+  };
+
+  const filtered = allMilestones.filter(filterFns[milestoneFilter] || filterFns.all);
+
+  const liveCount = allMilestones.filter(m => m.playingNow).length;
+  const todayCount = allMilestones.filter(m => m.playingToday).length;
+  const historicCount = allMilestones.filter(m => m.importance === 'Historic' || m.importance === 'Major').length;
+  const favCount = allMilestones.filter(m => favoriteTeams.has(m.team)).length;
+
+  const urgencyOrder = ['Could happen today', 'This week', 'Longer watch'];
+  const groups = {};
+  filtered.forEach(m => {
+    if (!groups[m.urgency]) groups[m.urgency] = [];
+    groups[m.urgency].push(m);
+  });
 
   container.innerHTML = `
     <div class="milestone-hero">
       <div class="milestone-hero-main">
-        <div class="milestone-hero-kicker">NBA Milestone Watch</div>
-        <div class="milestone-hero-title">History in the Making</div>
-        <div class="milestone-hero-sub">Tracking the NBA's elite as they approach statistical milestones.</div>
+        <div class="milestone-hero-kicker">NBA Chase Board</div>
+        <div class="milestone-hero-title">${filtered.length} active milestone${filtered.length !== 1 ? 's' : ''}</div>
+        <div class="milestone-hero-sub">Sorted by watch priority: proximity, live context, favorites, and historical weight.</div>
+      </div>
+      <div class="milestone-summary-grid">
+        <div><strong>${liveCount}</strong><span>live now</span></div>
+        <div><strong>${todayCount}</strong><span>playing today</span></div>
+        <div><strong>${historicCount}</strong><span>major/historic</span></div>
+        <div><strong>${favCount}</strong><span>favorites</span></div>
       </div>
     </div>
-    <div class="milestones-grid rich">
-      ${milestones.map(renderNBAMilestoneCard).join('')}
+    <div class="milestone-filters">
+      ${[
+        ['all','All'],
+        ['live','Live'],
+        ['today','Today'],
+        ['favorites','Favorites'],
+        ['historic','Major']
+      ].map(([id,label]) => `<button class="milestone-filter${milestoneFilter === id ? ' active' : ''}" onclick="setMilestoneFilter('${id}')">${label}</button>`).join('')}
     </div>
-  `;
+    <div class="milestone-board">
+      ${filtered.length ? urgencyOrder.map(groupName => {
+        const items = (groups[groupName] || []).sort((a,b) => b.priority - a.priority || a.diff - b.diff);
+        if (!items.length) return '';
+        return `<section class="milestone-lane">
+          <div class="milestone-lane-title">${groupName}<span>${items.length}</span></div>
+          <div class="milestones-grid rich">${items.slice(0, 12).map(renderMilestoneCard).join('')}</div>
+        </section>`;
+      }).join('') : '<div class="empty-msg">No milestones match this filter</div>'}
+    </div>`;
 }
 
-function renderNBAMilestoneCard(m) {
+function renderMilestoneCard(m) {
+  const statusClass = m.playingNow ? ' now' : m.playingToday ? ' today' : '';
   const importanceClass = m.importance.toLowerCase();
+  const diffLabel = `${m.diff} ${m.stat} away`;
+  const fav = favoriteTeams.has(m.team) ? '<span class="milestone-pill fav">Favorite</span>' : '';
+  const live = m.playingNow ? '<span class="milestone-pill live">Live now</span>' : m.playingToday ? '<span class="milestone-pill today">Today</span>' : '';
+
+  const playerKey = `${m.id}-${m.stat}`;
+  const isFollowed = followedChases.has(playerKey);
+  const followBtn = `<button class="milestone-follow ${isFollowed ? 'active' : ''}"
+    onclick="toggleFollowChase('${playerKey}')"
+    aria-pressed="${isFollowed}"
+    aria-label="${isFollowed ? 'Stop watching' : 'Watch'} ${escapeHTML(m.name)}'s chase for ${escapeHTML(m.next)} ${escapeHTML(m.stat)}">
+    ${isFollowed ? '★ Following' : '☆ Watch Chase'}
+  </button>`;
+
   return `
-    <article class="milestone-card rich">
+    <article class="milestone-card rich${statusClass}">
       <div class="milestone-topline">
         <span class="milestone-importance ${importanceClass}">${m.importance}</span>
-        <span class="milestone-priority">${m.priority} PRIO</span>
+        ${followBtn}
       </div>
       <div class="milestone-player">${teamLogo(m.team)} ${m.name}</div>
-      <div class="milestone-team">${m.team} · ${m.stat}</div>
+      <div class="milestone-team">${m.team} · ${m.stat} ${m.icon}</div>
       <div class="milestone-target">
         <strong>${m.current}</strong>
         <span>/ ${m.next}</span>
       </div>
       <div class="milestone-progress"><div style="width:${m.progress}%"></div></div>
       <div class="milestone-card-footer">
-        <span>${m.urgency}</span>
+        <span>${diffLabel}</span>
+        <em>${m.paceText}</em>
       </div>
+      <div class="milestone-pills">${live}${fav}</div>
     </article>
   `;
 }
@@ -811,3 +1005,5 @@ window.toggleSpoilerTeam = toggleSpoilerTeam;
 window.clearAllSpoilers = clearAllSpoilers;
 window.revealSpoiler = revealSpoiler;
 window.todayET = todayET;
+window.setMilestoneFilter = setMilestoneFilter;
+window.toggleFollowChase = toggleFollowChase;
