@@ -17,3 +17,7 @@
 ## 2025-05-16 - Costly String Iteration in Render Loop
 **Learning:** In the MLB dashboard, `renderSingleGameCard` was performing an O(N) search on `followedChases` by converting the Set to an array and using `.some()` with string prefix matching on every game card during every poll refresh.
 **Action:** Implement a companion Set (`followedPlayerIds`) containing only the numeric IDs to enable O(1) `.has()` lookups, drastically reducing CPU time in the main UI thread during live updates.
+
+## 2025-05-17 - Reference Resolution Overhead in NBA Dashboard
+**Learning:** In the NBA Milestone board, the application was resolving athlete and team metadata references sequentially for every item. This created significant promise overhead and redundant cache lookups for duplicate players/teams. Additionally, the dashboard was performing multiple filter/length passes over large arrays for summary statistics.
+**Action:** Use a batch-resolution pattern: extract unique references into a `Set`, resolve them in parallel via `Promise.all`, and map them back to the dataset. For rendering, use a single-pass loop to calculate all counts and group items simultaneously.
