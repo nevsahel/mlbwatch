@@ -12,6 +12,8 @@ let pollCount = 0;
 let isFirstLoad = true;
 let selectedDate = loadPrefs().selectedDateNBA || todayET();
 let nbaStarTeams = new Set();
+let liveTeams = new Set();
+let todayTeams = new Set();
 
 function getNBASeason(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
@@ -94,16 +96,29 @@ async function fetchNBAScoreboard() {
 function processNBAScoreboard(data) {
     if (!data || !data.events) return [];
 
+    liveTeams.clear();
+    todayTeams.clear();
+
     return data.events.map(e => {
       const game = e.competitions[0];
       const away = game.competitors.find(c => c.homeAway === 'away');
       const home = game.competitors.find(c => c.homeAway === 'home');
       const status = e.status.type;
 
+      const tAway = away.team.abbreviation;
+      const tHome = home.team.abbreviation;
+
+      todayTeams.add(tAway);
+      todayTeams.add(tHome);
+      if (status.state === 'in') {
+        liveTeams.add(tAway);
+        liveTeams.add(tHome);
+      }
+
       const obj = {
         gamePk: e.id,
-        awayTeam: away.team.abbreviation,
-        homeTeam: home.team.abbreviation,
+        awayTeam: tAway,
+        homeTeam: tHome,
         awayScore: parseInt(away.score) || 0,
         homeScore: parseInt(home.score) || 0,
         gameState: status.state, // 'pre', 'in', 'post'
@@ -527,20 +542,6 @@ function stopPolling() {
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-
-function setGameDate(d) {
-  selectedDate = d || todayET();
-  const updateEl = document.getElementById('last-update');
-  if (updateEl) {
-    updateEl.textContent = selectedDate === todayET() ? 'Date set to today' : `Date set to ${selectedDate}`;
-  }
-  if (polling) pollGames();
-function getNBASeason(dateStr) {
-  const date = new Date(dateStr + 'T12:00:00Z');
-  const year = date.getUTCFullYear();
-  const month = date.getUTCMonth(); // 0-indexed, 9 = October
-  return month >= 9 ? year + 1 : year;
-}
 
 function setGameDate(date) {
   selectedDate = date || todayET();

@@ -15,6 +15,13 @@
   }
   header h1 { font-family: 'Georgia', serif; font-size: 1.4rem; font-weight: 900; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
   header .sub { font-size: 0.8rem; color: var(--text-muted); margin-left: auto; }
+
+  .main-nav { margin-left: 20px; display: flex; gap: 16px; }
+  .main-nav a { color: var(--text-muted); text-decoration: none; font-size: 0.8rem; font-weight: 600; }
+  .main-nav a:hover { color: var(--text-secondary); }
+  .main-nav a:focus-visible { outline: 2px solid var(--gold); outline-offset: 4px; border-radius: 2px; }
+  .main-nav a[aria-current="page"] { color: var(--gold); font-weight: 800; }
+
   .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
   .status-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
