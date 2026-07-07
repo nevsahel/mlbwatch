@@ -18,6 +18,9 @@
 **Learning:** Interactive elements must provide visual feedback for keyboard users that matches hover states to ensure a cohesive experience. Additionally, repetitive animations and transitions can be distracting or problematic for some users; respecting `prefers-reduced-motion` is essential for inclusive design.
 **Action:** Always pair `:hover` effects with `:focus-visible` and implement `@media (prefers-reduced-motion: reduce)` to disable non-essential animations and transitions.
 
+## 2026-06-14 - Dashboard Consistency & State Feedback
+**Learning:** When multiple dashboards share similar UX patterns (e.g., MLB and NBA), users expect consistent accessibility support. Providing immediate ARIA-live feedback (like "Date set to...") for control changes ensures that all users, including those using assistive technologies, understand that their action had an effect, even if the main content hasn't refreshed yet.
+**Action:** Synchronize accessibility features across related dashboards and use existing `aria-live` regions to confirm user actions.
 ## 2026-06-15 - Qualitative Visual Feedback
 **Learning:** Using color-coding to threshold quantitative metrics (like the 0-100 Watchability score) allows users to process data qualitatively at a glance. Transitioning from neutral/gold to a success color (Green) at a high threshold (e.g., >70) provides immediate visual gratification and helps high-priority items stand out.
 **Action:** Apply qualitative color-coding to numeric scores where specific ranges signify different levels of interest or urgency.
