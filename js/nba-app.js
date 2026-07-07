@@ -64,7 +64,7 @@ function switchTab(tab) {
   }
 
   if (tab === 'standings') fetchNBAStandings();
-  if (tab === 'leaders') fetchNBALeaders();
+  if (tab === 'games') fetchNBALeaders();
   if (tab === 'milestones') {
     const milestones = window.lastNBAMilestones;
     if (milestones) renderMilestoneBoard(milestones);
@@ -532,7 +532,7 @@ async function pollGames() {
     renderGames(games);
 
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
-    if (activeTab === 'leaders') fetchNBALeaders();
+    if (activeTab === 'games') fetchNBALeaders();
     if (activeTab === 'milestones') fetchNBAMilestones();
 
     document.getElementById('last-update').textContent = `Updated ${new Date().toLocaleTimeString()}`;
@@ -575,7 +575,7 @@ function setGameDate(date) {
 
   const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
   if (activeTab === 'standings') fetchNBAStandings();
-  if (activeTab === 'leaders') fetchNBALeaders();
+  if (activeTab === 'games') fetchNBALeaders();
   if (activeTab === 'milestones') fetchNBAMilestones();
 
   pollGames();
@@ -1055,6 +1055,8 @@ async function fetchNBAMilestones() {
     });
 
     if (data && data.categories) {
+      const candidateRefs = new Set();
+      const candidates = [];
       // BOLT: Index categories by name for O(1) lookup
       const categoryMap = new Map(data.categories.map(c => [c.name, c]));
       const candidateRefs = new Set();
