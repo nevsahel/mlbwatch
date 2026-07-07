@@ -1,4 +1,5 @@
 const NBA_API = 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard';
+const NBA_SUMMARY_API = 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary';
 const NBA_STANDINGS_API = 'https://site.api.espn.com/apis/v2/sports/basketball/nba/standings';
 const NBA_LEADERS_BASE = 'https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/seasons';
 const NBA_LEADERS_API = 'https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/seasons/2025/types/2/leaders';
