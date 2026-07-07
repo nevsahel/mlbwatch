@@ -349,7 +349,7 @@ function renderGames(games) {
       const spoilerHtml = `
         <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
         <div class="inning-line" style="color:var(--text-dim)">Spoiler Mode</div>
-        <div class="spoiler-mask" onclick="revealSpoiler(this, '${game.gamePk}')">🙈 Tap to reveal</div>
+        <div class="spoiler-mask" role="button" tabindex="0" aria-label="Reveal score" onclick="revealSpoiler(this, '${game.gamePk}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();revealSpoiler(this, '${game.gamePk}')}">🙈 Tap to reveal</div>
       `;
       if (card.innerHTML !== spoilerHtml) {
         card.innerHTML = spoilerHtml;
@@ -384,7 +384,10 @@ function renderSingleGameCard(card, game) {
     <div class="score-line">${game.awayScore} - ${game.homeScore}</div>
     <div class="inning-line">${game.periodStatus}</div>
     <div class="watch-bar-wrap">
-      <div class="watch-bar-label"><span>Watchability</span><span class="score-num">${wi}</span></div>
+      <div class="watch-bar-label">
+        <span>Watchability</span>
+        <span class="score-num" style="color:${wi > 70 ? 'var(--success)' : 'var(--gold)'}">${wi}</span>
+      </div>
       <div class="watch-bar-bg"><div class="watch-bar-fill" style="width:${wi}%;background:${wi > 70 ? 'var(--success)' : 'var(--gold)'}"></div></div>
     </div>
     <div class="score-breakdown">
