@@ -24,3 +24,7 @@
 ## 2026-06-15 - Qualitative Visual Feedback
 **Learning:** Using color-coding to threshold quantitative metrics (like the 0-100 Watchability score) allows users to process data qualitatively at a glance. Transitioning from neutral/gold to a success color (Green) at a high threshold (e.g., >70) provides immediate visual gratification and helps high-priority items stand out.
 **Action:** Apply qualitative color-coding to numeric scores where specific ranges signify different levels of interest or urgency.
+
+## 2026-06-16 - Standardized Site-Wide Navigation
+**Learning:** In applications with multiple specialized dashboards (e.g., MLB and NBA), consistent and highly visible site-wide navigation reduces cognitive load and bounce rates. Integrating navigation into the primary `<header>` ensures it's always accessible and familiar. Using `aria-current="page"` and ensuring high contrast (`var(--text-muted)` vs `var(--text-dim)`) for inactive states is critical for accessibility compliance and clarity.
+**Action:** Always provide a synchronized navigation menu across all top-level pages. Use semantic `<nav>` elements, explicit active state indicators, and ensure inactive link contrast meets WCAG AA standards.

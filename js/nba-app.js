@@ -16,10 +16,10 @@ let liveTeams = new Set();
 let todayTeams = new Set();
 
 function getNBASeason(dateStr) {
-  const d = new Date(dateStr + 'T12:00:00');
-  const year = d.getFullYear();
-  const month = d.getMonth() + 1; // 1-indexed
-  return month >= 10 ? year + 1 : year;
+  const date = new Date(dateStr + 'T12:00:00Z');
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth(); // 0-indexed, 9 = October
+  return month >= 9 ? year + 1 : year;
 }
 
 function parseStatValue(val) {
@@ -144,6 +144,14 @@ function processNBAScoreboard(data) {
 
       obj.watchabilityBreakdown = calculateNBAWatchability(obj);
       obj.watchabilityIndex = obj.watchabilityBreakdown.score;
+
+      todayTeams.add(obj.awayTeam);
+      todayTeams.add(obj.homeTeam);
+      if (obj.isLive) {
+        liveTeams.add(obj.awayTeam);
+        liveTeams.add(obj.homeTeam);
+      }
+
       return obj;
     });
 }
@@ -361,7 +369,7 @@ function renderGames(games) {
       const spoilerHtml = `
         <div class="matchup">${teamLogo(game.awayTeam)} ${game.awayTeam} @ ${teamLogo(game.homeTeam)} ${game.homeTeam}</div>
         <div class="inning-line" style="color:var(--text-dim)">Spoiler Mode</div>
-        <div class="spoiler-mask" onclick="revealSpoiler(this, '${game.gamePk}')">🙈 Tap to reveal</div>
+        <div class="spoiler-mask" role="button" tabindex="0" aria-label="Reveal score" onclick="revealSpoiler(this, '${game.gamePk}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();revealSpoiler(this, '${game.gamePk}')}">🙈 Tap to reveal</div>
       `;
       if (card.innerHTML !== spoilerHtml) {
         card.innerHTML = spoilerHtml;
@@ -396,7 +404,10 @@ function renderSingleGameCard(card, game) {
     <div class="score-line">${game.awayScore} - ${game.homeScore}</div>
     <div class="inning-line">${game.periodStatus}</div>
     <div class="watch-bar-wrap">
-      <div class="watch-bar-label"><span>Watchability</span><span class="score-num">${wi}</span></div>
+      <div class="watch-bar-label">
+        <span>Watchability</span>
+        <span class="score-num" style="color:${wi > 70 ? 'var(--success)' : 'var(--gold)'}">${wi}</span>
+      </div>
       <div class="watch-bar-bg"><div class="watch-bar-fill" style="width:${wi}%;background:${wi > 70 ? 'var(--success)' : 'var(--gold)'}"></div></div>
     </div>
     <div class="score-breakdown">
@@ -539,7 +550,6 @@ function stopPolling() {
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-
 
 function setGameDate(date) {
   selectedDate = date || todayET();
@@ -699,6 +709,11 @@ function renderNBALeaders(leaders) {
   const container = document.getElementById('leaders-container');
   if (!container) return;
 
+  // BOLT: State-based reconciliation to skip redundant innerHTML writes
+  const stateKey = leaders.map(l => `${l.name}-${l.team}-${l.value}`).join('|');
+  if (container._lastStateKey === stateKey) return;
+  container._lastStateKey = stateKey;
+
   container.innerHTML = '';
 
   const groups = [
@@ -763,6 +778,8 @@ const followedChases = new Set(loadPrefs().followedChasesNBA || []);
 function setMilestoneFilter(filter) {
   milestoneFilter = filter;
   savePrefs({ milestoneFilter: filter });
+  const container = document.getElementById('milestones-container');
+  if (container) container._lastStateKey = null; // Invalidate cache
   if (window.lastNBAMilestones) renderMilestoneBoard(window.lastNBAMilestones);
 }
 
@@ -770,6 +787,8 @@ function toggleFollowChase(playerKey) {
   if (followedChases.has(playerKey)) followedChases.delete(playerKey);
   else followedChases.add(playerKey);
   savePrefs({ followedChasesNBA: [...followedChases] });
+  const container = document.getElementById('milestones-container');
+  if (container) container._lastStateKey = null; // Invalidate cache
   if (window.lastNBAMilestones) renderMilestoneBoard(window.lastNBAMilestones);
 }
 
@@ -840,13 +859,11 @@ async function fetchNBAMilestones() {
     });
 
     if (data && data.categories) {
-      // 1. Build map of category name -> category object for O(1) lookup
-      const catMap = new Map(data.categories.map(c => [c.name, c]));
-      const candidateRefs = new Set();
-      const candidates = [];
+      // BOLT: Index categories by name for O(1) lookup
+      const categoryMap = new Map(data.categories.map(c => [c.name, c]));
 
-      NBA_MILESTONE_DEFS.forEach(def => {
-        const cat = catMap.get(def.api);
+      await Promise.all(NBA_MILESTONE_DEFS.map(async def => {
+        const cat = categoryMap.get(def.api);
         if (!cat) return;
 
         // Take top 10 from each category to look for milestones
@@ -919,6 +936,11 @@ async function fetchNBAMilestones() {
 function renderMilestoneBoard(allMilestones) {
   const container = document.getElementById('milestones-container');
   if (!container) return;
+
+  // BOLT: State-based reconciliation to skip redundant innerHTML writes
+  const stateKey = `${milestoneFilter}-${allMilestones.length}-${allMilestones.map(m => `${m.id}:${m.current}:${m.playingNow}`).join('|')}`;
+  if (container._lastStateKey === stateKey) return;
+  container._lastStateKey = stateKey;
 
   const filterFns = {
     all: () => true,
