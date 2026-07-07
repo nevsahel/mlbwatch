@@ -1476,7 +1476,7 @@ function renderMomentumTimeline(series, awayAbbr, homeAbbr) {
 
   const points = series.map((p, i) => {
     const x = pad + (i / (series.length - 1)) * (w - pad * 2);
-    const y = pad + (1 - p.homeProb / 100) * (h - pad * 2);
+    const y = pad + (p.homeProb / 100) * (h - pad * 2);
     return { x, y, p };
   });
 
@@ -1486,7 +1486,7 @@ function renderMomentumTimeline(series, awayAbbr, homeAbbr) {
   const shifts = points.filter(pt => Math.abs(pt.p.delta) >= 10);
   const shiftCircles = shifts.map(pt => `
     <circle cx="${pt.x}" cy="${pt.y}" r="4" fill="${pt.p.delta > 0 ? homeColor : awayColor}" stroke="#fff" stroke-width="1">
-      <title>${pt.p.half}${pt.p.inn}: ${pt.p.desc} (${pt.p.delta > 0 ? '+' : ''}${pt.p.delta.toFixed(1)}% ${pt.p.delta > 0 ? homeAbbr : awayAbbr} WPA)</title>
+      <title>${pt.p.half}${pt.p.inn}: ${pt.p.desc} (+${Math.abs(pt.p.delta).toFixed(1)}% ${pt.p.delta > 0 ? homeAbbr : awayAbbr} WPA)</title>
     </circle>
   `).join('');
 
@@ -1857,7 +1857,7 @@ function renderWinProbSparkline(game) {
   const w = 180, h = 34, pad = 3;
   const path = points.map((p, i) => {
     const x = pad + (i / Math.max(points.length - 1, 1)) * (w - pad * 2);
-    const y = pad + (1 - Math.max(0, Math.min(100, p.home)) / 100) * (h - pad * 2);
+    const y = pad + (Math.max(0, Math.min(100, p.home)) / 100) * (h - pad * 2);
     return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
   const last = points[points.length - 1]?.home;

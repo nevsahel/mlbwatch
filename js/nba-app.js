@@ -630,11 +630,17 @@ async function openGameDrawer(pk) {
   if (!game) return;
 
   title.textContent = `${game.awayTeam} @ ${game.homeTeam}`;
-  body.innerHTML = '<div class="expand-load-msg">Loading game summary (Stub)...</div>';
+  body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
   drawer.classList.add('open');
   document.getElementById('drawer-overlay').classList.add('open');
 
-  // Future: fetch real data from ESPN here
+  try {
+    const url = `${NBA_SUMMARY_API}?event=${pk}`;
+    const data = await requestPool.fetchDedup(url, { ttl: 30000 });
+    renderNBAExpandPanel(body, data, game);
+  } catch (e) {
+    body.innerHTML = '<div class="expand-load-msg" style="color:var(--danger)">Failed to load details</div>';
+  }
 }
 
 function closeGameDrawer() {
@@ -642,21 +648,137 @@ function closeGameDrawer() {
   document.getElementById('drawer-overlay').classList.remove('open');
 }
 
-function openSidePanel(pk) {
-    const panel = document.getElementById('side-panel');
-    const title = document.getElementById('side-panel-title');
-    const body = document.getElementById('side-panel-body');
-    const game = lastGames?.find(g => String(g.gamePk) === String(pk));
+async function openSidePanel(pk) {
+  const panel = document.getElementById('side-panel');
+  const title = document.getElementById('side-panel-title');
+  const body = document.getElementById('side-panel-body');
+  const game = lastGames?.find(g => String(g.gamePk) === String(pk));
 
-    if (!game) return;
+  if (!game || !panel || !title || !body) return;
 
-    title.textContent = `${game.awayTeam} @ ${game.homeTeam}`;
-    body.innerHTML = '<div class="expand-load-msg">Loading detailed metrics (Stub)...</div>';
-    panel.classList.add('open');
+  title.textContent = `${game.awayTeam} @ ${game.homeTeam}`;
+  body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+  panel.classList.add('open');
+
+  try {
+    const url = `${NBA_SUMMARY_API}?event=${pk}`;
+    const data = await requestPool.fetchDedup(url, { ttl: 30000 });
+    renderNBAExpandPanel(body, data, game);
+  } catch (e) {
+    body.innerHTML = '<div class="expand-load-msg" style="color:var(--danger)">Failed to load details</div>';
+  }
 }
 
 function closeSidePanel() {
-    document.getElementById('side-panel').classList.remove('open');
+  document.getElementById('side-panel').classList.remove('open');
+}
+
+function renderNBAMomentumTimeline(wpData, plays, awayAbbr, homeAbbr) {
+  if (!wpData || wpData.length < 2) return '';
+  const w = 400, h = 100, pad = 10;
+  const awayColor = teamColor(awayAbbr);
+  const homeColor = teamColor(homeAbbr);
+
+  // ESPN uses 0.0 to 1.0 for win probability
+  const points = wpData.map((p, i) => {
+    const x = pad + (i / (wpData.length - 1)) * (w - pad * 2);
+    const y = pad + (p.homeWinPercentage) * (h - pad * 2);
+    return { x, y, p };
+  });
+
+  const path = points.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(' ');
+
+  // Highlight major shifts (delta > 8%)
+  const shifts = [];
+  for (let i = 1; i < points.length; i++) {
+    const delta = points[i].p.homeWinPercentage - points[i-1].p.homeWinPercentage;
+    if (Math.abs(delta) >= 0.08) {
+      shifts.push({ pt: points[i], delta });
+    }
+  }
+
+  const shiftCircles = shifts.map(s => {
+    const play = plays?.find(pl => pl.id === s.pt.p.playId) || {};
+    const desc = play.text || 'Big play';
+    const clock = play.clock?.displayValue || '';
+    const period = play.period?.displayValue || '';
+    return `
+      <circle cx="${s.pt.x}" cy="${s.pt.y}" r="4" fill="${s.delta > 0 ? homeColor : awayColor}" stroke="#fff" stroke-width="1">
+        <title>${period} ${clock}: ${desc} (+${(Math.abs(s.delta) * 100).toFixed(1)}% ${s.delta > 0 ? homeAbbr : awayAbbr} WPA)</title>
+      </circle>
+    `;
+  }).join('');
+
+  return `
+    <div class="momentum-timeline-wrap">
+      <div class="expand-section-label">Momentum Timeline (Win Prob)</div>
+      <div class="momentum-svg-container">
+        <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+          <line x1="${pad}" y1="${h/2}" x2="${w-pad}" y2="${h/2}" stroke="var(--border-primary)" stroke-dasharray="4 4" />
+          <path d="${path}" fill="none" stroke="var(--gold)" stroke-width="2" />
+          ${shiftCircles}
+        </svg>
+        <div class="momentum-labels">
+          <span style="color:${awayColor}">${awayAbbr}</span>
+          <span style="color:${homeColor}">${homeAbbr}</span>
+        </div>
+      </div>
+      <div style="font-size:0.6rem;color:var(--text-dim);margin-top:5px;text-align:center">Dots indicate plays with ≥8% shift in win probability.</div>
+    </div>
+  `;
+}
+
+function renderNBAExpandPanel(container, data, game) {
+  let html = '';
+
+  // 1. Momentum Graph
+  if (data.winprobability && data.winprobability.length > 0) {
+    html += renderNBAMomentumTimeline(data.winprobability, data.plays, game.awayTeam, game.homeTeam);
+  }
+
+  // 2. Scoring Plays (Last 5)
+  const scoringPlays = (data.plays || [])
+    .filter(p => p.scoringPlay)
+    .reverse()
+    .slice(0, 5);
+
+  if (scoringPlays.length > 0) {
+    html += '<div class="expand-section-label">Recent Scoring Plays</div>';
+    html += '<div class="expand-plays">';
+    scoringPlays.forEach(p => {
+      html += `
+        <div class="expand-play">
+          <span class="expand-play-inn">${p.period?.displayValue || ''} ${p.clock?.displayValue || ''}</span>
+          <span class="expand-play-desc">
+            ${p.text}
+            <span class="expand-play-score">${game.awayTeam} ${p.awayScore} · ${game.homeTeam} ${p.homeScore}</span>
+          </span>
+        </div>`;
+    });
+    html += '</div>';
+  }
+
+  // 3. Leaders (Top Performers in this game)
+  if (data.leaders) {
+    html += '<div class="expand-section-label">Game Leaders</div>';
+    html += '<div class="drawer-chip-list">';
+    data.leaders.forEach(teamLeaders => {
+        const teamAbbr = teamLeaders.team.abbreviation;
+        teamLeaders.leaders.forEach(l => {
+            const athlete = l.leaders[0]?.athlete;
+            if (athlete) {
+                html += `
+                <div class="drawer-chip">
+                  <strong>${teamLogo(teamAbbr)} ${athlete.displayName}</strong>
+                  <span>${l.leaders[0].displayValue}</span>
+                </div>`;
+            }
+        });
+    });
+    html += '</div>';
+  }
+
+  container.innerHTML = html || '<div class="empty-msg">No detailed data available yet.</div>';
 }
 
 // Global attachment
