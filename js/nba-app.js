@@ -105,10 +105,20 @@ function processNBAScoreboard(data) {
       const home = game.competitors.find(c => c.homeAway === 'home');
       const status = e.status.type;
 
+      const tAway = away.team.abbreviation;
+      const tHome = home.team.abbreviation;
+
+      todayTeams.add(tAway);
+      todayTeams.add(tHome);
+      if (status.state === 'in') {
+        liveTeams.add(tAway);
+        liveTeams.add(tHome);
+      }
+
       const obj = {
         gamePk: e.id,
-        awayTeam: away.team.abbreviation,
-        homeTeam: home.team.abbreviation,
+        awayTeam: tAway,
+        homeTeam: tHome,
         awayScore: parseInt(away.score) || 0,
         homeScore: parseInt(home.score) || 0,
         gameState: status.state, // 'pre', 'in', 'post'
