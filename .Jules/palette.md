@@ -28,3 +28,6 @@
 ## 2026-06-17 - Centralized Navigation & Semantic Headers
 **Learning:** Providing a consistent navigation menu across all dashboards reduces friction and helps users orient themselves. Integrating this into a semantic `<header>` with `<nav>` and `aria-current="page"` improves accessibility for screen readers and ensures keyboard users have a predictable way to navigate.
 **Action:** Use a standardized `.main-nav` component within headers and explicitly mark the active page.
+## 2026-06-16 - Standardized Site-Wide Navigation
+**Learning:** In applications with multiple specialized dashboards (e.g., MLB and NBA), consistent and highly visible site-wide navigation reduces cognitive load and bounce rates. Integrating navigation into the primary `<header>` ensures it's always accessible and familiar. Using `aria-current="page"` and ensuring high contrast (`var(--text-muted)` vs `var(--text-dim)`) for inactive states is critical for accessibility compliance and clarity.
+**Action:** Always provide a synchronized navigation menu across all top-level pages. Use semantic `<nav>` elements, explicit active state indicators, and ensure inactive link contrast meets WCAG AA standards.
