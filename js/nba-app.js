@@ -688,27 +688,6 @@ function renderNBAMomentumTimeline(wpData, plays, awayAbbr, homeAbbr) {
 
   const path = points.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(' ');
 
-  // Highlight major shifts (delta > 8%)
-  const shifts = [];
-  for (let i = 1; i < points.length; i++) {
-    const delta = points[i].p.homeWinPercentage - points[i-1].p.homeWinPercentage;
-    if (Math.abs(delta) >= 0.08) {
-      shifts.push({ pt: points[i], delta });
-    }
-  }
-
-  const shiftCircles = shifts.map(s => {
-    const play = plays?.find(pl => pl.id === s.pt.p.playId) || {};
-    const desc = play.text || 'Big play';
-    const clock = play.clock?.displayValue || '';
-    const period = play.period?.displayValue || '';
-    return `
-      <circle cx="${s.pt.x}" cy="${s.pt.y}" r="4" fill="${s.delta > 0 ? homeColor : awayColor}" stroke="#fff" stroke-width="1">
-        <title>${period} ${clock}: ${desc} (+${(Math.abs(s.delta) * 100).toFixed(1)}% ${s.delta > 0 ? homeAbbr : awayAbbr} WPA)</title>
-      </circle>
-    `;
-  }).join('');
-
   return `
     <div class="momentum-timeline-wrap">
       <div class="expand-section-label">Momentum Timeline (Win Prob)</div>
@@ -716,16 +695,88 @@ function renderNBAMomentumTimeline(wpData, plays, awayAbbr, homeAbbr) {
         <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
           <line x1="${pad}" y1="${h/2}" x2="${w-pad}" y2="${h/2}" stroke="var(--border-primary)" stroke-dasharray="4 4" />
           <path d="${path}" fill="none" stroke="var(--gold)" stroke-width="2" />
-          ${shiftCircles}
         </svg>
         <div class="momentum-labels">
           <span style="color:${awayColor}">${awayAbbr}</span>
           <span style="color:${homeColor}">${homeAbbr}</span>
         </div>
       </div>
-      <div style="font-size:0.6rem;color:var(--text-dim);margin-top:5px;text-align:center">Dots indicate plays with ≥8% shift in win probability.</div>
     </div>
   `;
+}
+
+function renderNBATeamComparison(boxscoreTeams) {
+  if (!boxscoreTeams || boxscoreTeams.length < 2) return '';
+  const teamA = boxscoreTeams[0];
+  const teamH = boxscoreTeams[1];
+
+  const getStat = (team, name) => team.statistics.find(s => s.name === name)?.displayValue || '-';
+
+  const stats = [
+    { label: 'FG%', name: 'fieldGoalPct' },
+    { label: '3P%', name: 'threePointFieldGoalPct' },
+    { label: 'FT%', name: 'freeThrowPct' },
+    { label: 'Rebounds', name: 'totalRebounds' },
+    { label: 'Assists', name: 'assists' },
+    { label: 'Steals', name: 'steals' },
+    { label: 'Blocks', name: 'blocks' },
+    { label: 'Turnovers', name: 'totalTurnovers' },
+    { label: 'Pts in Paint', name: 'pointsInPaint' },
+    { label: 'Fast Break Pts', name: 'fastBreakPoints' }
+  ];
+
+  let html = '<div class="expand-section-label">Team Comparison</div>';
+  html += '<table class="comparison-table"><thead><tr><th>' + teamA.team.abbreviation + '</th><th>Metric</th><th>' + teamH.team.abbreviation + '</th></tr></thead><tbody>';
+  stats.forEach(s => {
+    const valA = getStat(teamA, s.name);
+    const valH = getStat(teamH, s.name);
+    html += `<tr><td>${valA}</td><td class="stat-label">${s.label}</td><td>${valH}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function renderNBABoxScore(boxscorePlayers) {
+  if (!boxscorePlayers) return '';
+  let html = '<div class="expand-section-label">Box Score</div>';
+
+  boxscorePlayers.forEach(teamBox => {
+    const team = teamBox.team;
+    const statsData = teamBox.statistics[0];
+    if (!statsData) return;
+
+    html += `<div class="boxscore-team-header">${teamLogo(team.abbreviation)} ${team.displayName}</div>`;
+    html += '<div class="boxscore-scroll-wrap"><table class="boxscore-table"><thead><tr>';
+    html += '<th>PLAYER</th><th>MIN</th><th>FG</th><th>3PT</th><th>FT</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PTS</th><th>+/-</th>';
+    html += '</tr></thead><tbody>';
+
+    statsData.athletes.forEach(player => {
+      if (player.didNotPlay) {
+        html += `<tr class="dnp"><td class="player-name">${player.athlete.shortName}</td><td colspan="11" class="dnp-reason">DNP - ${player.reason || 'Coach\'s Decision'}</td></tr>`;
+        return;
+      }
+      const s = player.stats;
+      // Indices based on labels: MIN(0), PTS(1), FG(2), 3PT(3), FT(4), REB(5), AST(6), TO(7), STL(8), BLK(9), OREB(10), DREB(11), PF(12), +/-(13)
+      html += `<tr>
+        <td class="player-name">${player.athlete.shortName}</td>
+        <td>${s[0]}</td><td>${s[2]}</td><td>${s[3]}</td><td>${s[4]}</td><td>${s[5]}</td>
+        <td>${s[6]}</td><td>${s[8]}</td><td>${s[9]}</td><td>${s[7]}</td><td>${s[1]}</td><td>${s[13]}</td>
+      </tr>`;
+    });
+
+    // Totals
+    const t = teamBox.totals;
+    if (t) {
+      html += `<tr class="totals-row">
+        <td>TOTALS</td><td>-</td><td>${t[2]}</td><td>${t[3]}</td><td>${t[4]}</td><td>${t[5]}</td>
+        <td>${t[6]}</td><td>${t[8]}</td><td>${t[9]}</td><td>${t[7]}</td><td>${t[1]}</td><td>-</td>
+      </tr>`;
+    }
+
+    html += '</tbody></table></div>';
+  });
+
+  return html;
 }
 
 function renderNBAExpandPanel(container, data, game) {
@@ -736,16 +787,19 @@ function renderNBAExpandPanel(container, data, game) {
     html += renderNBAMomentumTimeline(data.winprobability, data.plays, game.awayTeam, game.homeTeam);
   }
 
-  // 2. Scoring Plays (Last 5)
-  const scoringPlays = (data.plays || [])
-    .filter(p => p.scoringPlay)
-    .reverse()
-    .slice(0, 5);
+  // 2. Recent Shots (Last 5)
+  const recentShots = (data.plays || [])
+    .filter(p => {
+      const type = p.type?.text?.toLowerCase() || '';
+      return type.includes('shot') || type.includes('dunk') || type.includes('layup') || type.includes('free throw');
+    })
+    .slice(-5)
+    .reverse();
 
-  if (scoringPlays.length > 0) {
-    html += '<div class="expand-section-label">Recent Scoring Plays</div>';
+  if (recentShots.length > 0) {
+    html += '<div class="expand-section-label">Recent Shots</div>';
     html += '<div class="expand-plays">';
-    scoringPlays.forEach(p => {
+    recentShots.forEach(p => {
       html += `
         <div class="expand-play">
           <span class="expand-play-inn">${p.period?.displayValue || ''} ${p.clock?.displayValue || ''}</span>
@@ -758,7 +812,17 @@ function renderNBAExpandPanel(container, data, game) {
     html += '</div>';
   }
 
-  // 3. Leaders (Top Performers in this game)
+  // 3. Team Comparison
+  if (data.boxscore && data.boxscore.teams) {
+    html += renderNBATeamComparison(data.boxscore.teams);
+  }
+
+  // 4. Box Score
+  if (data.boxscore && data.boxscore.players) {
+    html += renderNBABoxScore(data.boxscore.players);
+  }
+
+  // 5. Leaders (Top Performers in this game)
   if (data.leaders) {
     html += '<div class="expand-section-label">Game Leaders</div>';
     html += '<div class="drawer-chip-list">';

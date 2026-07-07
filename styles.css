@@ -1218,6 +1218,97 @@
   font-weight: 600;
 }
 
+/* NBA Box Score & Comparison Styles */
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+  font-size: 0.75rem;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.comparison-table th, .comparison-table td {
+  padding: 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-secondary);
+}
+.comparison-table th {
+  background: rgba(0,0,0,0.2);
+  color: var(--gold);
+  font-weight: 800;
+}
+.comparison-table .stat-label {
+  color: var(--text-dim);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+}
+
+.boxscore-team-header {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+  margin: 15px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.boxscore-scroll-wrap {
+  overflow-x: auto;
+  margin-bottom: 20px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+}
+.boxscore-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.7rem;
+  min-width: 500px;
+}
+.boxscore-table th, .boxscore-table td {
+  padding: 6px 8px;
+  text-align: right;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.boxscore-table th {
+  background: rgba(0,0,0,0.2);
+  color: var(--text-dim);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.6rem;
+}
+.boxscore-table th:first-child, .boxscore-table td:first-child {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: var(--bg-dark);
+  z-index: 1;
+  min-width: 100px;
+}
+.boxscore-table tr:hover td {
+  background: rgba(255,255,255,0.05);
+}
+.boxscore-table .player-name {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.boxscore-table .totals-row td {
+  font-weight: 800;
+  color: var(--gold);
+  border-top: 2px solid var(--border-secondary);
+}
+.boxscore-table .dnp td {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 0.65rem;
+}
+.boxscore-table .dnp .dnp-reason {
+  text-align: left;
+}
+
 .badge.series {
   background: var(--accent-secondary);
   color: white;
