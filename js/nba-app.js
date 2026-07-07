@@ -12,12 +12,14 @@ let pollCount = 0;
 let isFirstLoad = true;
 let selectedDate = loadPrefs().selectedDateNBA || todayET();
 let nbaStarTeams = new Set();
+let liveTeams = new Set();
+let todayTeams = new Set();
 
 function getNBASeason(dateStr) {
-  const d = new Date(dateStr + 'T12:00:00');
-  const year = d.getFullYear();
-  const month = d.getMonth() + 1; // 1-indexed
-  return month >= 10 ? year + 1 : year;
+  const date = new Date(dateStr + 'T12:00:00Z');
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth(); // 0-indexed, 9 = October
+  return month >= 9 ? year + 1 : year;
 }
 
 function parseStatValue(val) {
@@ -94,6 +96,9 @@ async function fetchNBAScoreboard() {
 function processNBAScoreboard(data) {
     if (!data || !data.events) return [];
 
+    liveTeams.clear();
+    todayTeams.clear();
+
     return data.events.map(e => {
       const game = e.competitions[0];
       const away = game.competitors.find(c => c.homeAway === 'away');
@@ -132,6 +137,14 @@ function processNBAScoreboard(data) {
 
       obj.watchabilityBreakdown = calculateNBAWatchability(obj);
       obj.watchabilityIndex = obj.watchabilityBreakdown.score;
+
+      todayTeams.add(obj.awayTeam);
+      todayTeams.add(obj.homeTeam);
+      if (obj.isLive) {
+        liveTeams.add(obj.awayTeam);
+        liveTeams.add(obj.homeTeam);
+      }
+
       return obj;
     });
 }
@@ -531,20 +544,6 @@ function stopPolling() {
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
-function setGameDate(d) {
-  selectedDate = d || todayET();
-  const updateEl = document.getElementById('last-update');
-  if (updateEl) {
-    updateEl.textContent = selectedDate === todayET() ? 'Date set to today' : `Date set to ${selectedDate}`;
-  }
-  if (polling) pollGames();
-function getNBASeason(dateStr) {
-  const date = new Date(dateStr + 'T12:00:00Z');
-  const year = date.getUTCFullYear();
-  const month = date.getUTCMonth(); // 0-indexed, 9 = October
-  return month >= 9 ? year + 1 : year;
-}
-
 function setGameDate(date) {
   selectedDate = date || todayET();
   savePrefs({ selectedDateNBA: selectedDate });
@@ -703,6 +702,11 @@ function renderNBALeaders(leaders) {
   const container = document.getElementById('leaders-container');
   if (!container) return;
 
+  // BOLT: State-based reconciliation to skip redundant innerHTML writes
+  const stateKey = leaders.map(l => `${l.name}-${l.team}-${l.value}`).join('|');
+  if (container._lastStateKey === stateKey) return;
+  container._lastStateKey = stateKey;
+
   container.innerHTML = '';
 
   const groups = [
@@ -767,6 +771,8 @@ const followedChases = new Set(loadPrefs().followedChasesNBA || []);
 function setMilestoneFilter(filter) {
   milestoneFilter = filter;
   savePrefs({ milestoneFilter: filter });
+  const container = document.getElementById('milestones-container');
+  if (container) container._lastStateKey = null; // Invalidate cache
   if (window.lastNBAMilestones) renderMilestoneBoard(window.lastNBAMilestones);
 }
 
@@ -774,6 +780,8 @@ function toggleFollowChase(playerKey) {
   if (followedChases.has(playerKey)) followedChases.delete(playerKey);
   else followedChases.add(playerKey);
   savePrefs({ followedChasesNBA: [...followedChases] });
+  const container = document.getElementById('milestones-container');
+  if (container) container._lastStateKey = null; // Invalidate cache
   if (window.lastNBAMilestones) renderMilestoneBoard(window.lastNBAMilestones);
 }
 
@@ -846,8 +854,11 @@ async function fetchNBAMilestones() {
     const allMilestones = [];
 
     if (data && data.categories) {
+      // BOLT: Index categories by name for O(1) lookup
+      const categoryMap = new Map(data.categories.map(c => [c.name, c]));
+
       await Promise.all(NBA_MILESTONE_DEFS.map(async def => {
-        const cat = data.categories.find(c => c.name === def.api);
+        const cat = categoryMap.get(def.api);
         if (!cat) return;
 
         // Take top 10 from each category to look for milestones
@@ -906,6 +917,11 @@ async function fetchNBAMilestones() {
 function renderMilestoneBoard(allMilestones) {
   const container = document.getElementById('milestones-container');
   if (!container) return;
+
+  // BOLT: State-based reconciliation to skip redundant innerHTML writes
+  const stateKey = `${milestoneFilter}-${allMilestones.length}-${allMilestones.map(m => `${m.id}:${m.current}:${m.playingNow}`).join('|')}`;
+  if (container._lastStateKey === stateKey) return;
+  container._lastStateKey = stateKey;
 
   const filterFns = {
     all: () => true,
