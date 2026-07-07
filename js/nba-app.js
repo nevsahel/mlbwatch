@@ -135,6 +135,13 @@ function processNBAScoreboard(data) {
           teamRecords[obj.homeTeam] = { winPct: w / (w + l) || 0, record: home.records[0].summary };
       }
 
+      todayTeams.add(obj.awayTeam);
+      todayTeams.add(obj.homeTeam);
+      if (obj.isLive) {
+        liveTeams.add(obj.awayTeam);
+        liveTeams.add(obj.homeTeam);
+      }
+
       obj.watchabilityBreakdown = calculateNBAWatchability(obj);
       obj.watchabilityIndex = obj.watchabilityBreakdown.score;
 
@@ -836,10 +843,10 @@ async function fetchNBAMilestones() {
     const season = getNBASeason(selectedDate);
     const url = NBA_LEADERS_API.replace(/\/seasons\/\d+\//, `/seasons/${season}/`);
     const data = await requestPool.fetchDedup(url, { ttl: 3600000 });
-    const milestones = [];
+    const allMilestones = [];
 
     // Prominent Career Milestones (Static for now as ESPN API for career stats is complex)
-    milestones.push({
+    allMilestones.push({
       name: 'LeBron James',
       team: 'LAL',
       stat: 'Career Points',
@@ -851,8 +858,6 @@ async function fetchNBAMilestones() {
       priority: 100
     });
 
-    const allMilestones = [];
-
     if (data && data.categories) {
       // BOLT: Index categories by name for O(1) lookup
       const categoryMap = new Map(data.categories.map(c => [c.name, c]));
@@ -863,32 +868,46 @@ async function fetchNBAMilestones() {
 
         // Take top 10 from each category to look for milestones
         const topLeaders = cat.leaders.slice(0, 10);
-        await Promise.all(topLeaders.map(async leader => {
+        topLeaders.forEach(leader => {
           const val = parseStatValue(leader.value);
           const next = def.milestones.find(m => m > val);
           if (!next) return;
           const diff = next - val;
-          if (diff > (def.lookahead || 100)) return; // Only show milestones within reach
+          if (diff > (def.lookahead || 100)) return;
 
-          const [athlete, team] = await Promise.all([
-            resolveAthleteRef(leader.athlete.$ref),
-            resolveTeamRef(leader.team.$ref)
-          ]);
+          candidateRefs.add(leader.athlete.$ref);
+          candidateRefs.add(leader.team.$ref);
+          candidates.push({ leader, def, next, diff });
+        });
+      });
 
-          allMilestones.push({
-            id: athlete.id,
-            name: athlete.displayName,
-            team: team.abbreviation,
-            stat: def.label,
-            current: leader.displayValue,
-            next: next,
-            diff: diff,
-            icon: def.icon,
-            playingNow: liveTeams.has(team.abbreviation),
-            playingToday: todayTeams.has(team.abbreviation)
-          });
-        }));
-      }));
+      // 2. Batch-resolve all unique athlete and team references in parallel
+      const refMap = new Map();
+      const refPromises = Array.from(candidateRefs).map(async ref => {
+        const resolved = ref.includes('/athletes/') ? await resolveAthleteRef(ref) : await resolveTeamRef(ref);
+        refMap.set(ref, resolved);
+      });
+      await Promise.all(refPromises);
+
+      // 3. Map candidates to milestone objects
+      candidates.forEach(({ leader, def, next, diff }) => {
+        const athlete = refMap.get(leader.athlete.$ref);
+        const team = refMap.get(leader.team.$ref);
+        if (!athlete || !team) return;
+
+        allMilestones.push({
+          id: athlete.id,
+          name: athlete.displayName,
+          team: team.abbreviation,
+          stat: def.label,
+          current: leader.displayValue,
+          next: next,
+          diff: diff,
+          icon: def.icon,
+          playingNow: liveTeams.has(team.abbreviation),
+          playingToday: todayTeams.has(team.abbreviation)
+        });
+      });
     }
 
     allMilestones.forEach(m => {
@@ -931,19 +950,25 @@ function renderMilestoneBoard(allMilestones) {
     historic: m => m.importance === 'Historic' || m.importance === 'Major'
   };
 
-  const filtered = allMilestones.filter(filterFns[milestoneFilter] || filterFns.all);
+  const filtered = [];
+  let liveCount = 0, todayCount = 0, historicCount = 0, favCount = 0;
+  const groups = {};
+  const filterFn = filterFns[milestoneFilter] || filterFns.all;
 
-  const liveCount = allMilestones.filter(m => m.playingNow).length;
-  const todayCount = allMilestones.filter(m => m.playingToday).length;
-  const historicCount = allMilestones.filter(m => m.importance === 'Historic' || m.importance === 'Major').length;
-  const favCount = allMilestones.filter(m => favoriteTeams.has(m.team)).length;
+  allMilestones.forEach(m => {
+    if (m.playingNow) liveCount++;
+    if (m.playingToday) todayCount++;
+    if (m.importance === 'Historic' || m.importance === 'Major') historicCount++;
+    if (favoriteTeams.has(m.team)) favCount++;
+
+    if (filterFn(m)) {
+      filtered.push(m);
+      if (!groups[m.urgency]) groups[m.urgency] = [];
+      groups[m.urgency].push(m);
+    }
+  });
 
   const urgencyOrder = ['Could happen today', 'This week', 'Longer watch'];
-  const groups = {};
-  filtered.forEach(m => {
-    if (!groups[m.urgency]) groups[m.urgency] = [];
-    groups[m.urgency].push(m);
-  });
 
   container.innerHTML = `
     <div class="milestone-hero">
