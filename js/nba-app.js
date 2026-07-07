@@ -639,7 +639,7 @@ async function openGameDrawer(pk) {
 
 function closeGameDrawer() {
   document.getElementById('game-drawer').classList.remove('open');
-  document.getElementById('drawer-overlay').classList.add('open');
+  document.getElementById('drawer-overlay').classList.remove('open');
 }
 
 function openSidePanel(pk) {
@@ -871,6 +871,8 @@ async function fetchNBAMilestones() {
     if (data && data.categories) {
       // BOLT: Index categories by name for O(1) lookup
       const categoryMap = new Map(data.categories.map(c => [c.name, c]));
+      const candidateRefs = new Set();
+      const candidates = [];
 
       await Promise.all(NBA_MILESTONE_DEFS.map(async def => {
         const cat = categoryMap.get(def.api);
@@ -889,7 +891,7 @@ async function fetchNBAMilestones() {
           candidateRefs.add(leader.team.$ref);
           candidates.push({ leader, def, next, diff });
         });
-      });
+      }));
 
       // 2. Batch-resolve all unique athlete and team references in parallel
       const refMap = new Map();
