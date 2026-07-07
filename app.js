@@ -460,14 +460,27 @@ function calculateWatchabilityBreakdown(g) {
   const milestoneBonus = (milestoneWatchTeams.has(g.awayTeam) || milestoneWatchTeams.has(g.homeTeam)) ? cfg.context.milestone : 0;
   const rivalBonus = rival ? cfg.context.rivalry : 0;
 
+  // Pitcher Duel Logic (Ace vs Ace)
+  let duelBonus = 0;
+  const aPP = g.awayProbablePitcher;
+  const hPP = g.homeProbablePitcher;
+  if (aPP && hPP) {
+    const aTier = PLAYER_TIER[aPP.name] || 99;
+    const hTier = PLAYER_TIER[hPP.name] || 99;
+    if (aTier <= 2 && hTier <= 2) {
+      duelBonus = (aTier === 1 && hTier === 1) ? 10 : 6;
+    }
+  }
+
   // ── Context component (max 30) ──
-  const context = Math.min(starPow + teamQ + playoffScore + milestoneBonus + rivalBonus, cfg.caps.context);
+  const context = Math.min(starPow + teamQ + playoffScore + milestoneBonus + rivalBonus + duelBonus, cfg.caps.context);
   const parts = [
     { label: 'Stars', value: starPow },
     { label: 'Teams', value: teamQ },
     { label: 'Playoff', value: playoffScore },
     { label: 'Milestone', value: milestoneBonus },
-    { label: 'Rivalry', value: rivalBonus }
+    { label: 'Rivalry', value: rivalBonus },
+    { label: 'Ace Duel', value: duelBonus }
   ].filter(p => p.value);
 
   // ── Pre-game ──
@@ -522,12 +535,26 @@ function calculateWatchabilityBreakdown(g) {
   const noHitter = inn >= 5 && (g.awayHits === 0 || g.homeHits === 0);
   if (noHitter) sit += cfg.live.noHitter;
 
+  // Upset Alert Logic
+  let upsetBonus = 0;
+  if (inn >= 7 && diff > 0) {
+    const awayRec = teamRecords[g.awayTeam] || { w: 0, l: 0 };
+    const homeRec = teamRecords[g.homeTeam] || { w: 0, l: 0 };
+    const aPct = (awayRec.w) / (awayRec.w + awayRec.l || 1);
+    const hPct = (homeRec.w) / (homeRec.w + homeRec.l || 1);
+    if (aPct >= 0.560 && hPct <= 0.440 && g.homeScore > g.awayScore) upsetBonus = 8;
+    if (hPct >= 0.560 && aPct <= 0.440 && g.awayScore > g.homeScore) upsetBonus = 8;
+  }
+  sit += upsetBonus;
+
   sit = Math.min(sit, cfg.caps.liveSituation);
 
   // -- Blend: situation dominates, context lifts the floor/ceiling --
   // Base = 30. Situation adds up to +50. Context adds up to +20 (scaled).
   const raw = cfg.bases.live + sit + Math.round(context * cfg.scaling.liveContext);
-  return { score: clamp(raw), situation: sit, context, parts: [{ label: 'Situation', value: sit }, ...parts] };
+  const finalParts = [{ label: 'Situation', value: sit }, ...parts];
+  if (upsetBonus) finalParts.push({ label: 'Upset Alert', value: upsetBonus });
+  return { score: clamp(raw), situation: sit, context, parts: finalParts };
 }
 
 function calculateWatchability(g) {
@@ -929,6 +956,8 @@ async function fetchLiveGamesData() {
         isNoHitter,
         isPerfectGame,
         startTime: new Date(g.gameDate).getTime(),
+        awayProbablePitcher: g.teams.away.probablePitcher ? { id: g.teams.away.probablePitcher.id, name: g.teams.away.probablePitcher.fullName } : null,
+        homeProbablePitcher: g.teams.home.probablePitcher ? { id: g.teams.home.probablePitcher.id, name: g.teams.home.probablePitcher.fullName } : null,
         finalDetails: isFinal ? extractFinalDetails(feed) : null
       };
       obj.watchabilityBreakdown = calculateWatchabilityBreakdown(obj);
@@ -1031,6 +1060,15 @@ async function openSidePanel(gamePk) {
   if (card) card.classList.add('active-side');
 
   title.textContent = game ? `${game.awayTeam} @ ${game.homeTeam}` : 'Game Details';
+  if (game) {
+    const awayColor = teamColor(game.awayTeam);
+    const homeColor = teamColor(game.homeTeam);
+    const header = panel.querySelector('.side-panel-header');
+    if (header) {
+      header.style.background = `linear-gradient(90deg, ${awayColor}44 0%, var(--bg-card) 50%, ${homeColor}44 100%)`;
+      header.style.borderBottom = `2px solid ${homeColor}`;
+    }
+  }
   if (body.innerHTML.includes('empty-msg') || body.innerHTML.includes('Select a game')) {
     body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
   }
@@ -1074,6 +1112,15 @@ async function openGameDrawer(gamePk) {
   const game = gameDetailsByPk[gamePk];
   if (!drawer || !overlay || !title || !body) return;
   title.textContent = game ? `${game.awayTeam} @ ${game.homeTeam}` : 'Game Details';
+  if (game) {
+    const awayColor = teamColor(game.awayTeam);
+    const homeColor = teamColor(game.homeTeam);
+    const header = drawer.querySelector('.drawer-header');
+    if (header) {
+      header.style.background = `linear-gradient(90deg, ${awayColor}44 0%, var(--bg-dark) 50%, ${homeColor}44 100%)`;
+      header.style.borderBottom = `2px solid ${homeColor}`;
+    }
+  }
   if (body.innerHTML.includes('Select a game')) {
     body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
   }
@@ -1267,15 +1314,56 @@ function parseExpandData(feed, wpData = []) {
     batterName: currentPlay?.matchup?.batter?.fullName || ls.offense?.batter?.fullName || 'Batter',
     pitcherName: currentPlay?.matchup?.pitcher?.fullName || ls.defense?.pitcher?.fullName || 'Pitcher',
     isLive: feed.gameData?.status?.abstractGameState === 'Live',
-    hotZones: []
+    hotZones: [],
+    // Latest pitch Statcast highlights
+    lastStatcast: atBatPitches.length > 0 ? atBatPitches[atBatPitches.length - 1] : null
   };
 
-  return { boxRows, scoringPlays, awayPitching, homePitching, awayAbbr, homeAbbr, topWpaPlays, homeRuns, lineup, bullpen, gameday };
+  // Momentum data for interactive timeline
+  const momentumSeries = (Array.isArray(wpData) ? wpData : [])
+    .filter(p => typeof p.homeTeamWinProbability === 'number')
+    .map(p => {
+      const play = allPlays[p.atBatIndex] || {};
+      return {
+        atBatIndex: p.atBatIndex,
+        homeProb: p.homeTeamWinProbability,
+        delta: p.homeTeamWinProbabilityAdded || 0,
+        desc: play.result?.description || '',
+        inn: play.about?.inning,
+        half: play.about?.halfInning === 'top' ? '▲' : '▼'
+      };
+    });
+
+  return { boxRows, scoringPlays, awayPitching, homePitching, awayAbbr, homeAbbr, topWpaPlays, homeRuns, lineup, bullpen, gameday, momentumSeries };
 }
 
 function renderGamedayView(gd) {
   const pitches = gd.pitches;
   if (!pitches.length) return '';
+
+  let statcastHeader = '';
+  if (gd.lastStatcast) {
+    const ls = gd.lastStatcast;
+    statcastHeader = `
+      <div class="statcast-instant">
+        <div class="sc-metric">
+          <span class="sc-label">VELO</span>
+          <span class="sc-val">${ls.speed ? ls.speed.toFixed(1) : '—'}</span>
+          <span class="sc-unit">MPH</span>
+        </div>
+        <div class="sc-metric">
+          <span class="sc-label">SPIN</span>
+          <span class="sc-val">${ls.spin || '—'}</span>
+          <span class="sc-unit">RPM</span>
+        </div>
+        <div class="sc-metric">
+          <span class="sc-label">BREAK</span>
+          <span class="sc-val">${ls.breakLength ? ls.breakLength.toFixed(1) : '—'}</span>
+          <span class="sc-unit">IN</span>
+        </div>
+      </div>
+    `;
+  }
 
   const szTop = pitches[pitches.length - 1].szTop;
   const szBottom = pitches[pitches.length - 1].szBottom;
@@ -1355,6 +1443,7 @@ function renderGamedayView(gd) {
         <div class="gameday-title">Live At-Bat</div>
         <div style="font-size:0.65rem;color:var(--text-dim)">${escapeHTML(gd.batterName)} vs ${escapeHTML(gd.pitcherName)}</div>
       </div>
+      ${statcastHeader}
       <div class="gameday-viz-wrap">
         <div style="position:relative">
           <svg viewBox="0 0 200 200" class="strike-zone-svg">
@@ -1379,6 +1468,47 @@ function renderGamedayView(gd) {
   `;
 }
 
+function renderMomentumTimeline(series, awayAbbr, homeAbbr) {
+  if (!series || series.length < 2) return '';
+  const w = 400, h = 100, pad = 10;
+  const awayColor = teamColor(awayAbbr);
+  const homeColor = teamColor(homeAbbr);
+
+  const points = series.map((p, i) => {
+    const x = pad + (i / (series.length - 1)) * (w - pad * 2);
+    const y = pad + (1 - p.homeProb / 100) * (h - pad * 2);
+    return { x, y, p };
+  });
+
+  const path = points.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(' ');
+
+  // Highlight key momentum shifts (delta > 10%)
+  const shifts = points.filter(pt => Math.abs(pt.p.delta) >= 10);
+  const shiftCircles = shifts.map(pt => `
+    <circle cx="${pt.x}" cy="${pt.y}" r="4" fill="${pt.p.delta > 0 ? homeColor : awayColor}" stroke="#fff" stroke-width="1">
+      <title>${pt.p.half}${pt.p.inn}: ${pt.p.desc} (${pt.p.delta > 0 ? '+' : ''}${pt.p.delta.toFixed(1)}% ${pt.p.delta > 0 ? homeAbbr : awayAbbr} WPA)</title>
+    </circle>
+  `).join('');
+
+  return `
+    <div class="momentum-timeline-wrap">
+      <div class="expand-section-label">Momentum Timeline (Win Prob)</div>
+      <div class="momentum-svg-container">
+        <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+          <line x1="${pad}" y1="${h/2}" x2="${w-pad}" y2="${h/2}" stroke="var(--border-primary)" stroke-dasharray="4 4" />
+          <path d="${path}" fill="none" stroke="var(--gold)" stroke-width="2" />
+          ${shiftCircles}
+        </svg>
+        <div class="momentum-labels">
+          <span style="color:${awayColor}">${awayAbbr}</span>
+          <span style="color:${homeColor}">${homeAbbr}</span>
+        </div>
+      </div>
+      <div style="font-size:0.6rem;color:var(--text-dim);margin-top:5px;text-align:center">Dots indicate plays with ≥10% shift in win probability.</div>
+    </div>
+  `;
+}
+
 function renderExpandPanel(panel, data) {
   const boxRows      = data.boxRows;
   const scoringPlays = data.scoringPlays;
@@ -1395,6 +1525,11 @@ function renderExpandPanel(panel, data) {
   // Live At-Bat (Gameday)
   if (data.gameday && data.gameday.pitches.length > 0) {
     html += renderGamedayView(data.gameday);
+  }
+
+  // Momentum Timeline
+  if (data.momentumSeries && data.momentumSeries.length > 0) {
+    html += renderMomentumTimeline(data.momentumSeries, awayAbbr, homeAbbr);
   }
 
   // Box Score
@@ -1676,12 +1811,19 @@ function renderGames(games) {
       card.className = targetClass;
       card.classList.remove('spoilered');
       renderSingleGameCard(card, game);
+      const awayColor = teamColor(game.awayTeam);
       const homeColor = teamColor(game.homeTeam);
-      if (homeColor) {
+      if (homeColor && awayColor) {
+        card.style.borderLeft = `6px solid ${awayColor}`;
+        card.style.borderRight = `6px solid ${homeColor}`;
+        card.style.backgroundImage = `linear-gradient(to right, ${awayColor}18, transparent 40%, transparent 60%, ${homeColor}18)`;
+      } else if (homeColor) {
         card.style.borderLeft = `6px solid ${homeColor}`;
+        card.style.borderRight = '';
         card.style.backgroundImage = `linear-gradient(to right, ${homeColor}11, transparent)`;
       } else {
         card.style.borderLeft = '';
+        card.style.borderRight = '';
         card.style.backgroundImage = '';
       }
     }
@@ -4464,11 +4606,12 @@ async function runSimulatedDuel(bId, pId, container) {
   if (container) container.innerHTML = '<div class="expand-load-msg">Simulating matchup...</div>';
 
   try {
-    const [bData, pData, bCareer, pCareer] = await Promise.all([
+    const [bData, pData, bCareer, pCareer, vsData] = await Promise.all([
       requestPool.fetchDedup(`${MLB_API}/people/${bId}/stats?stats=season&group=hitting`),
       requestPool.fetchDedup(`${MLB_API}/people/${pId}/stats?stats=season&group=pitching`),
       requestPool.fetchDedup(`${MLB_API}/people/${bId}/stats?stats=career&group=hitting`),
-      requestPool.fetchDedup(`${MLB_API}/people/${pId}/stats?stats=career&group=pitching`)
+      requestPool.fetchDedup(`${MLB_API}/people/${pId}/stats?stats=career&group=pitching`),
+      requestPool.fetchDedup(`${MLB_API}/people/${bId}/stats?stats=vsPlayer&group=hitting&opposingPlayerId=${pId}`)
     ]);
     const b = bData.stats?.[0]?.splits?.[0]?.stat || {};
     const p = pData.stats?.[0]?.splits?.[0]?.stat || {};
@@ -4521,14 +4664,29 @@ async function runSimulatedDuel(bId, pId, container) {
       else result = "Lineout";
     }
 
-    const msg = `
-      <div class="sim-result">
-        <div class="sim-label">SIMULATED OUTCOME</div>
-        <div class="sim-val">${result}</div>
-        <div class="sim-odds">
-          <span>Matchup Strength: <strong>${(ops*1000).toFixed(0)} OPS</strong> vs <strong>${(baa*1000).toFixed(0)} BAA</strong></span>
-          <br>Projected Hit Rate: ${(hitProb * 100).toFixed(1)}%
+    const vs = vsData.stats?.[0]?.splits?.[0]?.stat;
+    let vsHtml = '';
+    if (vs && vs.atBats > 0) {
+      vsHtml = `
+        <div class="sim-vs-history">
+          <div class="sim-label">HISTORICAL REALITY</div>
+          <div class="sim-vs-val">${vs.hits}-${vs.atBats} (${vs.avg})</div>
+          <div class="sim-vs-sub">${vs.homeRuns} HR · ${vs.strikeOuts} K · ${vs.ops} OPS</div>
         </div>
+      `;
+    }
+
+    const msg = `
+      <div class="sim-result-wrap">
+        <div class="sim-result">
+          <div class="sim-label">SIMULATED OUTCOME</div>
+          <div class="sim-val">${result}</div>
+          <div class="sim-odds">
+            <span>Matchup Strength: <strong>${(ops*1000).toFixed(0)} OPS</strong> vs <strong>${(baa*1000).toFixed(0)} BAA</strong></span>
+            <br>Projected Hit Rate: ${(hitProb * 100).toFixed(1)}%
+          </div>
+        </div>
+        ${vsHtml}
       </div>`;
     if (container) container.innerHTML = msg;
     else showNotification(`Simulated Result: ${result}`, 'info');

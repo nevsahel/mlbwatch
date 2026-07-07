@@ -31,3 +31,15 @@
 ## 2026-06-16 - Standardized Site-Wide Navigation
 **Learning:** In applications with multiple specialized dashboards (e.g., MLB and NBA), consistent and highly visible site-wide navigation reduces cognitive load and bounce rates. Integrating navigation into the primary `<header>` ensures it's always accessible and familiar. Using `aria-current="page"` and ensuring high contrast (`var(--text-muted)` vs `var(--text-dim)`) for inactive states is critical for accessibility compliance and clarity.
 **Action:** Always provide a synchronized navigation menu across all top-level pages. Use semantic `<nav>` elements, explicit active state indicators, and ensure inactive link contrast meets WCAG AA standards.
+
+## 2026-07-07 - Dynamic Team Branding for Immersion
+**Learning:** Hard-coded theme colors can feel generic. Dynamically injecting primary team colors into UI components (like card borders and panel headers) significantly increases user immersion and "broadcast quality" feel without requiring individual assets for every team.
+**Action:** Use CSS variables or dynamic styles to map data-driven team colors to high-visibility UI accents like borders and gradients.
+
+## 2026-07-07 - Visual Storytelling with Momentum Timelines
+**Learning:** Raw win probability numbers are difficult to digest in isolation. Providing a visual SVG "sparkline" of win probability over time, combined with explicit callouts for major momentum shifts (e.g., ±10%), transforms static data into a narrative that helps users understand the "flow" of a game at a glance.
+**Action:** Supplement probability metrics with visual timelines and highlight significant delta events to provide context.
+
+## 2026-07-07 - Real-Time Statcast Context
+**Learning:** Displaying live performance metrics (like Pitch Velocity or Spin Rate) immediately alongside at-bat results provides a "premium" data layer that bridges the gap between casual viewing and advanced analysis.
+**Action:** Use "instant" badges for high-frequency Statcast data in live views to provide immediate feedback on physical play quality.
