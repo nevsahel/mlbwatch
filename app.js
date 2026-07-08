@@ -67,6 +67,7 @@ function switchTab(tab) {
 
     // Lazy-load data for the active tab
     if (lastGames) {
+      if (tab === 'potd') fetchAndRenderPOTD(lastGames);
       if (tab === 'homeruns') fetchAndRenderHomeRuns(lastGames);
       if (tab === 'ticker') fetchAndRenderTicker(lastGames);
       if (tab === 'playoffs') fetchPlayoffRaces(lastGames);
@@ -563,6 +564,81 @@ function calculateWatchability(g) {
 
 function clamp(v) { return Math.min(100, Math.max(0, Math.round(v))); }
 
+// ─── POTD FORMATTING & SCORING ──────────────────────────────────────────────
+
+// Format pitcher stat line: (IP, H, ER, BB, K, Pitches)
+function fmtPitcherPOTD(p) {
+  if (!p) return null;
+  const gp = p.stats?.pitching || {};
+  const ip = gp.inningsPitched || '?';
+  const h = parseInt(gp.hits) || 0;
+  const er = parseInt(gp.earnedRuns) || 0;
+  const bb = parseInt(gp.baseOnBalls) || 0;
+  const k = parseInt(gp.strikeOuts) || 0;
+  const pitches = gp.pitchesThrown ?? gp.numberOfPitches ?? null;
+  let parts = [`${ip} IP`, `${h} H`, `${er} ER`];
+  if (bb > 0) parts.push(`${bb} BB`);
+  if (k > 0) parts.push(`${k} K`);
+  if (pitches != null) parts.push(`${pitches} P`);
+  return `(${parts.join(', ')})`;
+}
+
+// Format batter stat line: (H-AB, R, HR, RBI, BB, SB) — omit zeros
+function fmtBatterPOTD(p) {
+  if (!p) return null;
+  const gb = p.stats?.batting || {};
+  const h = parseInt(gb.hits) || 0;
+  const ab = parseInt(gb.atBats) || 0;
+  const r = parseInt(gb.runs) || 0;
+  const hr = parseInt(gb.homeRuns) || 0;
+  const rbi = parseInt(gb.rbi) || 0;
+  const bb = parseInt(gb.baseOnBalls) || 0;
+  const sb = parseInt(gb.stolenBases) || 0;
+  let parts = [`${h}-${ab}`];
+  if (r > 0) parts.push(`${r} R`);
+  if (hr > 0) parts.push(`${hr} HR`);
+  if (rbi > 0) parts.push(`${rbi} RBI`);
+  if (bb > 0) parts.push(`${bb} BB`);
+  if (sb > 0) parts.push(`${sb} SB`);
+  return `(${parts.join(', ')})`;
+}
+
+function calculatePerformanceScore(p) {
+  const name = p.person?.fullName;
+  if (!name) return { score: -1 };
+  const gb = p.stats?.batting || {};
+  const gp = p.stats?.pitching || {};
+  const h = parseInt(gb.hits) || 0;
+  const hr = parseInt(gb.homeRuns) || 0;
+  const rbi = parseInt(gb.rbi) || 0;
+  const r = parseInt(gb.runs) || 0;
+  const bb = parseInt(gb.baseOnBalls) || 0;
+  const sb = parseInt(gb.stolenBases) || 0;
+  const tb = parseInt(gb.totalBases) || 0;
+
+  const k = parseInt(gp.strikeOuts) || 0;
+  const ip = parseFloat(gp.inningsPitched) || 0;
+  const p_h = parseInt(gp.hits) || 0;
+  const p_er = parseInt(gp.earnedRuns) || 0;
+
+  // Hitter score: favor power, RBIs, and speed
+  const hitterScore = hr * 8 + rbi * 3 + tb * 1.5 + h * 1 + r * 1 + bb * 1 + sb * 2;
+
+  // Pitcher score: favor volume, strikeouts, and run prevention
+  const pitcherScore = k * 2 + ip * 2 + (ip >= 5 && p_er <= 2 ? 10 : 0) - (p_er * 3) - (p_h * 1);
+
+  const isPitcher = ip >= 3 || (k >= 5 && p_h <= 2);
+  const score = isPitcher ? pitcherScore : hitterScore;
+
+  return {
+    score,
+    isPitcher,
+    name,
+    pitcherLine: isPitcher ? fmtPitcherPOTD(p) : null,
+    batterLine: !isPitcher ? fmtBatterPOTD(p) : null
+  };
+}
+
 // ─── EXTRACT FINAL GAME DETAILS (WP/LP/SV/POTG) ────────────────────────────
 function extractFinalDetails(feed) {
   try {
@@ -583,73 +659,21 @@ function extractFinalDetails(feed) {
       return allPlayers[dec.id];
     };
 
-    const wpPlayer = getPlayer(decisions.winner);
-    const lpPlayer = getPlayer(decisions.loser);
-    const svPlayer = getPlayer(decisions.save);
-
     const wpName = decisions.winner?.fullName || null;
     const lpName = decisions.loser?.fullName || null;
     const svName = decisions.save?.fullName || null;
 
-    // Format pitcher stat line for POTG: (IP, Pitches, X K)
-    const fmtPitcherPOTG = (p) => {
-      if (!p) return null;
-      const gp = p.stats?.pitching || {};
-      const ip = gp.inningsPitched || '?';
-      const pitches = gp.pitchesThrown ?? gp.numberOfPitches ?? null;
-      const k = parseInt(gp.strikeOuts) || 0;
-      let parts = [ip + ' IP'];
-      if (pitches != null) parts.push(`${pitches} P`);
-      if (k > 0) parts.push(`${k} K`);
-      return `(${parts.join(', ')})`;
-    };
-
-    // Format batter stat line for POTG: (H-AB, X HR, X RBI, X SB) — omit zeros
-    const fmtBatterPOTG = (p) => {
-      if (!p) return null;
-      const gb = p.stats?.batting || {};
-      const h = parseInt(gb.hits) || 0;
-      const ab = parseInt(gb.atBats) || 0;
-      const hr = parseInt(gb.homeRuns) || 0;
-      const rbi = parseInt(gb.rbi) || 0;
-      const sb = parseInt(gb.stolenBases) || 0;
-      let parts = [`${h}-${ab}`];
-      if (hr > 0) parts.push(`${hr} HR`);
-      if (rbi > 0) parts.push(`${rbi} RBI`);
-      if (sb > 0) parts.push(`${sb} SB`);
-      return `(${parts.join(', ')})`;
-    };
-
     // Determine POTG: find the best individual performance across all players
     let potg = null;
-    let potgScore = -1;
+    let potgMaxScore = -1;
 
     for (const side of ['home', 'away']) {
       const players = bx[side]?.players || {};
       for (const [, p] of Object.entries(players)) {
-        const name = p.person?.fullName;
-        if (!name) continue;
-        const gb = p.stats?.batting || {};
-        const gp = p.stats?.pitching || {};
-        const h = parseInt(gb.hits) || 0;
-        const hr = parseInt(gb.homeRuns) || 0;
-        const rbi = parseInt(gb.rbi) || 0;
-        const tb = parseInt(gb.totalBases) || 0;
-        const k = parseInt(gp.strikeOuts) || 0;
-        const ip = parseFloat(gp.inningsPitched) || 0;
-
-        // Score: favor multi-HR, lots of RBI, dominant pitching
-        let score = hr * 8 + rbi * 3 + tb * 1.5 + h * 1 + k * 2 + ip * 1.5;
-
-        if (score > potgScore) {
-          potgScore = score;
-          const isPitcher = ip >= 3 || (k >= 5 && h <= 2);
-          potg = {
-            name,
-            isPitcher,
-            pitcherLine: isPitcher ? fmtPitcherPOTG(p) : null,
-            batterLine: !isPitcher ? fmtBatterPOTG(p) : null
-          };
+        const perf = calculatePerformanceScore(p);
+        if (perf.score > potgMaxScore) {
+          potgMaxScore = perf.score;
+          potg = perf;
         }
       }
     }
@@ -1985,6 +2009,104 @@ function renderLeaderRow(results, container) {
     row.appendChild(card);
   });
   container.appendChild(row);
+}
+
+async function fetchAndRenderPOTD(games) {
+  const container = document.getElementById('potd-container');
+  if (!container) return;
+
+  const activePks = (games || [])
+    .filter(g => !/scheduled|pre-game|warmup|preview/i.test(g.gameState))
+    .map(g => g.gamePk);
+
+  if (activePks.length === 0) {
+    container.innerHTML = '<div class="empty-msg">No games in progress or completed yet today</div>';
+    return;
+  }
+
+  container.innerHTML = '<div class="empty-msg">Analyzing performances...</div>';
+
+  try {
+    const performances = [];
+    const feeds = await Promise.all(activePks.map(pk =>
+      requestPool.fetchDedup(`https://statsapi.mlb.com/api/v1.1/game/${pk}/feed/live`, { cacheKey: `feed:${pk}`, ttl: 15000 })
+    ));
+
+    feeds.forEach((feed, idx) => {
+      const bx = feed.liveData?.boxscore?.teams;
+      if (!bx) return;
+      const gamePk = activePks[idx];
+      const isLive = !/final/i.test(feed.gameData?.status?.abstractGameState || '');
+
+      ['home', 'away'].forEach(side => {
+        const players = bx[side]?.players || {};
+        const teamAbbr = normalizeAbbr(feed.gameData.teams[side].abbreviation);
+        const oppAbbr = normalizeAbbr(feed.gameData.teams[side === 'home' ? 'away' : 'home'].abbreviation);
+
+        for (const [, p] of Object.entries(players)) {
+          const perf = calculatePerformanceScore(p);
+          if (perf.score > 0) {
+            performances.push({
+              ...perf,
+              gamePk,
+              teamAbbr,
+              oppAbbr,
+              isLive
+            });
+          }
+        }
+      });
+    });
+
+    const topHitters = performances
+      .filter(p => !p.isPitcher)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    const topPitchers = performances
+      .filter(p => p.isPitcher)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    if (topHitters.length === 0 && topPitchers.length === 0) {
+      container.innerHTML = '<div class="empty-msg">No notable performances yet today</div>';
+      return;
+    }
+
+    let html = '<div class="potd-layout">';
+
+    const renderGroup = (title, list) => {
+      if (list.length === 0) return '';
+      let groupHtml = `<div class="section-title">${title}</div><div class="potd-grid">`;
+      list.forEach(p => {
+        const statLine = p.isPitcher ? p.pitcherLine : p.batterLine;
+        groupHtml += `
+          <div class="potd-card" onclick="openGameDrawer(${p.gamePk})">
+            <div class="potd-team-line">
+              ${teamLogo(p.teamAbbr)} <strong>${p.teamAbbr}</strong>
+              <span class="potd-vs">vs</span>
+              ${teamLogo(p.oppAbbr)} ${p.oppAbbr}
+              ${p.isLive ? '<span class="potd-live-tag">LIVE</span>' : ''}
+            </div>
+            <div class="potd-player-name">${escapeHTML(p.name)}</div>
+            <div class="potd-stats">${escapeHTML(statLine.replace(/[()]/g, ''))}</div>
+            <div class="potd-score-pill">Score: ${p.score.toFixed(1)}</div>
+          </div>
+        `;
+      });
+      groupHtml += '</div>';
+      return groupHtml;
+    };
+
+    html += renderGroup('Top Hitters', topHitters);
+    html += renderGroup('Top Pitchers', topPitchers);
+    html += '</div>';
+
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('POTD fetch failed:', e);
+    container.innerHTML = '<div class="empty-msg">Failed to load performances</div>';
+  }
 }
 
 async function fetchStatLeaders() {
@@ -4432,6 +4554,7 @@ async function pollGames() {
     // Refresh only the active tab if it's one of the live ones
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
     // if (activeTab === 'homeruns') fetchAndRenderHomeRuns(games); // Redundant, handled below
+    if (activeTab === 'potd') fetchAndRenderPOTD(games);
     if (activeTab === 'ticker') fetchAndRenderTicker(games);
     if (activeTab === 'duel') fetchAndRenderDuel(games);
     if (activeTab === 'playoffs' && pollCount % 4 === 0) fetchPlayoffRaces(games);
@@ -4479,6 +4602,7 @@ async function pollGames() {
       fetchPlayoffRaces(games);
       fetchMilestones(games);
       fetchAwardRaces();
+      fetchAndRenderPOTD(games);
       fetchAndRenderHomeRuns(games); // pre-load HR data
       isFirstLoad = false;
     }
