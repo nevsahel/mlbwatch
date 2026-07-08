@@ -75,14 +75,20 @@ function switchTab(tab) {
 // ─── DATA FETCHING ───────────────────────────────────────────────────────────
 
 async function fetchNBAScoreboard() {
-    const dateStr = (selectedDate || todayET()).replace(/-/g, '');
+    const date = selectedDate || todayET();
+    const title = document.getElementById('live-games-title');
+    if (title) {
+        title.textContent = date === todayET() ? 'Live Games' : `Games (as of ${date})`;
+    }
+
+    const dateStr = date.replace(/-/g, '');
     try {
         const url = `${NBA_API}?dates=${dateStr}`;
         const data = await requestPool.fetchDedup(url, { ttl: 15000 });
 
         if (isFirstLoad && data.events) {
             nbaStarTeams = fetchNBAStarPower(data.events);
-            fetchNBAStandings();
+            await fetchNBAStandings();
             isFirstLoad = false;
         }
 
@@ -154,13 +160,19 @@ function processNBAScoreboard(data) {
 
 async function fetchNBAStandings() {
     const container = document.getElementById('standings-container');
+    const title = document.getElementById('standings-title');
+    const date = selectedDate || todayET();
+    if (title) {
+        title.textContent = date === todayET() ? 'Standings' : `Standings (as of ${date})`;
+    }
+
     if (container && (isFirstLoad || container.querySelector('.empty-msg'))) {
         container.innerHTML = '<div class="empty-msg">Loading standings...</div>';
     }
 
     try {
-        const season = getNBASeason(selectedDate);
-        const dateParam = selectedDate.replace(/-/g, '');
+        const season = getNBASeason(date);
+        const dateParam = date.replace(/-/g, '');
         const url = `${NBA_STANDINGS_API}?season=${season}&date=${dateParam}`;
         const data = await requestPool.fetchDedup(url, { ttl: 600000 });
         if (!data || !data.children) {
@@ -526,6 +538,7 @@ async function pollGames() {
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
     if (activeTab === 'games') fetchNBALeaders();
     if (activeTab === 'milestones') fetchNBAMilestones();
+    if (activeTab === 'standings') fetchNBAStandings();
 
     document.getElementById('last-update').textContent = `Updated ${new Date().toLocaleTimeString()}`;
   } catch (e) {
@@ -841,14 +854,19 @@ function renderNBAExpandPanel(container, data, game) {
 window.fetchNBALeaders = fetchNBALeaders;
 async function fetchNBALeaders() {
   const container = document.getElementById('leaders-container');
-  const title = document.getElementById('tab-leaders')?.querySelector('.section-title');
+  const title = document.getElementById('leaders-title');
+  const date = selectedDate || todayET();
+  if (title) {
+    title.textContent = date === todayET() ? 'League Leaders' : `League Leaders (as of ${date})`;
+  }
+
   if (!container) return;
   if (isFirstLoad || container.querySelector('.empty-msg')) {
     container.innerHTML = '<div class="empty-msg">Loading leaders...</div>';
   }
 
   try {
-    const season = getNBASeason(selectedDate);
+    const season = getNBASeason(date);
     // Replace the year segment in the URL (e.g., .../seasons/2024/...) with the current season
     const url = NBA_LEADERS_API.replace(/\/seasons\/\d+\//, `/seasons/${season}/`);
     const data = await requestPool.fetchDedup(url, { ttl: 3600000 });
@@ -1064,6 +1082,8 @@ async function fetchNBAMilestones() {
     if (data && data.categories) {
       // BOLT: Index categories by name for O(1) lookup
       const categoryMap = new Map(data.categories.map(c => [c.name, c]));
+      const candidateRefs = new Set();
+      const candidates = [];
 
       await Promise.all(NBA_MILESTONE_DEFS.map(async def => {
         const cat = categoryMap.get(def.api);
@@ -1172,11 +1192,12 @@ function renderMilestoneBoard(allMilestones) {
   });
 
   const urgencyOrder = ['Could happen today', 'This week', 'Longer watch'];
+  const date = selectedDate || todayET();
 
   container.innerHTML = `
     <div class="milestone-hero">
       <div class="milestone-hero-main">
-        <div class="milestone-hero-kicker">NBA Chase Board</div>
+        <div class="milestone-hero-kicker">NBA Chase Board${date === todayET() ? '' : ` (as of ${date})`}</div>
         <div class="milestone-hero-title">${filtered.length} active milestone${filtered.length !== 1 ? 's' : ''}</div>
         <div class="milestone-hero-sub">Sorted by watch priority: proximity, live context, favorites, and historical weight.</div>
       </div>
