@@ -145,22 +145,8 @@ function processNBAScoreboard(data) {
           teamRecords[obj.homeTeam] = { winPct: w / (w + l) || 0, record: home.records[0].summary };
       }
 
-      todayTeams.add(obj.awayTeam);
-      todayTeams.add(obj.homeTeam);
-      if (obj.isLive) {
-        liveTeams.add(obj.awayTeam);
-        liveTeams.add(obj.homeTeam);
-      }
-
       obj.watchabilityBreakdown = calculateNBAWatchability(obj);
       obj.watchabilityIndex = obj.watchabilityBreakdown.score;
-
-      todayTeams.add(obj.awayTeam);
-      todayTeams.add(obj.homeTeam);
-      if (obj.isLive) {
-        liveTeams.add(obj.awayTeam);
-        liveTeams.add(obj.homeTeam);
-      }
 
       return obj;
     });
@@ -187,8 +173,9 @@ async function fetchNBAStandings() {
             conf.standings.entries.forEach(entry => {
                 const abbr = entry.team.abbreviation;
                 const stats = entry.stats;
-                const winPct = stats.find(s => s.type === 'winpercent')?.value || 0;
-                const record = stats.find(s => s.type === 'total')?.summary || '0-0';
+        const statMap = new Map(stats.map(s => [s.type, s]));
+        const winPct = statMap.get('winpercent')?.value || 0;
+        const record = statMap.get('total')?.summary || '0-0';
 
                 records[abbr] = { winPct, record };
             });
@@ -213,33 +200,38 @@ function renderNBAStandings(conferences) {
         html += '<table class="standings-table"><thead><tr><th>Seed</th><th>Team</th><th>W</th><th>L</th><th>PCT</th><th>GB</th><th>STRK</th><th>L10</th></tr></thead><tbody>';
 
         // BOLT: Accurate sorting by PCT, then Wins, then Point Differential
-        const sortedEntries = [...conf.standings.entries].sort((a, b) => {
-            const pctA = a.stats.find(s => s.type === 'winpercent')?.value || 0;
-            const pctB = b.stats.find(s => s.type === 'winpercent')?.value || 0;
+        // BOLT OPTIMIZATION: Use Map for O(1) stat lookup instead of multiple O(N) .find calls
+        const sortedEntries = [...conf.standings.entries].map(entry => ({
+            ...entry,
+            statMap: new Map(entry.stats.map(s => [s.type, s]))
+        })).sort((a, b) => {
+            const pctA = a.statMap.get('winpercent')?.value || 0;
+            const pctB = b.statMap.get('winpercent')?.value || 0;
             if (pctB !== pctA) return pctB - pctA;
 
-            const winsA = a.stats.find(s => s.type === 'wins')?.value || 0;
-            const winsB = b.stats.find(s => s.type === 'wins')?.value || 0;
+            const winsA = a.statMap.get('wins')?.value || 0;
+            const winsB = b.statMap.get('wins')?.value || 0;
             if (winsB !== winsA) return winsB - winsA;
 
-            const diffA = a.stats.find(s => s.type === 'pointdifferential')?.value || 0;
-            const diffB = b.stats.find(s => s.type === 'pointdifferential')?.value || 0;
+            const diffA = a.statMap.get('pointdifferential')?.value || 0;
+            const diffB = b.statMap.get('pointdifferential')?.value || 0;
             return diffB - diffA;
         });
 
         sortedEntries.forEach((entry, idx) => {
             const team = entry.team;
-            const stats = entry.stats;
-            const wins = stats.find(s => s.type === 'wins')?.displayValue || '0';
-            const losses = stats.find(s => s.type === 'losses')?.displayValue || '0';
-            const pct = stats.find(s => s.type === 'winpercent')?.displayValue || '.000';
-            const gb = stats.find(s => s.type === 'gamesbehind')?.displayValue || '-';
-            const streak = stats.find(s => s.type === 'streak')?.displayValue || '-';
-            const l10 = stats.find(s => s.type === 'lasttengames')?.displayValue || '-';
+            const statMap = entry.statMap;
+
+            const wins = statMap.get('wins')?.displayValue || '0';
+            const losses = statMap.get('losses')?.displayValue || '0';
+            const pct = statMap.get('winpercent')?.displayValue || '.000';
+            const gb = statMap.get('gamesbehind')?.displayValue || '-';
+            const streak = statMap.get('streak')?.displayValue || '-';
+            const l10 = statMap.get('lasttengames')?.displayValue || '-';
             const seed = idx + 1;
 
             const isPlayoff = seed <= 10;
-            const clinch = stats.find(s => s.type === 'clincher')?.displayValue || '';
+            const clinch = statMap.get('clincher')?.displayValue || '';
 
             html += `<tr class="${isPlayoff ? 'playoff' : ''}">
                 <td style="text-align:center; color:var(--text-dim); font-size:0.85rem;">${seed}</td>
@@ -868,14 +860,29 @@ async function fetchNBALeaders() {
     const targetNames = NBA_LEADER_DEFS.map(d => d.name);
     const filteredCats = data.categories.filter(c => targetNames.includes(c.name));
 
-    const results = await Promise.all(filteredCats.map(async cat => {
+    // BOLT OPTIMIZATION: Batch-resolve all unique athlete and team references
+    const refSet = new Set();
+    filteredCats.forEach(cat => {
+      const topLeader = cat.leaders[0];
+      if (topLeader) {
+        refSet.add(topLeader.athlete.$ref);
+        refSet.add(topLeader.team.$ref);
+      }
+    });
+
+    const refMap = new Map();
+    await Promise.all(Array.from(refSet).map(async ref => {
+      const resolved = ref.includes('/athletes/') ? await resolveAthleteRef(ref) : await resolveTeamRef(ref);
+      refMap.set(ref, resolved);
+    }));
+
+    const results = filteredCats.map(cat => {
       const topLeader = cat.leaders[0];
       if (!topLeader) return null;
 
-      const [athlete, team] = await Promise.all([
-        resolveAthleteRef(topLeader.athlete.$ref),
-        resolveTeamRef(topLeader.team.$ref)
-      ]);
+      const athlete = refMap.get(topLeader.athlete.$ref);
+      const team = refMap.get(topLeader.team.$ref);
+      if (!athlete || !team) return null;
 
       const def = NBA_LEADER_DEFS.find(d => d.name === cat.name);
       return {
@@ -884,9 +891,9 @@ async function fetchNBALeaders() {
         team: team.abbreviation,
         value: topLeader.displayValue
       };
-    }));
+    }).filter(Boolean);
 
-    renderNBALeaders(results.filter(Boolean));
+    renderNBALeaders(results);
   } catch (e) {
     console.error('NBA Leaders fetch failed:', e);
     container.innerHTML = '<div class="empty-msg">Failed to load leaders</div>';
@@ -1059,8 +1066,6 @@ async function fetchNBAMilestones() {
       const candidates = [];
       // BOLT: Index categories by name for O(1) lookup
       const categoryMap = new Map(data.categories.map(c => [c.name, c]));
-      const candidateRefs = new Set();
-      const candidates = [];
 
       await Promise.all(NBA_MILESTONE_DEFS.map(async def => {
         const cat = categoryMap.get(def.api);

@@ -27,3 +27,7 @@
 ## 2025-05-17 - Reference Resolution Overhead in NBA Dashboard
 **Learning:** In the NBA Milestone board, the application was resolving athlete and team metadata references sequentially for every item. This created significant promise overhead and redundant cache lookups for duplicate players/teams. Additionally, the dashboard was performing multiple filter/length passes over large arrays for summary statistics.
 **Action:** Use a batch-resolution pattern: extract unique references into a `Set`, resolve them in parallel via `Promise.all`, and map them back to the dataset. For rendering, use a single-pass loop to calculate all counts and group items simultaneously.
+
+## 2025-05-18 - Multiple Optimizations in NBA Dashboard
+**Learning:** Found a syntax error in `js/nba-app.js` caused by duplicate variable declarations, which prevented the entire script from being parsed. Additionally, identified inefficient O(N) search patterns in both Leader metadata resolution and Standings rendering loops.
+**Action:** Fixed the syntax error. Implemented a batch-resolution pattern in `fetchNBALeaders` to minimize asynchronous overhead. Refactored `renderNBAStandings` to use Map-based lookups, reducing row rendering complexity from O(N*M) to O(N+M). Removed redundant state updates in the game loop.
