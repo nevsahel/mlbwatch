@@ -1062,8 +1062,6 @@ async function fetchNBAMilestones() {
     });
 
     if (data && data.categories) {
-      const candidateRefs = new Set();
-      const candidates = [];
       // BOLT: Index categories by name for O(1) lookup
       const categoryMap = new Map(data.categories.map(c => [c.name, c]));
 

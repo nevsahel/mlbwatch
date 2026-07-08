@@ -43,3 +43,7 @@
 ## 2026-07-07 - Real-Time Statcast Context
 **Learning:** Displaying live performance metrics (like Pitch Velocity or Spin Rate) immediately alongside at-bat results provides a "premium" data layer that bridges the gap between casual viewing and advanced analysis.
 **Action:** Use "instant" badges for high-frequency Statcast data in live views to provide immediate feedback on physical play quality.
+
+## 2026-07-08 - Synchronized Dashboard Interactions
+**Learning:** When an application features multiple parallel dashboards (e.g., MLB and NBA), maintaining strict consistency in interaction patterns—such as selection highlighting (`.active-side`) and responsive branching between drawers and side panels—is vital for a predictable user experience. Consistent branding cues (like team-colored headers) across these panels further unify the product identity.
+**Action:** Always synchronize state-based visual cues and responsive layout branching across similar dashboard implementations to leverage existing user mental models.
