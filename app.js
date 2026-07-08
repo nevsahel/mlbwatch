@@ -3512,24 +3512,28 @@ async function fetchAwardRaces() {
 
     const scoreROTYHitter = (p) => {
       const s = p.stats || {};
+      const war = p.war ?? 0;
+      const ops = parseFloat(s.onBasePlusSlugging) || 0;
       const hr = parseInt(s.homeRuns) || 0;
       const rbi = parseInt(s.runsBattedIn) || 0;
       const r = parseInt(s.runs) || 0;
       const h = parseInt(s.hits) || 0;
       const avg = parseFloat(s.battingAverage) || 0;
-      // ROTY favors counting stats & visual impact: (HR * 2.5) + (RBI * 1.5) + (Runs * 1.5) + Hits + (AVG * 10)
-      return (hr * 2.5) + (rbi * 1.5) + (r * 1.5) + h + (avg * 10);
+      // Balanced ROTY: WAR-heavy with traditional "voter feel" metrics.
+      // Elite rookie hitter (5 WAR, .850 OPS, 25 HR, 80 RBI) scores ~120.
+      return (war * 12.0) + (ops * 25.0) + (hr * 0.6) + (rbi * 0.1) + (r * 0.1) + (h * 0.05) + (avg * 10);
     };
 
     const scoreROTYPitcher = (p) => {
       const s = p.stats || {};
+      const war = p.war ?? 0;
       const w = parseInt(s.wins) || 0;
       const era = parseFloat(s.earnedRunAverage) || 4.5;
       const so = parseInt(s.strikeouts) || 0;
       const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
-      const war = p.war ?? 0;
-      // Lower multiplier (0.70) to prevent pitcher dominance in ROTY race
-      return ((war * 9.0) + (w * 1.0) + ((3.5 - era) * 10.0) + (so * 0.06) + ((1.2 - whip) * 18.0)) * 0.70;
+      // Balanced scale: Elite rookie pitcher (5 WAR, 12 W, 2.50 ERA, 180 K) scores ~95.
+      // Lower multiplier (0.75) keeps hitters as the slight default for ROTY unless pitchers are historic.
+      return ((war * 12.0) + (w * 2.0) + ((3.5 - era) * 12.0) + (so * 0.08) + ((1.2 - whip) * 15.0)) * 0.75;
     };
 
     const rotyScore = (p) => p.isPitcher ? scoreROTYPitcher(p) : scoreROTYHitter(p);
@@ -3654,6 +3658,7 @@ async function fetchAwardRaces() {
         if (s.homeRuns) parts.push(`<strong style="color:var(--gold)">${s.homeRuns} HR</strong>`);
         if (s.runsBattedIn) parts.push(`<strong style="color:var(--gold)">${s.runsBattedIn} RBI</strong>`);
         if (s.battingAverage) parts.push(`<strong style="color:var(--gold)">${s.battingAverage} AVG</strong>`);
+        if (s.onBasePlusSlugging) parts.push(`<strong>${s.onBasePlusSlugging}</strong> OPS`);
         if (s.hits) parts.push(`<strong>${s.hits}</strong> H`);
         if (s.runs) parts.push(`<strong>${s.runs}</strong> R`);
         if (p.war !== null) parts.push(`<span style="color:var(--text-muted)">${p.war.toFixed(1)} WAR</span>`);
