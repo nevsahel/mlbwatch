@@ -806,7 +806,7 @@ function milestoneImportance(m) {
   const meta = NBA_MILESTONE_META[m.stat] || {};
   if ((meta.historic || []).includes(Number(m.next))) return 'Historic';
   if ((meta.major || []).includes(Number(m.next))) return 'Major';
-  return 'Season';
+  return m.stat.startsWith('Career') ? 'Career' : 'Season';
 }
 
 function milestoneUrgency(m) {
@@ -855,31 +855,19 @@ async function fetchNBAMilestones() {
     const data = await requestPool.fetchDedup(url, { ttl: 3600000 });
     const allMilestones = [];
 
-    // Prominent Career Milestones (Static for now as ESPN API for career stats is complex)
-    allMilestones.push({
-      name: 'LeBron James',
-      team: 'LAL',
-      stat: 'Career Points',
-      current: '40,474',
-      next: '41,000',
-      progress: 98,
-      importance: 'Historic',
-      urgency: 'This season',
-      priority: 100
-    });
+    const candidateRefs = new Set();
+    const candidates = [];
 
     if (data && data.categories) {
       // BOLT: Index categories by name for O(1) lookup
       const categoryMap = new Map(data.categories.map(c => [c.name, c]));
-      const candidateRefs = new Set();
-      const candidates = [];
 
       await Promise.all(NBA_MILESTONE_DEFS.map(async def => {
         const cat = categoryMap.get(def.api);
         if (!cat) return;
 
-        // Take top 10 from each category to look for milestones
-        const topLeaders = cat.leaders.slice(0, 10);
+        // Take top 20 from each category to look for milestones
+        const topLeaders = cat.leaders.slice(0, 20);
         topLeaders.forEach(leader => {
           const val = parseStatValue(leader.value);
           const next = def.milestones.find(m => m > val);
@@ -889,9 +877,50 @@ async function fetchNBAMilestones() {
 
           candidateRefs.add(leader.athlete.$ref);
           candidateRefs.add(leader.team.$ref);
-          candidates.push({ leader, def, next, diff });
+          candidates.push({ leader, def, next, diff, scope: 'season' });
         });
       }));
+
+      // Career milestones for these top performers
+      const uniqueAthleteRefs = Array.from(new Set(candidates.map(c => c.leader.athlete.$ref)));
+      await Promise.all(uniqueAthleteRefs.map(async ref => {
+        try {
+          const athlete = await resolveAthleteRef(ref);
+          const statsUrl = athlete.statistics?.$ref;
+          if (!statsUrl) return;
+          const statsData = await requestPool.fetchDedup(statsUrl, { ttl: 86400000 });
+          if (!statsData || !statsData.splits) return;
+
+          // Memory insight: splits can be array or object. Career is usually array.
+          const careerSplit = Array.isArray(statsData.splits)
+            ? statsData.splits.find(s => s.type?.name === 'All-Time' || s.id === '0')
+            : (statsData.splits.id === '0' ? statsData.splits : null);
+
+          if (!careerSplit || !careerSplit.stats) return;
+
+          const statMap = new Map(careerSplit.stats.map(s => [s.name, s]));
+          NBA_CAREER_MILESTONE_DEFS.forEach(def => {
+            const s = statMap.get(def.api);
+            if (!s) return;
+            const val = parseStatValue(s.value);
+            const next = def.milestones.find(m => m > val);
+            if (next) {
+              const diff = next - val;
+              if (diff <= def.lookahead) {
+                // Find team from candidates
+                const teamRef = candidates.find(c => c.leader.athlete.$ref === ref)?.leader.team.$ref;
+                if (teamRef) {
+                  candidates.push({
+                    leader: { athlete: { $ref: ref }, team: { $ref: teamRef }, displayValue: s.displayValue },
+                    def, next, diff, scope: 'career'
+                  });
+                }
+              }
+            }
+          });
+        } catch (e) {}
+      }));
+    }
 
       // 2. Batch-resolve all unique athlete and team references in parallel
       const refMap = new Map();
@@ -902,7 +931,7 @@ async function fetchNBAMilestones() {
       await Promise.all(refPromises);
 
       // 3. Map candidates to milestone objects
-      candidates.forEach(({ leader, def, next, diff }) => {
+      candidates.forEach(({ leader, def, next, diff, scope }) => {
         const athlete = refMap.get(leader.athlete.$ref);
         const team = refMap.get(leader.team.$ref);
         if (!athlete || !team) return;
@@ -911,7 +940,7 @@ async function fetchNBAMilestones() {
           id: athlete.id,
           name: athlete.displayName,
           team: team.abbreviation,
-          stat: def.label,
+          stat: (scope === 'career' ? 'Career ' : '') + def.label,
           current: leader.displayValue,
           next: next,
           diff: diff,
@@ -920,7 +949,6 @@ async function fetchNBAMilestones() {
           playingToday: todayTeams.has(team.abbreviation)
         });
       });
-    }
 
     allMilestones.forEach(m => {
       m.importance = milestoneImportance(m);
