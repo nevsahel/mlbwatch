@@ -2724,10 +2724,39 @@ async function fetchMilestones(todayGames) {
 
       const players = Object.values(playerMap);
 
+      // BOLT OPTIMIZATION: Batch career stats fetching for all candidates (approx 60 players).
+      // This reduces Milestone tab load from ~100 requests to 1-2 requests using the people hydrate API.
+      const playerIds = players.map(p => p.pid);
+      const chunkSize = 50;
+      const batchPromises = [];
+      for (let i = 0; i < playerIds.length; i += chunkSize) {
+        const chunk = playerIds.slice(i, i + chunkSize);
+        batchPromises.push(batchFetcher.add(async () => {
+          try {
+            const batchData = await requestPool.fetchDedup(
+              `${MLB_API}/people?personIds=${chunk.join(',')}&hydrate=stats(group=[hitting,pitching],type=[career],endDate=${date})`,
+              { ttl: 3600000 }
+            );
+            (batchData.people || []).forEach(p => {
+              const pid = p.id;
+              p.stats?.forEach(s => {
+                const grp = (s.group?.code || s.group?.displayName || '').toLowerCase();
+                if ((grp === 'hitting' || grp === 'pitching') && s.splits?.length > 0) {
+                  const data = { stats: [s] };
+                  const url = `${MLB_API}/people/${pid}/stats?stats=career&group=${grp}&endDate=${date}`;
+                  persistentCache.set(url, data, 3600000);
+                  persistentCache.set(`careerStats:${date}:${pid}:${grp}`, data, 3600000);
+                }
+              });
+            });
+          } catch (e) { console.warn('[Milestones] Batch career fetch failed:', e); }
+        }));
+      }
+      await Promise.all(batchPromises);
+
       await Promise.all(players.map(async ({ pid, name, team, group }) => {
         try {
-          // BOLT OPTIMIZATION: Only fetch career stats relevant to the player's primary role to halve network requests.
-          // Ohtani (660271) is always treated as both a hitter and a pitcher.
+          // BOLT OPTIMIZATION: Individual lookups now hit the pre-populated cache
           const isHitter = group === 'hitting' || pid === OHTANI_ID;
           const isPitcher = group === 'pitching' || pid === OHTANI_ID;
 
