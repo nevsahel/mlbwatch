@@ -4,6 +4,7 @@
 const favoriteTeams = new Set(loadPrefs().favoriteTeamsNBA || []);
 const spoilerTeams = new Set(loadPrefs().spoilerTeamsNBA || []);
 const revealedGames = new Set();
+let activeGamePk = null;
 let lastGames = null;
 let teamRecords = {};
 let polling = false;
@@ -360,16 +361,20 @@ function renderGames(games) {
     seenPks.add(pkStr);
     let card = existingCards.get(pkStr);
     const wi = game.watchabilityIndex;
-    const targetClass = `game-card${wi > 75 ? ' fire' : wi > 55 ? ' hot' : ''}`;
+    const targetClass = `game-card${wi > 75 ? ' fire' : wi > 55 ? ' hot' : ''}${String(activeGamePk) === pkStr ? ' active-side' : ''}`;
 
     if (!card) {
       card = document.createElement('div');
       card.setAttribute('data-gpk', pkStr);
       card.setAttribute('role', 'button');
       card.setAttribute('tabindex', '0');
-      card.addEventListener('click', () => openGameDrawer(game.gamePk));
+      card.addEventListener('click', (event) => {
+        if (event.target.closest('button') || event.target.closest('.spoiler-mask')) return;
+        openGameDrawer(game.gamePk);
+      });
       card.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
+          if (event.target.closest('button') || event.target.closest('.spoiler-mask')) return;
           event.preventDefault();
           openGameDrawer(game.gamePk);
         }
@@ -409,7 +414,8 @@ function renderGames(games) {
 
 function renderSingleGameCard(card, game) {
   const wi = game.watchabilityIndex;
-  const stateKey = `${game.awayScore}-${game.homeScore}-${game.periodStatus}-${wi}`;
+  const isSelected = String(activeGamePk) === String(game.gamePk);
+  const stateKey = `${game.awayScore}-${game.homeScore}-${game.periodStatus}-${wi}-${isSelected}`;
   if (card._lastStateKey === stateKey) return;
   card._lastStateKey = stateKey;
 
@@ -535,6 +541,15 @@ async function pollGames() {
     lastGames = games;
     renderGames(games);
 
+    // Refresh open details panel (background refresh, skip loading state)
+    if (activeGamePk) {
+      if (window.innerWidth > 1000 && document.getElementById('side-panel')?.classList.contains('open')) {
+        openSidePanel(activeGamePk, true);
+      } else if (document.getElementById('game-drawer')?.classList.contains('open')) {
+        openGameDrawer(activeGamePk, true);
+      }
+    }
+
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
     if (activeTab === 'games') fetchNBALeaders();
     if (activeTab === 'milestones') fetchNBAMilestones();
@@ -626,7 +641,8 @@ function revealSpoiler(el, pk) {
   if (lastGames) renderGames(lastGames);
 }
 
-async function openGameDrawer(pk) {
+async function openGameDrawer(pk, skipLoading = false) {
+  activeGamePk = pk;
   const drawer = document.getElementById('game-drawer');
   const title = document.getElementById('drawer-title');
   const body = document.getElementById('drawer-body');
@@ -634,8 +650,11 @@ async function openGameDrawer(pk) {
 
   if (!game) return;
 
+  // Visual highlight
+  document.querySelectorAll('.game-card').forEach(c => c.classList.toggle('active-side', c.getAttribute('data-gpk') === String(pk)));
+
   title.textContent = `${game.awayTeam} @ ${game.homeTeam}`;
-  body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+  if (!skipLoading) body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
   drawer.classList.add('open');
   document.getElementById('drawer-overlay').classList.add('open');
 
@@ -649,11 +668,14 @@ async function openGameDrawer(pk) {
 }
 
 function closeGameDrawer() {
+  activeGamePk = null;
+  document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
   document.getElementById('game-drawer').classList.remove('open');
   document.getElementById('drawer-overlay').classList.remove('open');
 }
 
-async function openSidePanel(pk) {
+async function openSidePanel(pk, skipLoading = false) {
+  activeGamePk = pk;
   const panel = document.getElementById('side-panel');
   const title = document.getElementById('side-panel-title');
   const body = document.getElementById('side-panel-body');
@@ -661,8 +683,11 @@ async function openSidePanel(pk) {
 
   if (!game || !panel || !title || !body) return;
 
+  // Visual highlight
+  document.querySelectorAll('.game-card').forEach(c => c.classList.toggle('active-side', c.getAttribute('data-gpk') === String(pk)));
+
   title.textContent = `${game.awayTeam} @ ${game.homeTeam}`;
-  body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
+  if (!skipLoading) body.innerHTML = '<div class="expand-load-msg">Loading game details…</div>';
   panel.classList.add('open');
 
   try {
@@ -675,6 +700,8 @@ async function openSidePanel(pk) {
 }
 
 function closeSidePanel() {
+  activeGamePk = null;
+  document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active-side'));
   document.getElementById('side-panel').classList.remove('open');
 }
 
