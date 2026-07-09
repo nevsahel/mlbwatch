@@ -31,3 +31,7 @@
 ## 2025-05-18 - Multiple Optimizations in NBA Dashboard
 **Learning:** Found a syntax error in `js/nba-app.js` caused by duplicate variable declarations, which prevented the entire script from being parsed. Additionally, identified inefficient O(N) search patterns in both Leader metadata resolution and Standings rendering loops.
 **Action:** Fixed the syntax error. Implemented a batch-resolution pattern in `fetchNBALeaders` to minimize asynchronous overhead. Refactored `renderNBAStandings` to use Map-based lookups, reducing row rendering complexity from O(N*M) to O(N+M). Removed redundant state updates in the game loop.
+
+## 2026-07-09 - MLB Stats API Batching with Hydration
+**Learning:** The application was making ~100 individual career stats requests when loading the Milestone tab. The MLB Stats API's `/people` endpoint supports batching multiple `personIds` and hydrating career stats for both hitting and pitching in a single call.
+**Action:** Use the `/people?personIds=id1,id2&hydrate=stats(group=[hitting,pitching],type=[career])` pattern for large player sets. Pre-populate the individual cache keys from the batch response to maintain compatibility with legacy individual lookup logic and prevent redundant fetches in other parts of the UI.
