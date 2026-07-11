@@ -171,6 +171,7 @@
     </style>
 </head>
 <body>
+    <a href="#main-layout" class="skip-link">Skip to main content</a>
     <header style="width: 100%; justify-content: flex-start; padding: 16px 40px; background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); position: fixed; top: 0; z-index: 1000;">
         <nav class="main-nav" aria-label="Main navigation" style="margin-left: 0;">
             <a href="index.html" class="nav-link active" aria-current="page"><span>🏠</span> Home</a>
@@ -179,27 +180,29 @@
         </nav>
     </header>
 
-    <div class="hero">
-        <h1>Sports Watchability Index</h1>
-    </div>
+    <main id="main-layout">
+        <div class="hero">
+            <h1>Sports Watchability Index</h1>
+        </div>
 
-    <div class="selector-container">
-        <a href="mlb.html" class="sport-card" id="mlb-card">
-            <div class="sport-icon" aria-hidden="true">⚾</div>
-            <div class="sport-name">MLB</div>
-            <div class="peek-container" id="mlb-peek">
-                <div class="peek-content">Connecting to StatsAPI...</div>
-            </div>
-        </a>
+        <div class="selector-container">
+            <a href="mlb.html" class="sport-card" id="mlb-card">
+                <div class="sport-icon" aria-hidden="true">⚾</div>
+                <div class="sport-name">MLB</div>
+                <div class="peek-container" id="mlb-peek">
+                    <div class="peek-content">Connecting to StatsAPI...</div>
+                </div>
+            </a>
 
-        <a href="nba.html" class="sport-card" id="nba-card">
-            <div class="sport-icon" aria-hidden="true">🏀</div>
-            <div class="sport-name">NBA</div>
-            <div class="peek-container" id="nba-peek">
-                <div class="peek-content">Connecting to ESPN API...</div>
-            </div>
-        </a>
-    </div>
+            <a href="nba.html" class="sport-card" id="nba-card">
+                <div class="sport-icon" aria-hidden="true">🏀</div>
+                <div class="sport-name">NBA</div>
+                <div class="peek-container" id="nba-peek">
+                    <div class="peek-content">Connecting to ESPN API...</div>
+                </div>
+            </a>
+        </div>
+    </main>
 
     <script src="utils/core.js"></script>
     <script src="utils/performance.js"></script>
