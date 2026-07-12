@@ -1129,7 +1129,9 @@ async function fetchNBAMilestones() {
       }));
 
       // Career milestones for these top performers
-      const uniqueAthleteRefs = Array.from(new Set(candidates.map(c => c.leader.athlete.$ref)));
+      const athleteToTeamRef = new Map(candidates.map(c => [c.leader.athlete.$ref, c.leader.team.$ref]));
+      const uniqueAthleteRefs = Array.from(athleteToTeamRef.keys());
+
       await Promise.all(uniqueAthleteRefs.map(async ref => {
         try {
           const athlete = await resolveAthleteRef(ref);
@@ -1154,8 +1156,8 @@ async function fetchNBAMilestones() {
             if (next) {
               const diff = next - val;
               if (diff <= def.lookahead) {
-                // Find team from candidates
-                const teamRef = candidates.find(c => c.leader.athlete.$ref === ref)?.leader.team.$ref;
+                // BOLT OPTIMIZATION: Use Map for O(1) team resolution instead of O(N) Array.find
+                const teamRef = athleteToTeamRef.get(ref);
                 if (teamRef) {
                   candidates.push({
                     leader: { athlete: { $ref: ref }, team: { $ref: teamRef }, displayValue: s.displayValue },
@@ -1403,40 +1405,53 @@ async function buildNBAAwardCandidates(categories) {
   // 3. ROTY: PPG, RPG, APG (filtered by rookies - though core API doesn't make it easy to filter)
   // 4. 6th Man: (Hard to identify starters vs bench from this endpoint alone)
 
-  // For simulation purposes, let's build a pool of top players from several categories
-  const playerPool = new Map();
-
-  const resolvePlayer = async (leader) => {
-    const ref = leader.athlete.$ref;
-    if (playerPool.has(ref)) return playerPool.get(ref);
-
-    const athlete = await resolveAthleteRef(ref);
-    const teamRef = leader.team.$ref;
-    const team = await resolveTeamRef(teamRef);
-
-    const p = {
-      id: athlete.id,
-      name: athlete.displayName,
-      team: team.abbreviation,
-      stats: {},
-      ref: ref
-    };
-    playerPool.set(ref, p);
-    return p;
-  };
-
   // PPG, RPG, APG, SPG, BPG, FG%, 3P%, PER (if available)
   const importantCats = ['pointsPerGame', 'reboundsPerGame', 'assistsPerGame', 'stealsPerGame', 'blocksPerGame', 'fieldGoalPercentage'];
 
-  for (const catName of importantCats) {
+  // BOLT OPTIMIZATION: Batch-resolve all unique athlete and team references
+  const refSet = new Set();
+  importantCats.forEach(catName => {
     const cat = catMap.get(catName);
     if (cat) {
-      for (const leader of cat.leaders.slice(0, 15)) {
-        const p = await resolvePlayer(leader);
-        p.stats[catName] = parseStatValue(leader.value);
-      }
+      cat.leaders.slice(0, 15).forEach(leader => {
+        refSet.add(leader.athlete.$ref);
+        refSet.add(leader.team.$ref);
+      });
     }
-  }
+  });
+
+  const refMap = new Map();
+  await Promise.all(Array.from(refSet).map(async ref => {
+    const resolved = ref.includes('/athletes/') ? await resolveAthleteRef(ref) : await resolveTeamRef(ref);
+    refMap.set(ref, resolved);
+  }));
+
+  const playerPool = new Map();
+  importantCats.forEach(catName => {
+    const cat = catMap.get(catName);
+    if (cat) {
+      cat.leaders.slice(0, 15).forEach(leader => {
+        const aRef = leader.athlete.$ref;
+        const tRef = leader.team.$ref;
+        const athlete = refMap.get(aRef);
+        const team = refMap.get(tRef);
+
+        if (!athlete || !team) return;
+
+        if (!playerPool.has(aRef)) {
+          playerPool.set(aRef, {
+            id: athlete.id,
+            name: athlete.displayName,
+            team: team.abbreviation,
+            stats: {},
+            ref: aRef
+          });
+        }
+        const p = playerPool.get(aRef);
+        p.stats[catName] = parseStatValue(leader.value);
+      });
+    }
+  });
 
   const players = Array.from(playerPool.values());
 
@@ -1645,9 +1660,12 @@ async function fetchAndRenderNBAPOTD(games) {
       requestPool.fetchDedup(`${NBA_SUMMARY_API}?event=${pk}`, { ttl: 30000 })
     ));
 
+    // BOLT OPTIMIZATION: Index games by gamePk for O(1) lookup in loop
+    const gamesMap = new Map(games.map(g => [String(g.gamePk), g]));
+
     feeds.forEach((data, idx) => {
       if (!data.boxscore || !data.boxscore.players) return;
-      const game = games.find(g => String(g.gamePk) === String(activePks[idx]));
+      const game = gamesMap.get(String(activePks[idx]));
 
       data.boxscore.players.forEach(teamBox => {
         const teamAbbr = teamBox.team.abbreviation;
@@ -1731,12 +1749,13 @@ async function fetchAndRenderNBAShots(games) {
         .catch(e => { console.warn(`Shots: Failed to fetch game ${pk}`, e); return null; })
     );
     const feeds = await Promise.all(feedPromises);
+    const gamesMap = new Map(games.map(g => [String(g.gamePk), g]));
 
     feeds.forEach((data, idx) => {
       if (!data) return;
       const plays = data.plays || [];
       const wp = data.winprobability || [];
-      const game = games.find(g => String(g.gamePk) === String(activePks[idx]));
+      const game = gamesMap.get(String(activePks[idx]));
       if (!game) return;
 
       const teamIdMap = new Map();
@@ -1744,8 +1763,8 @@ async function fetchAndRenderNBAShots(games) {
         data.boxscore.teams.forEach(t => teamIdMap.set(String(t.team.id), t.team.abbreviation));
       }
 
-      // Map win probability to plays
-      const wpByPlayId = new Map(wp.map(w => [w.playId, w]));
+      // BOLT OPTIMIZATION: Index win probability by playId and track numeric index for O(1) prev lookup
+      const wpByPlayId = new Map(wp.map((w, i) => [w.playId, { ...w, idx: i }]));
 
       plays.forEach((p, pIdx) => {
         const type = p.type?.text?.toLowerCase() || '';
@@ -1754,7 +1773,6 @@ async function fetchAndRenderNBAShots(games) {
 
         const period = p.period?.number || 0;
         const clock = p.clock?.displayValue || '0:00';
-        const [mins, secs] = clock.split(':').map(Number);
 
         // Definition of "Impactful":
         // 1. Clutch: 4th quarter or OT, score diff <= 10
@@ -1766,9 +1784,9 @@ async function fetchAndRenderNBAShots(games) {
 
         let wpa = 0;
         const wpEntry = wpByPlayId.get(p.id);
-        const wpIdx = wp.indexOf(wpEntry);
+        const wpIdx = wpEntry?.idx ?? -1;
         const currentWP = wpEntry?.homeWinPercentage;
-        const prevWP = wpIdx > 0 ? wp[wpIdx - 1]?.homeWinPercentage : null;
+        const prevWP = (wpIdx > 0) ? wp[wpIdx - 1]?.homeWinPercentage : null;
 
         if (currentWP !== null && prevWP !== null) {
           wpa = Math.abs(currentWP - prevWP);
