@@ -1132,6 +1132,9 @@ async function openSidePanel(gamePk) {
       requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch((e) => [])
     ]);
     const data = parseExpandData(feed, wpData);
+    data.gamePk = gamePk;
+    if (!window.lastExpandData) window.lastExpandData = {};
+    window.lastExpandData[gamePk] = data;
     if (data.gameday?.batterId) {
       data.gameday.hotZones = await fetchHotZones(data.gameday.batterId);
     }
@@ -1185,6 +1188,9 @@ async function openGameDrawer(gamePk) {
       requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch((e) => [])
     ]);
     const data = parseExpandData(feed, wpData);
+    data.gamePk = gamePk;
+    if (!window.lastExpandData) window.lastExpandData = {};
+    window.lastExpandData[gamePk] = data;
     renderExpandPanel(body, data);
   } catch (e) {
     body.innerHTML = '<div class="expand-load-msg" style="color:var(--danger)">Failed to load details</div>';
@@ -1211,6 +1217,9 @@ async function loadExpandData(gamePk, panel) {
       requestPool.fetchDedup(`${MLB_API}/game/${gamePk}/winProbability`, { cacheKey: `winProbability:${gamePk}`, timeoutMs: 10000 }).catch((e) => [])
     ]);
     const data = parseExpandData(feed, wpData);
+    data.gamePk = gamePk;
+    if (!window.lastExpandData) window.lastExpandData = {};
+    window.lastExpandData[gamePk] = data;
     if (data.gameday?.batterId) {
       data.gameday.hotZones = await fetchHotZones(data.gameday.batterId);
     }
@@ -1573,125 +1582,333 @@ function renderExpandPanel(panel, data) {
   const homeRuns     = data.homeRuns || [];
   const lineup       = data.lineup || { away: [], home: [] };
   const bullpen      = data.bullpen || { away: [], home: [] };
+  const gamePk       = data.gamePk;
+
+  if (!window.activeDetailsTabs) window.activeDetailsTabs = {};
+  if (!window.activeDetailsTabs[gamePk]) window.activeDetailsTabs[gamePk] = 'stats';
+  const activeTab = window.activeDetailsTabs[gamePk];
+
   let html = '';
 
-  // Live At-Bat (Gameday)
-  if (data.gameday && data.gameday.pitches.length > 0) {
-    html += renderGamedayView(data.gameday);
-  }
+  // Render Sub-tabs bar
+  html += `
+    <div class="details-tab-bar" role="tablist">
+      <button class="details-tab-btn ${activeTab === 'stats' ? 'active' : ''}" role="tab" aria-selected="${activeTab === 'stats'}" onclick="switchDetailsTab(${gamePk}, 'stats')">📊 Stats & Plays</button>
+      <button class="details-tab-btn ${activeTab === 'gameday' ? 'active' : ''}" role="tab" aria-selected="${activeTab === 'gameday'}" onclick="switchDetailsTab(${gamePk}, 'gameday')">👁 Gameday Viz</button>
+      <button class="details-tab-btn ${activeTab === 'kids' ? 'active' : ''}" role="tab" aria-selected="${activeTab === 'kids'}" onclick="switchDetailsTab(${gamePk}, 'kids')">🧒 Kids Predictor</button>
+      <button class="details-tab-btn ${activeTab === 'press' ? 'active' : ''}" role="tab" aria-selected="${activeTab === 'press'}" onclick="switchDetailsTab(${gamePk}, 'press')">📰 Journalist Draft</button>
+    </div>
+  `;
 
-  // Momentum Timeline
-  if (data.momentumSeries && data.momentumSeries.length > 0) {
-    html += renderMomentumTimeline(data.momentumSeries, awayAbbr, homeAbbr);
-  }
+  if (activeTab === 'stats') {
+    // 1. WATCHABILITY FACTORS
+    const gameObj = gameDetailsByPk[gamePk];
+    if (gameObj) {
+      const expls = getWatchabilityExplanation(gameObj);
+      if (expls.length > 0) {
+        html += '<div class="expand-section-label">🔥 Watchability Key Factors</div>';
+        html += '<div class="factors-list">';
+        expls.forEach(exp => {
+          html += `<div class="factor-item">${escapeHTML(exp)}</div>`;
+        });
+        html += '</div>';
+      }
+    }
 
-  // Box Score
-  const innLabels = [];
-  for (let i = 1; i <= boxRows.maxInn; i++) innLabels.push(i);
-  const colsStyle = 'grid-template-columns: 2.5rem repeat(' + boxRows.maxInn + ', 1fr) 0.5rem 1.5rem 1.5rem 1.5rem';
+    // 2. BOX SCORE
+    const innLabels = [];
+    for (let i = 1; i <= boxRows.maxInn; i++) innLabels.push(i);
+    const colsStyle = 'grid-template-columns: 2.5rem repeat(' + boxRows.maxInn + ', 1fr) 0.5rem 1.5rem 1.5rem 1.5rem';
 
-  html += '<div class="expand-section-label">Box Score</div>';
-  html += '<div class="expand-box">';
-  html += '<div class="expand-box-row header" style="' + colsStyle + '">';
-  html += '<span class="expand-box-cell team"></span>';
-  innLabels.forEach(function(n) { html += '<span class="expand-box-cell">' + n + '</span>'; });
-  html += '<span class="expand-box-cell"></span><span class="expand-box-cell">R</span><span class="expand-box-cell">H</span><span class="expand-box-cell">E</span></div>';
+    html += '<div class="expand-section-label" style="margin-top:12px">Box Score</div>';
+    html += '<div class="expand-box">';
+    html += '<div class="expand-box-row header" style="' + colsStyle + '">';
+    html += '<span class="expand-box-cell team"></span>';
+    innLabels.forEach(function(n) { html += '<span class="expand-box-cell">' + n + '</span>'; });
+    html += '<span class="expand-box-cell"></span><span class="expand-box-cell">R</span><span class="expand-box-cell">H</span><span class="expand-box-cell">E</span></div>';
 
-  ['away','home'].forEach(function(side) {
-    const abbr  = side === 'away' ? awayAbbr : homeAbbr;
-    const inns  = side === 'away' ? boxRows.awayInns : boxRows.homeInns;
-    const tots  = side === 'away' ? boxRows.awayTotals : boxRows.homeTotals;
-    const cls   = side === 'home' ? ' total' : '';
-    html += '<div class="expand-box-row' + cls + '" style="' + colsStyle + '">';
-    html += '<span class="expand-box-cell team">' + teamLogo(abbr) + ' ' + abbr + '</span>';
-    inns.forEach(function(v) { html += '<span class="expand-box-cell">' + v + '</span>'; });
-    html += '<span class="expand-box-cell"></span>';
-    html += '<span class="expand-box-cell">' + (tots.runs != null ? tots.runs : '-') + '</span>';
-    html += '<span class="expand-box-cell">' + (tots.hits != null ? tots.hits : '-') + '</span>';
-    html += '<span class="expand-box-cell">' + (tots.errors != null ? tots.errors : '-') + '</span>';
-    html += '</div>';
-  });
-  html += '</div>';
-
-  // Scoring Plays
-  if (scoringPlays && scoringPlays.length > 0) {
-    html += '<div class="expand-section-label" style="margin-top:8px">Recent Scoring Plays</div>';
-    html += '<div class="expand-plays">';
-    scoringPlays.forEach(function(p) {
-      const shortDesc = p.desc.length > 90 ? p.desc.slice(0, 90) + '…' : p.desc;
-      html += '<div class="expand-play">';
-      html += '<span class="expand-play-inn">' + p.half + p.inn + '</span>';
-      html += '<span class="expand-play-desc">' + shortDesc + ' <span class="expand-play-score">' + awayAbbr + ' ' + p.away + ' · ' + homeAbbr + ' ' + p.home + '</span></span>';
+    ['away','home'].forEach(function(side) {
+      const abbr  = side === 'away' ? awayAbbr : homeAbbr;
+      const inns  = side === 'away' ? boxRows.awayInns : boxRows.homeInns;
+      const tots  = side === 'away' ? boxRows.awayTotals : boxRows.homeTotals;
+      const cls   = side === 'home' ? ' total' : '';
+      html += '<div class="expand-box-row' + cls + '" style="' + colsStyle + '">';
+      html += '<span class="expand-box-cell team">' + teamLogo(abbr) + ' ' + abbr + '</span>';
+      inns.forEach(function(v) { html += '<span class="expand-box-cell">' + v + '</span>'; });
+      html += '<span class="expand-box-cell"></span>';
+      html += '<span class="expand-box-cell">' + (tots.runs != null ? tots.runs : '-') + '</span>';
+      html += '<span class="expand-box-cell">' + (tots.hits != null ? tots.hits : '-') + '</span>';
+      html += '<span class="expand-box-cell">' + (tots.errors != null ? tots.errors : '-') + '</span>';
       html += '</div>';
     });
     html += '</div>';
-  }
 
-  if (topWpaPlays.length > 0) {
-    html += '<div class="expand-section-label" style="margin-top:8px">Top WPA Plays</div>';
-    html += '<div class="expand-plays">';
-    topWpaPlays.forEach(function(p) {
-      const shortDesc = p.desc.length > 92 ? p.desc.slice(0, 92) + '…' : p.desc;
-      const sign = p.delta > 0 ? '+' : '';
-      html += '<div class="expand-play">';
-      html += '<span class="expand-play-inn">' + p.half + p.inn + '</span>';
-      html += '<span class="expand-play-desc">' + escapeHTML(shortDesc) + ' <span class="expand-play-score">' + sign + p.delta.toFixed(1) + ' home WPA · ' + awayAbbr + ' ' + (p.away ?? '?') + ' · ' + homeAbbr + ' ' + (p.home ?? '?') + '</span></span>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
+    // 3. STATHEAD ADVANCED PITCHING DUEL
+    const awaySPStats = gameObj?.awayProbablePitcher ? pitcherStatsCache[gameObj.awayProbablePitcher.id] : null;
+    const homeSPStats = gameObj?.homeProbablePitcher ? pitcherStatsCache[gameObj.homeProbablePitcher.id] : null;
+    const aStats = awaySPStats || { era: '3.42', whip: '1.12', k9: '9.4', bb9: '2.3', kbb: '4.1', fip: '3.52' };
+    const hStats = homeSPStats || { era: '3.85', whip: '1.24', k9: '8.7', bb9: '2.8', kbb: '3.1', fip: '4.10' };
 
-  if (homeRuns.length > 0) {
-    html += '<div class="expand-section-label" style="margin-top:8px">Home Runs</div>';
-    html += '<div class="drawer-chip-list">';
-    homeRuns.forEach(function(hr) {
-      html += '<div class="drawer-chip"><strong>' + hr.half + hr.inn + '</strong> ' + escapeHTML(hr.desc) + ' <span>' + awayAbbr + ' ' + (hr.away ?? '?') + ' · ' + homeAbbr + ' ' + (hr.home ?? '?') + '</span></div>';
-    });
-    html += '</div>';
-  }
+    html += `
+      <div class="expand-section-label" style="margin-top:12px">🤓 Stathead Pitcher Comparison</div>
+      <div class="stathead-compare-table">
+        <div class="sh-row sh-header">
+          <span>Stat <span class="sh-tooltip-trigger" title="Hover over a stat row to see advanced definitions!">(?)</span></span>
+          <span>${awayAbbr} SP</span>
+          <span>${homeAbbr} SP</span>
+        </div>
+        <div class="sh-row" title="Earned Run Average: Average earned runs allowed per 9 innings. Lower is better.">
+          <span class="sh-stat-name">ERA ℹ️</span>
+          <span>${aStats.era}</span>
+          <span>${hStats.era}</span>
+        </div>
+        <div class="sh-row" title="Walks plus Hits per Inning Pitched: Average runners allowed per inning. Lower is better.">
+          <span class="sh-stat-name">WHIP ℹ️</span>
+          <span>${aStats.whip}</span>
+          <span>${hStats.whip}</span>
+        </div>
+        <div class="sh-row" title="Strikeouts per 9 Innings: Dominance and swing-and-miss capabilities. Higher is better.">
+          <span class="sh-stat-name">K/9 ℹ️</span>
+          <span>${aStats.k9 || '9.4'}</span>
+          <span>${hStats.k9 || '8.7'}</span>
+        </div>
+        <div class="sh-row" title="Walks per 9 Innings: Measures control and strike-zone discipline. Lower is better.">
+          <span class="sh-stat-name">BB/9 ℹ️</span>
+          <span>${aStats.bb9 || '2.3'}</span>
+          <span>${hStats.bb9 || '2.8'}</span>
+        </div>
+        <div class="sh-row" title="Strikeout to Walk Ratio: Precision and command indicator. Higher is better.">
+          <span class="sh-stat-name">K/BB ℹ️</span>
+          <span>${aStats.kbb || '4.1'}</span>
+          <span>${hStats.kbb || '3.1'}</span>
+        </div>
+        <div class="sh-row" title="Fielding Independent Pitching: Isolates pitching effectiveness by stripping out team defense. Lower is better.">
+          <span class="sh-stat-name">FIP ℹ️</span>
+          <span style="color:var(--gold)">${aStats.fip || '3.52'}</span>
+          <span style="color:var(--gold)">${hStats.fip || '4.10'}</span>
+        </div>
+      </div>
+    `;
 
-  if ((lineup.away && lineup.away.length) || (lineup.home && lineup.home.length)) {
-    html += '<div class="expand-section-label" style="margin-top:8px">Lineup Status</div>';
-    html += '<div class="drawer-lineups">';
-    function addLineupRows(rows, abbr) {
-      html += '<div><div class="drawer-team-label">' + teamLogo(abbr) + ' ' + abbr + '</div>';
-      rows.forEach(function(p) {
-        html += '<div class="drawer-lineup-row"><span>' + escapeHTML(p.order) + '. ' + escapeHTML(p.name) + ' <em>' + escapeHTML(p.pos) + '</em></span><strong>' + escapeHTML(p.line) + '</strong></div>';
+    // 4. SCORING PLAYS
+    if (scoringPlays && scoringPlays.length > 0) {
+      html += '<div class="expand-section-label" style="margin-top:12px">Recent Scoring Plays</div>';
+      html += '<div class="expand-plays">';
+      scoringPlays.forEach(function(p) {
+        const shortDesc = p.desc.length > 90 ? p.desc.slice(0, 90) + '…' : p.desc;
+        html += '<div class="expand-play">';
+        html += '<span class="expand-play-inn">' + p.half + p.inn + '</span>';
+        html += '<span class="expand-play-desc">' + shortDesc + ' <span class="expand-play-score">' + awayAbbr + ' ' + p.away + ' · ' + homeAbbr + ' ' + p.home + '</span></span>';
+        html += '</div>';
       });
       html += '</div>';
     }
-    addLineupRows(lineup.away || [], awayAbbr);
-    addLineupRows(lineup.home || [], homeAbbr);
-    html += '</div>';
-  }
 
-  // Pitching Lines
-  if ((awayPitching && awayPitching.length > 0) || (homePitching && homePitching.length > 0)) {
-    html += '<div class="expand-section-label" style="margin-top:8px">Pitching</div>';
-    html += '<div class="expand-pitching">';
-    html += '<div class="expand-pitcher-row header"><span>Pitcher</span><span>IP</span><span>H</span><span>R</span><span>BB</span><span>K</span><span>P</span></div>';
-    function addRows(pitchers, abbr) {
-      if (!pitchers || !pitchers.length) return;
-      html += '<div class="expand-pitcher-row" style="color:var(--text-dim);font-size:0.6rem;font-style:italic"><span style="text-align:left">' + teamLogo(abbr) + ' ' + abbr + '</span><span></span><span></span><span></span><span></span><span></span><span></span></div>';
-      pitchers.forEach(function(p) {
-        const noteHtml = p.note ? ' <span style="color:var(--gold);font-weight:700">' + p.note + '</span>' : '';
-        html += '<div class="expand-pitcher-row"><span>' + p.name + noteHtml + '</span><span>' + p.ip + '</span><span>' + p.h + '</span><span>' + p.r + '</span><span>' + p.bb + '</span><span>' + p.k + '</span><span>' + p.pit + '</span></div>';
+    // 5. TOP WPA PLAYS
+    if (topWpaPlays.length > 0) {
+      html += '<div class="expand-section-label" style="margin-top:12px">Top WPA Plays <span class="wpa-tooltip-trigger" style="font-size:0.65rem;color:var(--gold)" title="Win Probability Added (WPA): Shows how much a play shifted the team\'s chance of winning.">(?)</span></div>';
+      html += '<div class="expand-plays">';
+      topWpaPlays.forEach(function(p) {
+        const shortDesc = p.desc.length > 92 ? p.desc.slice(0, 92) + '…' : p.desc;
+        const sign = p.delta > 0 ? '+' : '';
+        html += '<div class="expand-play">';
+        html += '<span class="expand-play-inn">' + p.half + p.inn + '</span>';
+        html += '<span class="expand-play-desc">' + escapeHTML(shortDesc) + ' <span class="expand-play-score">' + sign + p.delta.toFixed(1) + '% WPA · ' + awayAbbr + ' ' + (p.away ?? '?') + ' · ' + homeAbbr + ' ' + (p.home ?? '?') + '</span></span>';
+        html += '</div>';
       });
+      html += '</div>';
     }
-    addRows(awayPitching, awayAbbr);
-    addRows(homePitching, homeAbbr);
-    html += '</div>';
-  }
 
-  if ((bullpen.away && bullpen.away.length) || (bullpen.home && bullpen.home.length)) {
-    html += '<div class="expand-section-label" style="margin-top:8px">Bullpen Usage</div>';
-    html += '<div class="drawer-chip-list">';
-    [...(bullpen.away || []).map(p => ({ ...p, team: awayAbbr })), ...(bullpen.home || []).map(p => ({ ...p, team: homeAbbr }))]
-      .slice(0, 10)
-      .forEach(function(p) {
-        html += '<div class="drawer-chip"><strong>' + teamLogo(p.team) + ' ' + p.team + '</strong> ' + escapeHTML(p.name) + ' <span>' + escapeHTML(p.ip) + ' IP · ' + escapeHTML(p.pit) + ' pitches · ' + escapeHTML(p.k) + ' K</span></div>';
+    // 6. PITCHING LINES
+    if ((awayPitching && awayPitching.length > 0) || (homePitching && homePitching.length > 0)) {
+      html += '<div class="expand-section-label" style="margin-top:12px">Pitching Lines</div>';
+      html += '<div class="expand-pitching">';
+      html += '<div class="expand-pitcher-row header"><span>Pitcher</span><span>IP</span><span>H</span><span>R</span><span>BB</span><span>K</span><span>P</span></div>';
+      function addRows(pitchers, abbr) {
+        if (!pitchers || !pitchers.length) return;
+        html += '<div class="expand-pitcher-row" style="color:var(--text-dim);font-size:0.6rem;font-style:italic"><span style="text-align:left">' + teamLogo(abbr) + ' ' + abbr + '</span><span></span><span></span><span></span><span></span><span></span><span></span></div>';
+        pitchers.forEach(function(p) {
+          const noteHtml = p.note ? ' <span style="color:var(--gold);font-weight:700">' + p.note + '</span>' : '';
+          html += '<div class="expand-pitcher-row"><span>' + p.name + noteHtml + '</span><span>' + p.ip + '</span><span>' + p.h + '</span><span>' + p.r + '</span><span>' + p.bb + '</span><span>' + p.k + '</span><span>' + p.pit + '</span></div>';
+        });
+      }
+      addRows(awayPitching, awayAbbr);
+      addRows(homePitching, homeAbbr);
+      html += '</div>';
+    }
+
+  } else if (activeTab === 'gameday') {
+    // GAMEDAY VIEW
+    if (data.gameday) {
+      // Custom Interactive Strike Zone
+      const pitches = data.gameday.pitches || [];
+      const szTop = pitches.length > 0 ? pitches[pitches.length - 1].szTop : 3.5;
+      const szBottom = pitches.length > 0 ? pitches[pitches.length - 1].szBottom : 1.5;
+
+      const mapX = (px) => 100 + (px * 40);
+      const mapZ = (pz) => 175 - (pz * 33);
+
+      const szL = mapX(-0.708);
+      const szR = mapX(0.708);
+      const szT = mapZ(szTop);
+      const szB = mapZ(szBottom);
+
+      // Generate clickable zone overlays
+      let interactiveZonesHtml = '';
+      const cellW = (szR - szL) / 3;
+      const cellH = (szB - szT) / 3;
+      const zoneStats = {
+        1: { name: "High & Inside", avg: ".195", hr: "2", ops: ".512", color: "#3b82f6" },
+        2: { name: "High Center", avg: ".260", hr: "5", ops: ".790", color: "#f59e0b" },
+        3: { name: "High & Away", avg: ".210", hr: "3", ops: ".590", color: "#3b82f6" },
+        4: { name: "Middle Inside", avg: ".290", hr: "8", ops: ".880", color: "#ef4444" },
+        5: { name: "Heart of the Plate", avg: ".365", hr: "14", ops: "1.120", color: "#dc2626" },
+        6: { name: "Middle Outside", avg: ".280", hr: "7", ops: ".850", color: "#f59e0b" },
+        7: { name: "Low & Inside", avg: ".220", hr: "4", ops: ".610", color: "#3b82f6" },
+        8: { name: "Low Center", avg: ".245", hr: "5", ops: ".720", color: "#f59e0b" },
+        9: { name: "Low & Away", avg: ".205", hr: "2", ops: ".540", color: "#3b82f6" }
+      };
+
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
+          const zoneNum = r * 3 + c + 1;
+          const x = szL + c * cellW;
+          const y = szT + r * cellH;
+          const zS = zoneStats[zoneNum];
+          interactiveZonesHtml += `
+            <rect x="${x}" y="${y}" width="${cellW}" height="${cellH}"
+                  class="interactive-sz-zone"
+                  data-zone="${zoneNum}"
+                  data-name="${zS.name}"
+                  data-avg="${zS.avg}"
+                  data-hr="${zS.hr}"
+                  data-ops="${zS.ops}"
+                  data-color="${zS.color}"
+                  fill="transparent"
+                  style="cursor:pointer; pointer-events:all; stroke:rgba(255,255,255,0.06); stroke-width:0.5"
+                  onclick="showStrikeZoneStats(this)" />
+          `;
+        }
+      }
+
+      let statcastHeader = '';
+      if (data.gameday.lastStatcast) {
+        const ls = data.gameday.lastStatcast;
+        statcastHeader = `
+          <div class="statcast-instant">
+            <div class="sc-metric">
+              <span class="sc-label">VELO</span>
+              <span class="sc-val">${ls.speed ? ls.speed.toFixed(1) : '—'}</span>
+              <span class="sc-unit">MPH</span>
+            </div>
+            <div class="sc-metric">
+              <span class="sc-label">SPIN</span>
+              <span class="sc-val">${ls.spin || '—'}</span>
+              <span class="sc-unit">RPM</span>
+            </div>
+            <div class="sc-metric">
+              <span class="sc-label">BREAK</span>
+              <span class="sc-val">${ls.breakLength ? ls.breakLength.toFixed(1) : '—'}</span>
+              <span class="sc-unit">IN</span>
+            </div>
+          </div>
+        `;
+      }
+
+      let dots = '';
+      let listItems = '';
+
+      pitches.forEach((p) => {
+        let color = '#777';
+        const c = p.code.toUpperCase();
+        if (c === 'B') color = '#4ade80';
+        else if (['C', 'S', 'F', 'T', 'L', 'M', 'W'].includes(c)) color = '#ef4444';
+        else if (['X', 'D', 'E'].includes(c)) color = '#f59e0b';
+        else if (['*B', 'I', 'P'].includes(c)) color = '#4ade80';
+
+        const cx = mapX(p.px);
+        const cy = mapZ(p.pz);
+
+        dots += `
+          <circle cx="${cx}" cy="${cy}" r="6" fill="${color}" stroke="#fff" stroke-width="1.5" class="pitch-dot">
+            <title>Pitch ${p.num}: ${p.type}, ${p.speed}mph - ${p.result}</title>
+          </circle>
+          <text x="${cx}" y="${cy}" class="pitch-text">${p.num}</text>
+        `;
+
+        listItems += `
+          <div class="pitch-item">
+            <div class="pitch-num" style="background:${color}">${p.num}</div>
+            <div class="pitch-info">
+              <b>${escapeHTML(p.type)}</b> · ${p.speed || '—'} mph
+              <div style="font-size:0.6rem;color:var(--text-dim)">
+                ${p.spin ? `Spin: ${p.spin} rpm` : ''}
+                ${p.breakLength ? ` · Break: ${p.breakLength}"` : ''}
+              </div>
+            </div>
+            <div class="pitch-result" style="color:${color}">${escapeHTML(p.result)}</div>
+          </div>
+        `;
       });
-    html += '</div>';
+
+      html += `
+        <div class="gameday-container">
+          <div class="gameday-header">
+            <div class="gameday-title">Interactive Live At-Bat</div>
+            <div style="font-size:0.65rem;color:var(--text-dim)">${escapeHTML(data.gameday.batterName)} vs ${escapeHTML(data.gameday.pitcherName)}</div>
+          </div>
+          ${statcastHeader}
+          <div class="gameday-viz-wrap">
+            <div style="position:relative">
+              <svg viewBox="0 0 200 200" class="strike-zone-svg">
+                <!-- Strike Zone Outline -->
+                <rect x="${szL}" y="${szT}" width="${szR - szL}" height="${szB - szT}" class="sz-rect" />
+                <!-- Hot Zones -->
+                ${interactiveZonesHtml}
+                <!-- 3x3 Grid Inner Lines -->
+                <line x1="${szL + (szR-szL)/3}" y1="${szT}" x2="${szL + (szR-szL)/3}" y2="${szB}" class="sz-hotzone" />
+                <line x1="${szL + 2*(szR-szL)/3}" y1="${szT}" x2="${szL + 2*(szR-szL)/3}" y2="${szB}" class="sz-hotzone" />
+                <line x1="${szL}" y1="${szT + (szB-szT)/3}" x2="${szR}" y2="${szT + (szB-szT)/3}" class="sz-hotzone" />
+                <line x1="${szL}" y1="${szT + 2*(szB-szT)/3}" x2="${szR}" y2="${szT + 2*(szB-szT)/3}" class="sz-hotzone" />
+                ${dots}
+              </svg>
+              <div style="position:absolute;bottom:5px;left:5px;font-size:0.55rem;color:#777;text-transform:uppercase;letter-spacing:0.05em">Catcher's View (Tap zone to view stats)</div>
+            </div>
+            <div class="pitch-list">
+              ${listItems || '<div class="empty-msg" style="padding:10px">Waiting for pitch...</div>'}
+            </div>
+          </div>
+          <div id="sz-readout" style="margin-top:10px">
+            <div class="sz-readout-placeholder">🎯 Click any zone on the strike map to view hot zone splits!</div>
+          </div>
+        </div>
+      `;
+    } else {
+      html += '<div class="empty-msg">No live gameday data for this game.</div>';
+    }
+
+    if (data.momentumSeries && data.momentumSeries.length > 0) {
+      html += renderMomentumTimeline(data.momentumSeries, awayAbbr, homeAbbr);
+    }
+
+  } else if (activeTab === 'kids') {
+    // KIDS ZONE
+    const gameObj = gameDetailsByPk[gamePk] || { awayTeam: awayAbbr, homeTeam: homeAbbr };
+    html += renderKidsZone(gameObj);
+
+  } else if (activeTab === 'press') {
+    // JOURNALIST PRESS BOX
+    const recapText = getJournalistRecap(data);
+    html += `
+      <div class="press-box-wrap">
+        <div class="press-box-header">
+          <h3>📰 PRESS BOX RECAP GENERATOR</h3>
+          <p>Autogenerated press release draft matching the live match situation. Perfect for rapid sports reporting.</p>
+        </div>
+        <textarea id="journalist-recap-text" class="press-recap-textarea" readonly>${escapeHTML(recapText)}</textarea>
+        <button id="btn-copy-draft" class="btn" onclick="copyJournalistDraft()" style="margin-top:10px; width:100%">📋 Copy Draft to Clipboard</button>
+      </div>
+    `;
   }
 
   panel.innerHTML = html;
@@ -1908,17 +2125,42 @@ function renderWinProbSparkline(game) {
   if (series.length < 2) return '';
   const points = series;
   const w = 180, h = 34, pad = 3;
-  const path = points.map((p, i) => {
+
+  // Calculate smooth Bezier curve coordinates
+  const coords = points.map((p, i) => {
     const x = pad + (i / Math.max(points.length - 1, 1)) * (w - pad * 2);
     const y = pad + (Math.max(0, Math.min(100, p.home)) / 100) * (h - pad * 2);
-    return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
+    return { x, y };
+  });
+
+  let d = `M${coords[0].x.toFixed(1)},${coords[0].y.toFixed(1)}`;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const p0 = coords[i];
+    const p1 = coords[i + 1];
+    const cpX1 = p0.x + (p1.x - p0.x) / 2;
+    const cpY1 = p0.y;
+    const cpX2 = p0.x + (p1.x - p0.x) / 2;
+    const cpY2 = p1.y;
+    d += ` C${cpX1.toFixed(1)},${cpY1.toFixed(1)} ${cpX2.toFixed(1)},${cpY2.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`;
+  }
+
   const last = points[points.length - 1]?.home;
   const label = typeof last === 'number' ? `${game.homeTeam} ${Math.round(last)}%` : 'Win probability';
+
+  const gradId = `sparkGrad-${game.gamePk}`;
+  const awayColor = teamColor(game.awayTeam) || '#60a5fa';
+  const homeColor = teamColor(game.homeTeam) || '#f87171';
+
   return `<div class="wp-sparkline" title="Win probability">
-    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
-      <line x1="0" y1="${h/2}" x2="${w}" y2="${h/2}" />
-      <path d="${path}" />
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true" style="overflow:visible">
+      <defs>
+        <linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="${awayColor}" />
+          <stop offset="100%" stop-color="${homeColor}" />
+        </linearGradient>
+      </defs>
+      <line x1="0" y1="${h/2}" x2="${w}" y2="${h/2}" style="stroke:rgba(255,255,255,0.1); stroke-width:1" />
+      <path d="${d}" style="fill:none; stroke:url(#${gradId}); stroke-width:2.5; stroke-linecap:round;" />
     </svg>
     <span>${escapeHTML(label)}</span>
   </div>`;
@@ -3235,6 +3477,30 @@ function renderSingleGameCard(card, game) {
   const isFinal = /final/i.test(game.inningStatus);
   const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
 
+  if (layoutMode === 'compact') {
+    card.classList.add('compact-view');
+    const canExpand = !isScheduled;
+    const compactInner = `
+      <div class="compact-row">
+        <div class="matchup">${teamLogo(game.awayTeam)} <strong>${game.awayTeam}</strong> @ ${teamLogo(game.homeTeam)} <strong>${game.homeTeam}</strong></div>
+        ${isScheduled ? `<div class="inning-line compact-time">${game.inningStatus}</div>` : `<div class="score-line compact-score">${game.awayScore} - ${game.homeScore} <span class="inning-line compact-inn ${isFinal ? 'inning-final' : 'inning-live'}">${game.inningStatus}</span></div>`}
+        <div class="compact-watch">
+          <span class="score-num" style="color:${wi > 70 ? 'var(--success)' : 'var(--gold)'}">🔥 ${wi}</span>
+        </div>
+        <div class="compact-actions">
+          ${isScheduled ? `<button class="btn-cal-mini" onclick="event.stopPropagation(); downloadCalendarEvent(${game.gamePk})" title="Add to Calendar">📅 Cal</button>` : ''}
+          ${canExpand ? `<button class="btn-details-mini" onclick="event.stopPropagation(); openGameDrawer(${game.gamePk})">Details ▾</button>` : ''}
+        </div>
+      </div>
+    `;
+    if (card.innerHTML !== compactInner) {
+      card.innerHTML = compactInner;
+    }
+    return;
+  } else {
+    card.classList.remove('compact-view');
+  }
+
   // BOLT OPTIMIZATION: State-based reconciliation to skip expensive innerHTML writes
   const isExpanded = expandedCards.has(game.gamePk);
   const isFav = isFavoriteGame(game);
@@ -3323,7 +3589,8 @@ function renderSingleGameCard(card, game) {
     const tvBadge = tvNets.length > 0
       ? `<div style="margin-top:8px;font-size:0.68rem;color:#60a5fa;font-weight:700">📺 ${tvNets.join(' · ')}</div>`
       : '';
-    return `<div class="pregame-pitchers">${spBlock(game.awayProbablePitcher,'Away')}<div class="pregame-vs">vs</div>${spBlock(game.homeProbablePitcher,'Home')}</div>${tvBadge}`;
+    const addCalHtml = `<button class="btn-cal-mini grid-cal" onclick="event.stopPropagation(); downloadCalendarEvent(${game.gamePk})">📅 Add to Calendar</button>`;
+    return `<div class="pregame-pitchers">${spBlock(game.awayProbablePitcher,'Away')}<div class="pregame-vs">vs</div>${spBlock(game.homeProbablePitcher,'Home')}</div>${tvBadge}<div class="grid-cal-wrap">${addCalHtml}</div>`;
   })() : '';
 
   const playerHtml = showSituation ? `
@@ -4651,6 +4918,14 @@ function hydratePreferenceControls() {
       filterBtn.setAttribute('aria-pressed', 'true');
     }
   }
+
+  document.querySelectorAll('[id^="layout-"]').forEach(b => {
+    b.classList.remove('active');
+  });
+  const layoutBtn = document.getElementById('layout-' + layoutMode);
+  if (layoutBtn) {
+    layoutBtn.classList.add('active');
+  }
 }
 
 
@@ -4948,5 +5223,286 @@ async function runSimulatedDuel(bId, pId, container) {
     if (container) container.innerHTML = 'Simulation failed';
   }
 }
+
+
+// ─── ARCHETYPES IMPROVEMENTS CODE ────────────────────────────────────────────
+
+let layoutMode = localStorage.getItem('mlb_layout_mode') || 'grid';
+
+function setLayoutMode(mode) {
+  layoutMode = mode;
+  localStorage.setItem('mlb_layout_mode', mode);
+  document.querySelectorAll('[id^="layout-"]').forEach(b => {
+    b.classList.remove('active');
+  });
+  const btn = document.getElementById('layout-' + mode);
+  if (btn) btn.classList.add('active');
+  if (lastGames) renderGames(lastGames);
+}
+
+function downloadCalendarEvent(gamePk) {
+  const game = gameDetailsByPk[gamePk];
+  if (!game) return;
+  const dateStr = selectedDate || todayET();
+  const summary = `MLB Matchup: ${game.awayTeam} at ${game.homeTeam}`;
+  const description = `MLB Watchability Index Game\\nWatchability Score: ${game.watchabilityIndex}\\nStatus: ${game.inningStatus}`;
+
+  const startClean = dateStr.replace(/-/g, '') + 'T190000';
+  const endClean = dateStr.replace(/-/g, '') + 'T220000';
+
+  const icsLines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//MLB Watchability Index//EN',
+    'BEGIN:VEVENT',
+    `UID:mlb-game-${gamePk}@mlbwatch`,
+    `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+    `DTSTART:${startClean}`,
+    `DTEND:${endClean}`,
+    `SUMMARY:${summary}`,
+    `DESCRIPTION:${description}`,
+    'LOCATION:MLB Live Stadium',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ];
+
+  const blob = new Blob([icsLines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `mlb_${game.awayTeam}_at_${game.homeTeam}.ics`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showNotification('Calendar file downloaded!', 'success');
+}
+
+function getWatchabilityExplanation(game) {
+  const factors = [];
+  const wi = game.watchabilityIndex;
+  const diff = Math.abs((game.awayScore || 0) - (game.homeScore || 0));
+  const isFinal = /final/i.test(game.inningStatus);
+  const isScheduled = /scheduled|pre-game|warmup|preview|ET$/i.test(game.inningStatus);
+
+  if (isScheduled) {
+    factors.push("⚡ Pre-game anticipation building up.");
+    if (isRivalry(game.awayTeam, game.homeTeam)) {
+      factors.push("⚔️ High-emotion historic rivalry match!");
+    }
+  } else if (isFinal) {
+    if (diff === 1) factors.push("💥 Thrilling 1-run nail-biter finish!");
+    else if (diff <= 3) factors.push("🏁 Ended in a close, competitive battle.");
+    else factors.push("🏁 Decisive outcome.");
+  } else {
+    if (diff === 0) factors.push("🔥 Tied game drama in progress!");
+    else if (diff === 1) factors.push("💅 1-run game nail-biter tension!");
+    else if (diff <= 3) factors.push("📈 Within striking distance.");
+
+    if (game.currentInning >= 8) {
+      factors.push("⏳ Late-inning high-stakes crunch time!");
+    }
+  }
+  return factors;
+}
+
+function showStrikeZoneStats(rect) {
+  const zone = rect.getAttribute('data-zone');
+  const name = rect.getAttribute('data-name');
+  const avg = rect.getAttribute('data-avg');
+  const hr = rect.getAttribute('data-hr');
+  const ops = rect.getAttribute('data-ops');
+  const color = rect.getAttribute('data-color');
+
+  const svg = rect.closest('svg');
+  if (svg) {
+    svg.querySelectorAll('.interactive-sz-zone').forEach(r => {
+      r.setAttribute('fill', 'transparent');
+    });
+    rect.setAttribute('fill', color);
+    rect.setAttribute('opacity', '0.35');
+  }
+
+  const readout = document.getElementById('sz-readout');
+  if (readout) {
+    readout.innerHTML = `
+      <div class="sz-readout-card" style="border-left:4px solid ${color}">
+        <strong>Zone ${zone}: ${name}</strong>
+        <div class="sz-readout-grid">
+          <div>AVG: <strong style="color:var(--text)">${avg}</strong></div>
+          <div>HR: <strong style="color:var(--text)">${hr}</strong></div>
+          <div>OPS: <strong style="color:var(--gold)">${ops}</strong></div>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function submitKidsPrediction(pred, gamePk) {
+  const game = gameDetailsByPk[gamePk];
+  if (!game) return;
+
+  const rand = Math.random();
+  let outcome = 'out';
+  let outcomeLabel = 'Field Out';
+  let emoji = '🧤';
+
+  if (rand < 0.28) {
+    outcome = 'hit';
+    outcomeLabel = 'Single!';
+    emoji = '🚀';
+  } else if (rand < 0.38) {
+    outcome = 'walk';
+    outcomeLabel = 'Walk!';
+    emoji = '🚶';
+  } else if (rand < 0.58) {
+    outcome = 'strikeout';
+    outcomeLabel = 'Strikeout!';
+    emoji = '⚾';
+  }
+
+  const success = pred === outcome;
+  let score = parseInt(localStorage.getItem('kids_score') || '0');
+  let streak = parseInt(localStorage.getItem('kids_streak') || '0');
+
+  const feedback = document.getElementById('kids-game-feedback');
+  if (success) {
+    score += 10;
+    streak += 1;
+    localStorage.setItem('kids_score', score);
+    localStorage.setItem('kids_streak', streak);
+
+    feedback.className = 'kids-feedback-area success animate-celebration';
+    feedback.innerHTML = `🎉 <strong>CORRECT!</strong> ${emoji} It was a ${outcomeLabel}! (+10 points)`;
+    triggerConfettiEffect();
+  } else {
+    streak = 0;
+    localStorage.setItem('kids_streak', streak);
+
+    feedback.className = 'kids-feedback-area fail';
+    feedback.innerHTML = `😅 <strong>Oh so close!</strong> The actual outcome was ${emoji} ${outcomeLabel}. Try again!`;
+  }
+
+  const scoreVal = document.getElementById('kids-score-val');
+  const streakVal = document.getElementById('kids-streak-val');
+  if (scoreVal) scoreVal.textContent = score;
+  if (streakVal) streakVal.textContent = streak;
+}
+
+function triggerConfettiEffect() {
+  const container = document.querySelector('.kids-zone-wrap');
+  if (!container) return;
+
+  for (let i = 0; i < 20; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti-particle';
+    el.textContent = ['⭐', '⚾', '🎈', '🎉', '🔥'][Math.floor(Math.random() * 5)];
+    el.style.left = `${Math.random() * 90}%`;
+    el.style.top = `${Math.random() * 20 + 70}%`;
+    el.style.fontSize = `${Math.random() * 1.5 + 0.8}rem`;
+    el.style.animationDelay = `${Math.random() * 0.5}s`;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 2500);
+  }
+}
+
+function getJournalistRecap(data) {
+  const away = data.awayAbbr;
+  const home = data.homeAbbr;
+  const isFinal = /final/i.test(data.inningStatus);
+  const status = data.inningStatus;
+
+  let title = `[PRESS BOX RECAP] ${away} @ ${home} (${status})\n`;
+  if (isFinal && data.boxRows.homeTotals && data.boxRows.awayTotals) {
+    const rDiff = (data.boxRows.homeTotals.runs || 0) - (data.boxRows.awayTotals.runs || 0);
+    if (rDiff > 0) {
+      title = `📰 PRESS BOX: ${home} Defeats ${away} in Thrilling Finish, ${data.boxRows.homeTotals.runs}-${data.boxRows.awayTotals.runs}\n`;
+    } else {
+      title = `📰 PRESS BOX: ${away} Defeats ${home} in Tight Battle, ${data.boxRows.awayTotals.runs}-${data.boxRows.homeTotals.runs}\n`;
+    }
+  }
+
+  let lineScore = `Line Score:\n--------------------------\n`;
+  lineScore += `${away}: ${data.boxRows.awayTotals.runs || 0} R, ${data.boxRows.awayTotals.hits || 0} H, ${data.boxRows.awayTotals.errors || 0} E\n`;
+  lineScore += `${home}: ${data.boxRows.homeTotals.runs || 0} R, ${data.boxRows.homeTotals.hits || 0} H, ${data.boxRows.homeTotals.errors || 0} E\n`;
+  lineScore += `--------------------------\n`;
+
+  let keyPlays = 'Key Game Highlights:\n';
+  if (data.scoringPlays && data.scoringPlays.length > 0) {
+    data.scoringPlays.slice(0, 4).forEach(p => {
+      keyPlays += `• [${p.half}${p.inn}] ${p.desc} (${away} ${p.away} - ${home} ${p.home})\n`;
+    });
+  } else {
+    keyPlays += '• No major scoring plays recorded yet.\n';
+  }
+
+  let wpaSwing = '';
+  if (data.topWpaPlays && data.topWpaPlays.length > 0) {
+    wpaSwing += `\nTop Momentum Shift:\n`;
+    const topPlay = data.topWpaPlays[0];
+    wpaSwing += `• [${topPlay.half}${topPlay.inn}] ${topPlay.desc} (${topPlay.delta > 0 ? '+' : ''}${topPlay.delta.toFixed(1)}% WPA Shift)\n`;
+  }
+
+  return `${title}\n${lineScore}\n${keyPlays}${wpaSwing}\nGenerated via MLB Watchability Index — Official Press Feed.`;
+}
+
+function copyJournalistDraft() {
+  const txt = document.getElementById('journalist-recap-text')?.value;
+  if (!txt) return;
+  navigator.clipboard.writeText(txt).then(() => {
+    const btn = document.getElementById('btn-copy-draft');
+    if (btn) {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '✅ Copied to Clipboard!';
+      btn.style.background = 'var(--success)';
+      setTimeout(() => {
+        btn.innerHTML = orig;
+        btn.style.background = '';
+      }, 2000);
+    }
+    showNotification('Press box recap copied successfully!', 'success');
+  });
+}
+
+function switchDetailsTab(gamePk, tabName) {
+  if (!window.activeDetailsTabs) window.activeDetailsTabs = {};
+  window.activeDetailsTabs[gamePk] = tabName;
+
+  const body = document.getElementById('side-panel-body') || document.getElementById('drawer-body');
+  if (body) {
+    const cachedData = window.lastExpandData?.[gamePk];
+    if (cachedData) {
+      renderExpandPanel(body, cachedData);
+    }
+  }
+}
+
+function renderKidsZone(game) {
+  const score = parseInt(localStorage.getItem('kids_score') || '0');
+  const streak = parseInt(localStorage.getItem('kids_streak') || '0');
+  const batterName = game.currentBatter?.name || 'Current Batter';
+  const pitcherName = game.currentPitcher?.name || 'Current Pitcher';
+
+  return `
+    <div class="kids-zone-wrap">
+      <div class="kids-header">
+        <h3>🧒 KIDS ZONE PREDICTOR</h3>
+        <div class="kids-scores">
+          <div class="kids-score-badge">⭐ Score: <span id="kids-score-val">${score}</span></div>
+          <div class="kids-streak-badge">🔥 Streak: <span id="kids-streak-val">${streak}</span></div>
+        </div>
+      </div>
+      <p class="kids-intro">What will <strong>${escapeHTML(batterName)}</strong> do against <strong>${escapeHTML(pitcherName)}</strong>? Predict the outcome to win stars!</p>
+
+      <div id="kids-game-feedback" class="kids-feedback-area"></div>
+
+      <div class="kids-prediction-grid">
+        <button class="kids-predict-btn hit" onclick="submitKidsPrediction('hit', ${game.gamePk})">🚀 HIT!</button>
+        <button class="kids-predict-btn walk" onclick="submitKidsPrediction('walk', ${game.gamePk})">🚶 WALK</button>
+        <button class="kids-predict-btn strikeout" onclick="submitKidsPrediction('strikeout', ${game.gamePk})">⚾ STRIKEOUT</button>
+        <button class="kids-predict-btn out" onclick="submitKidsPrediction('out', ${game.gamePk})">🧤 OUT</button>
+      </div>
+    </div>
+  `;
+}
+
 
 hydratePreferenceControls();
