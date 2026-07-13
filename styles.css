@@ -1,6 +1,29 @@
 @import "css/variables.css";
-﻿* { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg-primary); color: var(--text-primary); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+html { scroll-behavior: smooth; }
+
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 20px;
+  background: var(--gold);
+  color: var(--bg-black);
+  padding: 10px 20px;
+  z-index: 2000;
+  font-weight: 800;
+  text-decoration: none;
+  border-radius: 0 0 8px 8px;
+  transition: top 0.2s;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: 2px solid var(--gold);
+  outline-offset: 4px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg-primary); color: var(--text-primary); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
 
   header {
     background: var(--bg-secondary);

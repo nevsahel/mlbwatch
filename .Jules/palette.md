@@ -47,3 +47,7 @@
 ## 2026-07-08 - Synchronized Dashboard Interactions
 **Learning:** When an application features multiple parallel dashboards (e.g., MLB and NBA), maintaining strict consistency in interaction patterns—such as selection highlighting (`.active-side`) and responsive branching between drawers and side panels—is vital for a predictable user experience. Consistent branding cues (like team-colored headers) across these panels further unify the product identity.
 **Action:** Always synchronize state-based visual cues and responsive layout branching across similar dashboard implementations to leverage existing user mental models.
+
+## 2026-07-11 - Standardized Keyboard Entry Points
+**Learning:** Even in highly interactive dashboards, keyboard users need a fast way to bypass repetitive navigation headers. Standardizing skip links across landing pages and sport-specific dashboards using a consistent `#main-layout` target unifies the accessibility model.
+**Action:** Always implement skip-to-content links as the first interactive element and pair them with `scroll-behavior: smooth` for better orientation.
