@@ -1595,7 +1595,6 @@ function renderExpandPanel(panel, data) {
     <div class="details-tab-bar" role="tablist">
       <button class="details-tab-btn ${activeTab === 'stats' ? 'active' : ''}" role="tab" aria-selected="${activeTab === 'stats'}" onclick="switchDetailsTab(${gamePk}, 'stats')">📊 Stats & Plays</button>
       <button class="details-tab-btn ${activeTab === 'gameday' ? 'active' : ''}" role="tab" aria-selected="${activeTab === 'gameday'}" onclick="switchDetailsTab(${gamePk}, 'gameday')">👁 Gameday Viz</button>
-      <button class="details-tab-btn ${activeTab === 'kids' ? 'active' : ''}" role="tab" aria-selected="${activeTab === 'kids'}" onclick="switchDetailsTab(${gamePk}, 'kids')">🧒 Kids Predictor</button>
       <button class="details-tab-btn ${activeTab === 'press' ? 'active' : ''}" role="tab" aria-selected="${activeTab === 'press'}" onclick="switchDetailsTab(${gamePk}, 'press')">📰 Journalist Draft</button>
     </div>
   `;
@@ -1890,11 +1889,6 @@ function renderExpandPanel(panel, data) {
     if (data.momentumSeries && data.momentumSeries.length > 0) {
       html += renderMomentumTimeline(data.momentumSeries, awayAbbr, homeAbbr);
     }
-
-  } else if (activeTab === 'kids') {
-    // KIDS ZONE
-    const gameObj = gameDetailsByPk[gamePk] || { awayTeam: awayAbbr, homeTeam: homeAbbr };
-    html += renderKidsZone(gameObj);
 
   } else if (activeTab === 'press') {
     // JOURNALIST PRESS BOX
@@ -5439,73 +5433,6 @@ function showStrikeZoneStats(rect) {
   }
 }
 
-function submitKidsPrediction(pred, gamePk) {
-  const game = gameDetailsByPk[gamePk];
-  if (!game) return;
-
-  const rand = Math.random();
-  let outcome = 'out';
-  let outcomeLabel = 'Field Out';
-  let emoji = '🧤';
-
-  if (rand < 0.28) {
-    outcome = 'hit';
-    outcomeLabel = 'Single!';
-    emoji = '🚀';
-  } else if (rand < 0.38) {
-    outcome = 'walk';
-    outcomeLabel = 'Walk!';
-    emoji = '🚶';
-  } else if (rand < 0.58) {
-    outcome = 'strikeout';
-    outcomeLabel = 'Strikeout!';
-    emoji = '⚾';
-  }
-
-  const success = pred === outcome;
-  let score = parseInt(localStorage.getItem('kids_score') || '0');
-  let streak = parseInt(localStorage.getItem('kids_streak') || '0');
-
-  const feedback = document.getElementById('kids-game-feedback');
-  if (success) {
-    score += 10;
-    streak += 1;
-    localStorage.setItem('kids_score', score);
-    localStorage.setItem('kids_streak', streak);
-
-    feedback.className = 'kids-feedback-area success animate-celebration';
-    feedback.innerHTML = `🎉 <strong>CORRECT!</strong> ${emoji} It was a ${outcomeLabel}! (+10 points)`;
-    triggerConfettiEffect();
-  } else {
-    streak = 0;
-    localStorage.setItem('kids_streak', streak);
-
-    feedback.className = 'kids-feedback-area fail';
-    feedback.innerHTML = `😅 <strong>Oh so close!</strong> The actual outcome was ${emoji} ${outcomeLabel}. Try again!`;
-  }
-
-  const scoreVal = document.getElementById('kids-score-val');
-  const streakVal = document.getElementById('kids-streak-val');
-  if (scoreVal) scoreVal.textContent = score;
-  if (streakVal) streakVal.textContent = streak;
-}
-
-function triggerConfettiEffect() {
-  const container = document.querySelector('.kids-zone-wrap');
-  if (!container) return;
-
-  for (let i = 0; i < 20; i++) {
-    const el = document.createElement('div');
-    el.className = 'confetti-particle';
-    el.textContent = ['⭐', '⚾', '🎈', '🎉', '🔥'][Math.floor(Math.random() * 5)];
-    el.style.left = `${Math.random() * 90}%`;
-    el.style.top = `${Math.random() * 20 + 70}%`;
-    el.style.fontSize = `${Math.random() * 1.5 + 0.8}rem`;
-    el.style.animationDelay = `${Math.random() * 0.5}s`;
-    container.appendChild(el);
-    setTimeout(() => el.remove(), 2500);
-  }
-}
 
 function getJournalistRecap(data) {
   const away = data.awayAbbr;
@@ -5578,34 +5505,6 @@ function switchDetailsTab(gamePk, tabName) {
   }
 }
 
-function renderKidsZone(game) {
-  const score = parseInt(localStorage.getItem('kids_score') || '0');
-  const streak = parseInt(localStorage.getItem('kids_streak') || '0');
-  const batterName = game.currentBatter?.name || 'Current Batter';
-  const pitcherName = game.currentPitcher?.name || 'Current Pitcher';
-
-  return `
-    <div class="kids-zone-wrap">
-      <div class="kids-header">
-        <h3>🧒 KIDS ZONE PREDICTOR</h3>
-        <div class="kids-scores">
-          <div class="kids-score-badge">⭐ Score: <span id="kids-score-val">${score}</span></div>
-          <div class="kids-streak-badge">🔥 Streak: <span id="kids-streak-val">${streak}</span></div>
-        </div>
-      </div>
-      <p class="kids-intro">What will <strong>${escapeHTML(batterName)}</strong> do against <strong>${escapeHTML(pitcherName)}</strong>? Predict the outcome to win stars!</p>
-
-      <div id="kids-game-feedback" class="kids-feedback-area"></div>
-
-      <div class="kids-prediction-grid">
-        <button class="kids-predict-btn hit" onclick="submitKidsPrediction('hit', ${game.gamePk})">🚀 HIT!</button>
-        <button class="kids-predict-btn walk" onclick="submitKidsPrediction('walk', ${game.gamePk})">🚶 WALK</button>
-        <button class="kids-predict-btn strikeout" onclick="submitKidsPrediction('strikeout', ${game.gamePk})">⚾ STRIKEOUT</button>
-        <button class="kids-predict-btn out" onclick="submitKidsPrediction('out', ${game.gamePk})">🧤 OUT</button>
-      </div>
-    </div>
-  `;
-}
 
 
 hydratePreferenceControls();
