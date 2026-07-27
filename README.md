@@ -1,6 +1,6 @@
-# ⚾ MLB Watchability Index
+# 🏟️ Sports Watchability Index
 
-A sophisticated, data-driven live dashboard for Major League Baseball that uses a multi-factor **Watchability Index** to identify the most compelling action in real-time. From pennant races and milestone chases to high-stakes late-inning drama, this tool ensures you're always tuned into the game's most important moments.
+A sophisticated, data-driven live dashboard for both Major League Baseball (MLB) and the National Basketball Association (NBA) that uses a multi-factor **Watchability Index** to identify the most compelling action in real-time. From pennant races and high-stakes late-inning drama to clutch time and 4th quarter comebacks, this tool ensures you're always tuned into the game's most important moments.
 
 ---
 
@@ -23,32 +23,49 @@ A sophisticated, data-driven live dashboard for Major League Baseball that uses 
 - **Heat Maps**: Visualizes a player's recent performance (Last 10 games) relative to their milestone chase.
 
 ### 🕹️ Interactive Tools
-- **The Duel**: A head-to-head matchup simulator. Compare any batter and pitcher in MLB history (or active) using a weighted blend of season and career data to predict outcomes.
-- **Home Run Command Center**: Detailed tracking of every HR today, featuring **Baseball Savant-powered spray charts**, launch metrics, and Win Probability Added (WPA).
+- **The Duel**: A matchup simulator for both MLB and NBA. Compare batters and pitchers, or dive into matchup data.
+- **Command Centers**: The **Home Run Command Center** tracks every HR today with spray charts and launch metrics, while the **Shot Center** tracks impactful basketball shots.
+- **Players of the Day**: For NBA, tracks top performances across the league.
 - **Live Ticker**: A scrolling feed of the league's most impactful plays, lead changes, and "clutch" events.
 
 ---
 
 ## 📐 The Watchability Index (0–100)
 
-The index uses a tiered, bounded calculation system to ensure scores spread naturally across the full range.
+The index uses a tiered, bounded calculation system to ensure scores spread naturally across the full range, tailored to each sport.
 
-### 1. Situation Component (Max 50 pts)
+### ⚾ MLB Logic
+#### 1. Situation Component (Max 50 pts)
 Measures immediate leverage and drama:
 - **Score Closeness**: Massive boosts for tied games (+20) and 1-run leads (+15).
 - **Urgency**: Bonuses for the 9th inning (+15) and extra innings (up to +18).
 - **Pressure**: Points for runners in scoring position and two-out threats.
 - **Special Events**: 10-point "No-Hitter/Perfect Game" override for games entering the 7th inning.
 
-### 2. Context Component (Max 30 pts raw)
+#### 2. Context Component (Max 30 pts raw)
 Measures historical and seasonal gravity:
 - **Star Power**: Daily tiers (T1/T2/T3) driven by live Fangraphs fWAR data.
 - **Team Quality**: Rewards matchups between high-winning-percentage teams.
 - **Playoff Stakes**: Elevated scores for divisional rivalries and bubble-team matchups.
 
-### 3. Final Calculation
+#### 3. Final Calculation
 - **Live**: `30 (Base) + Situation + (Context * 0.65)`
 - **100 Score Requirements**: A game must be tied in extras, with bases loaded, featuring Tier 1 stars, in a playoff race, during a historic rivalry.
+
+### 🏀 NBA Logic
+#### 1. Situation Component (Max 55 pts)
+Measures immediate leverage and late-game drama:
+- **Score Closeness**: Boosts for tied games (+25) and one-possession games (1-3 pts, +20).
+- **Urgency**: Bonuses for Overtime (+25), the 4th period (+15), and Clutch Time (<2m, +15).
+
+#### 2. Context Component (Max 35 pts raw)
+Measures matchup gravity:
+- **Team Quality**: Rewards high-quality matchups (+10).
+- **Star Power**: Based on superstars per team (+5/team).
+- **Rivalry**: Elevated scores for rivalry games (+8).
+
+#### 3. Final Calculation
+- **Live**: `35 (Base) + Situation + (Context * 0.70)`
 
 ---
 
@@ -80,13 +97,16 @@ Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestr
 ## 📁 Project Structure
 
 ```text
-├── app.js               # Core orchestration, scoring logic, and UI rendering
+├── app.js               # Core orchestration, scoring logic, and UI rendering (MLB)
 ├── index.html           # Sport selector landing page
 ├── mlb.html             # MLB dashboard main layout
 ├── nba.html             # NBA dashboard main layout
+├── check_nba_api.js     # Utility for testing ESPN API responses
 ├── styles.css           # Comprehensive dark-themed design system
 ├── js/
-│   ├── constants.js     # Team metadata, rivalry pairs, and scoring config
+│   ├── constants.js     # Team metadata, rivalry pairs, and scoring config (MLB)
+│   ├── nba-app.js       # Core orchestration, scoring logic, and UI rendering (NBA)
+│   ├── nba-constants.js # Team metadata, rivalry pairs, and scoring config (NBA)
 │   └── modules/
 │       └── api.js       # Specialized API interaction layers
 ├── utils/
@@ -97,4 +117,4 @@ Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestr
 
 ---
 
-*Data provided by MLB Stats API, Baseball Savant, and Fangraphs.*
+*Data provided by MLB Stats API, Baseball Savant, Fangraphs, and the ESPN API.*
