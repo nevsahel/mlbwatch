@@ -4055,16 +4055,6 @@ async function fetchAwardRaces() {
     const mvpNL = rankAward(mergeForMVP(nlH, nlP), mvpScore);
 
     // ── 5. Cy Young: qualified starters only (≥ qualifiedIP) ─────────────────
-    const CY_VOTE_PTS = [15, 10, 7, 4, 1]; // BBWAA Cy Young is 5-voter, 5-place ballot
-    function simulateCYVotes(candidates) {
-      const votes = {};
-      candidates.forEach(p => { votes[p.id] = 0; });
-      for (let v = 0; v < 5; v++) {
-        [...candidates].sort((a,b) => scoreCY(b) - scoreCY(a) + (Math.random()-0.5)*6)
-          .slice(0,5).forEach((p,i) => { votes[p.id] = (votes[p.id]||0) + CY_VOTE_PTS[i]; });
-      }
-      return votes;
-    }
     const rankCY = (pitchers) => {
       const qualified = pitchers.filter(p => parseFloat(p.stats.inningsPitched||0) >= qualifiedIP);
       const pool = qualified.length >= 5 ? qualified : pitchers;
