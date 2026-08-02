@@ -74,6 +74,7 @@ function switchTab(tab) {
       if (tab === 'milestones') fetchMilestones(lastGames);
       if (tab === 'awards') fetchAwardRaces();
       if (tab === 'duel') fetchAndRenderDuel(lastGames);
+      if (tab === 'transactions') fetchAndRenderTransactions();
     }
   }, 'tab-' + tab, 'Tab failed to load');
 }
@@ -4925,6 +4926,7 @@ async function pollGames() {
     if (activeTab === 'potd') fetchAndRenderPOTD(games);
     if (activeTab === 'ticker') fetchAndRenderTicker(games);
     if (activeTab === 'duel') fetchAndRenderDuel(games);
+    if (activeTab === 'transactions' && pollCount % 4 === 0) fetchAndRenderTransactions();
     if (activeTab === 'playoffs' && pollCount % 4 === 0) fetchPlayoffRaces(games);
     if (activeTab === 'milestones' && pollCount % 4 === 0) fetchMilestones(games);
 
@@ -5187,6 +5189,91 @@ async function runSimulatedDuel(bId, pId, container) {
   }
 }
 
+
+// ─── RECENT TRANSACTIONS ────────────────────────────────────────────────────────────
+async function fetchAndRenderTransactions() {
+  const container = document.getElementById('transactions-container');
+  if (!container) return;
+  container.innerHTML = '<div class="expand-load-msg">Loading transactions...</div>';
+
+  try {
+    const d = new Date();
+    const endDate = d.toISOString().split('T')[0];
+    d.setDate(d.getDate() - 7);
+    const startDate = d.toISOString().split('T')[0];
+    const season = currentSeason();
+
+    const [transData, { fgHitters, fgPitchers }] = await Promise.all([
+      requestPool.fetchDedup(`${MLB_API}/transactions?sportId=1&startDate=${startDate}&endDate=${endDate}`),
+      fetchFangraphsWAR(season)
+    ]);
+
+    // Create war lookup map
+    const warByName = {};
+    const processWar = (arr) => {
+      arr.forEach(p => {
+        const name = p.PlayerName || p.Name;
+        const war = parseFloat(p.WAR ?? p.war ?? 0);
+        if (name && (!warByName[name] || war > warByName[name])) {
+          warByName[name] = war;
+        }
+      });
+    };
+    processWar(fgHitters || []);
+    processWar(fgPitchers || []);
+
+    const tr = transData.transactions || [];
+
+    // Some transactions don't have players attached (e.g. coaches), so filter for person
+    let relevant = tr.filter(t => t.person && t.person.fullName);
+
+    // We only want interesting transactions. Trades are good. We'll also just take the most recent 50.
+    // Let's filter out minor league assignments if they don't involve major league teams (id < 159 roughly)
+    relevant = relevant.filter(t => {
+      const isMajors = (team) => !team || (team.id && team.id < 160 && team.id >= 100);
+      return isMajors(t.fromTeam) || isMajors(t.toTeam);
+    });
+
+    relevant.sort((a, b) => new Date(b.date) - new Date(a.date));
+    relevant = relevant.slice(0, 50); // limit to 50
+
+    if (relevant.length === 0) {
+      container.innerHTML = '<div class="empty-msg">No recent major transactions found.</div>';
+      return;
+    }
+
+    container.innerHTML = '<div class="transactions-grid">' + relevant.map(t => {
+      const pName = t.person.fullName;
+      const war = warByName[pName];
+      const warHtml = war != null ? `<span class="trans-war" style="color:var(--gold);font-size:0.75rem;">${war.toFixed(1)} WAR</span>` : '';
+      const fromTeam = t.fromTeam ? t.fromTeam.name : null;
+      const toTeam = t.toTeam ? t.toTeam.name : null;
+      let teamFlow = '';
+      if (fromTeam && toTeam && fromTeam !== toTeam) {
+        teamFlow = `${teamLogo(teamAbbrFromId(t.fromTeam.id))} ${fromTeam} → ${teamLogo(teamAbbrFromId(t.toTeam.id))} ${toTeam}`;
+      } else if (toTeam) {
+        teamFlow = `${teamLogo(teamAbbrFromId(t.toTeam.id))} ${toTeam}`;
+      } else if (fromTeam) {
+        teamFlow = `${teamLogo(teamAbbrFromId(t.fromTeam.id))} ${fromTeam}`;
+      }
+      return `
+        <div class="transaction-card">
+          <div class="trans-top">
+            <span class="trans-name">${escapeHTML(pName)}</span>
+            ${warHtml}
+          </div>
+          <div class="trans-type">${escapeHTML(t.typeDesc)} · ${t.date}</div>
+          <div class="trans-teams">${teamFlow}</div>
+          <div class="trans-desc">${escapeHTML(t.description)}</div>
+        </div>
+      `;
+    }).join('') + '</div>';
+
+  } catch (e) {
+    console.error('Transactions fetch failed:', e);
+    container.innerHTML = '<div class="empty-msg">Failed to load transactions</div>';
+  }
+}
 
 // ─── ARCHETYPES IMPROVEMENTS CODE ────────────────────────────────────────────
 
