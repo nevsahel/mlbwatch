@@ -1514,53 +1514,6 @@ function renderExpandPanel(panel, data) {
     });
     html += '</div>';
 
-    // 3. STATHEAD ADVANCED PITCHING DUEL
-    const awaySPStats = gameObj?.awayProbablePitcher ? pitcherStatsCache[gameObj.awayProbablePitcher.id] : null;
-    const homeSPStats = gameObj?.homeProbablePitcher ? pitcherStatsCache[gameObj.homeProbablePitcher.id] : null;
-    const aStats = awaySPStats || { era: '3.42', whip: '1.12', k9: '9.4', bb9: '2.3', kbb: '4.1', fip: '3.52' };
-    const hStats = homeSPStats || { era: '3.85', whip: '1.24', k9: '8.7', bb9: '2.8', kbb: '3.1', fip: '4.10' };
-
-    html += `
-      <div class="expand-section-label" style="margin-top:12px">🤓 Stathead Pitcher Comparison</div>
-      <div class="stathead-compare-table">
-        <div class="sh-row sh-header">
-          <span>Stat <span class="sh-tooltip-trigger" title="Hover over a stat row to see advanced definitions!">(?)</span></span>
-          <span>${awayAbbr} SP</span>
-          <span>${homeAbbr} SP</span>
-        </div>
-        <div class="sh-row" title="Earned Run Average: Average earned runs allowed per 9 innings. Lower is better.">
-          <span class="sh-stat-name">ERA ℹ️</span>
-          <span>${aStats.era}</span>
-          <span>${hStats.era}</span>
-        </div>
-        <div class="sh-row" title="Walks plus Hits per Inning Pitched: Average runners allowed per inning. Lower is better.">
-          <span class="sh-stat-name">WHIP ℹ️</span>
-          <span>${aStats.whip}</span>
-          <span>${hStats.whip}</span>
-        </div>
-        <div class="sh-row" title="Strikeouts per 9 Innings: Dominance and swing-and-miss capabilities. Higher is better.">
-          <span class="sh-stat-name">K/9 ℹ️</span>
-          <span>${aStats.k9 || '9.4'}</span>
-          <span>${hStats.k9 || '8.7'}</span>
-        </div>
-        <div class="sh-row" title="Walks per 9 Innings: Measures control and strike-zone discipline. Lower is better.">
-          <span class="sh-stat-name">BB/9 ℹ️</span>
-          <span>${aStats.bb9 || '2.3'}</span>
-          <span>${hStats.bb9 || '2.8'}</span>
-        </div>
-        <div class="sh-row" title="Strikeout to Walk Ratio: Precision and command indicator. Higher is better.">
-          <span class="sh-stat-name">K/BB ℹ️</span>
-          <span>${aStats.kbb || '4.1'}</span>
-          <span>${hStats.kbb || '3.1'}</span>
-        </div>
-        <div class="sh-row" title="Fielding Independent Pitching: Isolates pitching effectiveness by stripping out team defense. Lower is better.">
-          <span class="sh-stat-name">FIP ℹ️</span>
-          <span style="color:var(--gold)">${aStats.fip || '3.52'}</span>
-          <span style="color:var(--gold)">${hStats.fip || '4.10'}</span>
-        </div>
-      </div>
-    `;
-
     // 4. SCORING PLAYS
     if (scoringPlays && scoringPlays.length > 0) {
       html += '<div class="expand-section-label" style="margin-top:12px">Recent Scoring Plays</div>';
