@@ -1957,14 +1957,6 @@ async function searchNBAPlayer(name) {
   return { name: name, id: Math.random() };
 }
 
-// ─── NBA LIVE TICKER ─────────────────────────────────────────────────────────
-
-async function fetchAndRenderNBATicker(games) {
-    // Porting MLB ticker logic
-    // Currently, NBA ticker would be similar to Shot Center but for all plays (turnovers, fouls, etc.)
-    // For now, let's just make sure high impact plays are highlighted.
-}
-
 function renderWinProbSparkline(game) {
   const series = game.winProbSeries || [];
   if (series.length < 2) return '';
