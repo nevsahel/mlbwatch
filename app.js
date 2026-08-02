@@ -5373,12 +5373,12 @@ function showStrikeZoneStats(rect) {
   const readout = document.getElementById('sz-readout');
   if (readout) {
     readout.innerHTML = `
-      <div class="sz-readout-card" style="border-left:4px solid ${color}">
-        <strong>Zone ${zone}: ${name}</strong>
+      <div class="sz-readout-card" style="border-left:4px solid ${escapeHTML(color)}">
+        <strong>Zone ${escapeHTML(zone)}: ${escapeHTML(name)}</strong>
         <div class="sz-readout-grid">
-          <div>AVG: <strong style="color:var(--text)">${avg}</strong></div>
-          <div>HR: <strong style="color:var(--text)">${hr}</strong></div>
-          <div>OPS: <strong style="color:var(--gold)">${ops}</strong></div>
+          <div>AVG: <strong style="color:var(--text)">${escapeHTML(avg)}</strong></div>
+          <div>HR: <strong style="color:var(--text)">${escapeHTML(hr)}</strong></div>
+          <div>OPS: <strong style="color:var(--gold)">${escapeHTML(ops)}</strong></div>
         </div>
       </div>
     `;
