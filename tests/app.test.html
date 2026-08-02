@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test isFavoriteTeam</title>
+    <!-- Dependencies for app.js -->
+    <script src="../utils/core.js"></script>
+    <script src="../utils/performance.js"></script>
+    <script src="../js/constants.js"></script>
+
+    <!-- Mock LocalStorage setup for favoriteTeams -->
+    <script>
+        // APP_PREFS_KEY is defined in utils/core.js as 'mlbWatchPrefsV1'
+        window.localStorage.setItem('mlbWatchPrefsV1', JSON.stringify({
+            favoriteTeams: ['ARI', 'OAK']
+        }));
+    </script>
+
+    <!-- Subject under test -->
+    <script src="../app.js"></script>
+
+    <script>
+        let testCount = 0;
+        let failCount = 0;
+
+        function assert(condition, message) {
+            testCount++;
+            const resultDiv = document.createElement('div');
+            if (!condition) {
+                failCount++;
+                console.error("FAIL:", message);
+                resultDiv.style.color = "red";
+                resultDiv.textContent = `FAIL: ${message}`;
+            } else {
+                console.log("PASS:", message);
+                resultDiv.style.color = "green";
+                resultDiv.textContent = `PASS: ${message}`;
+            }
+            document.body.appendChild(resultDiv);
+        }
+
+        window.onload = function() {
+            const heading = document.createElement('h1');
+            heading.textContent = "Testing isFavoriteTeam";
+            document.body.appendChild(heading);
+
+            try {
+                // Test exact matches for favored teams
+                assert(isFavoriteTeam('ARI') === true, "ARI should be recognized as a favorite team");
+                assert(isFavoriteTeam('OAK') === true, "OAK should be recognized as a favorite team");
+
+                // Test unfavored teams
+                assert(isFavoriteTeam('NYY') === false, "NYY should not be a favorite team");
+                assert(isFavoriteTeam('BOS') === false, "BOS should not be a favorite team");
+
+                // Test aliased abbreviation mapping (AZ maps to ARI, ATH maps to OAK)
+                assert(isFavoriteTeam('AZ') === true, "AZ should be normalized to ARI and recognized as favorite");
+                assert(isFavoriteTeam('ATH') === true, "ATH should be normalized to OAK and recognized as favorite");
+
+                // Test aliased abbreviation mapping for unfavored team (CWS maps to CWS)
+                assert(isFavoriteTeam('CWS') === false, "CWS should not be a favorite team");
+
+                // Summary
+                const summaryDiv = document.createElement('div');
+                summaryDiv.style.fontWeight = 'bold';
+                summaryDiv.style.marginTop = '20px';
+                if (failCount === 0) {
+                    summaryDiv.style.color = 'blue';
+                    summaryDiv.textContent = `All ${testCount} tests passed.`;
+                    summaryDiv.id = 'test-summary-pass';
+                } else {
+                    summaryDiv.style.color = 'darkred';
+                    summaryDiv.textContent = `${failCount} out of ${testCount} tests failed.`;
+                    summaryDiv.id = 'test-summary-fail';
+                }
+                document.body.appendChild(summaryDiv);
+
+            } catch (e) {
+                console.error("Test execution error:", e);
+                const errorDiv = document.createElement('div');
+                errorDiv.style.color = 'red';
+                errorDiv.textContent = `ERROR: ${e.message}`;
+                document.body.appendChild(errorDiv);
+            }
+        };
+    </script>
+</head>
+<body>
+</body>
+</html>
