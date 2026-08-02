@@ -2346,6 +2346,7 @@ async function fetchPlayoffRaces(todayGames) {
         wcRank: t.wildCardRank,
         wcGB: t.wildCardGamesBack,
         leagueId: group.league.id,
+        divId: divId,
         eliminationNumber: t.eliminationNumber || '-',
         magicNumber: t.magicNumber || null,
         wildCardEliminationNumber: t.wildCardEliminationNumber || '-',
@@ -2475,9 +2476,7 @@ async function fetchPlayoffRaces(todayGames) {
           // Direct division matchup — always elevated
           if (aTeam.leagueId === hTeam.leagueId) {
             // Check if same division
-            const sameDivKey = Object.keys(divMap).find(k =>
-              divMap[k].some(t => t.abbr === g.awayTeam) && divMap[k].some(t => t.abbr === g.homeTeam)
-            );
+            const sameDivKey = (aTeam.divId === hTeam.divId) ? aTeam.divId : undefined;
             if (sameDivKey) {
               score += 30;
               const gbBetween = Math.abs((aTeam.gb === '--' ? 0 : parseFloat(aTeam.gb)) - 0);
