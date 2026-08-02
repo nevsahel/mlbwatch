@@ -1094,7 +1094,7 @@ async function fetchHotZones(playerId) {
       `${MLB_API}/people/${playerId}?hydrate=stats(group=[hitting],type=[hotColdZones])`,
       { cacheKey: `hotZones:${playerId}`, ttl: 86400000 }
     );
-    const zones = data.people?.[0]?.stats?.find(s => s.group?.code === 'hitting')?.zones || [];
+    const zones = data.people?.[0]?.stats?.find(s => s.type?.displayName === 'hotColdZones')?.splits || [];
     hotZonesCache[playerId] = zones;
     return zones;
   } catch (e) { return []; }
@@ -1610,57 +1610,6 @@ function renderExpandPanel(panel, data) {
     });
     html += '</div>';
 
-
-    // 2.5 PLAYER BOX SCORE
-    html += renderMLBPlayerBoxScore(data.playerBoxScores, awayAbbr, homeAbbr);
-
-    // 3. STATHEAD ADVANCED PITCHING DUEL
-    const awaySPStats = gameObj?.awayProbablePitcher ? pitcherStatsCache[gameObj.awayProbablePitcher.id] : null;
-    const homeSPStats = gameObj?.homeProbablePitcher ? pitcherStatsCache[gameObj.homeProbablePitcher.id] : null;
-    const aStats = awaySPStats || { era: '3.42', whip: '1.12', k9: '9.4', bb9: '2.3', kbb: '4.1', fip: '3.52' };
-    const hStats = homeSPStats || { era: '3.85', whip: '1.24', k9: '8.7', bb9: '2.8', kbb: '3.1', fip: '4.10' };
-
-    html += `
-      <div class="expand-section-label" style="margin-top:12px">🤓 Stathead Pitcher Comparison</div>
-      <div class="stathead-compare-table">
-        <div class="sh-row sh-header">
-          <span>Stat <span class="sh-tooltip-trigger" title="Hover over a stat row to see advanced definitions!">(?)</span></span>
-          <span>${awayAbbr} SP</span>
-          <span>${homeAbbr} SP</span>
-        </div>
-        <div class="sh-row" title="Earned Run Average: Average earned runs allowed per 9 innings. Lower is better.">
-          <span class="sh-stat-name">ERA ℹ️</span>
-          <span>${aStats.era}</span>
-          <span>${hStats.era}</span>
-        </div>
-        <div class="sh-row" title="Walks plus Hits per Inning Pitched: Average runners allowed per inning. Lower is better.">
-          <span class="sh-stat-name">WHIP ℹ️</span>
-          <span>${aStats.whip}</span>
-          <span>${hStats.whip}</span>
-        </div>
-        <div class="sh-row" title="Strikeouts per 9 Innings: Dominance and swing-and-miss capabilities. Higher is better.">
-          <span class="sh-stat-name">K/9 ℹ️</span>
-          <span>${aStats.k9 || '9.4'}</span>
-          <span>${hStats.k9 || '8.7'}</span>
-        </div>
-        <div class="sh-row" title="Walks per 9 Innings: Measures control and strike-zone discipline. Lower is better.">
-          <span class="sh-stat-name">BB/9 ℹ️</span>
-          <span>${aStats.bb9 || '2.3'}</span>
-          <span>${hStats.bb9 || '2.8'}</span>
-        </div>
-        <div class="sh-row" title="Strikeout to Walk Ratio: Precision and command indicator. Higher is better.">
-          <span class="sh-stat-name">K/BB ℹ️</span>
-          <span>${aStats.kbb || '4.1'}</span>
-          <span>${hStats.kbb || '3.1'}</span>
-        </div>
-        <div class="sh-row" title="Fielding Independent Pitching: Isolates pitching effectiveness by stripping out team defense. Lower is better.">
-          <span class="sh-stat-name">FIP ℹ️</span>
-          <span style="color:var(--gold)">${aStats.fip || '3.52'}</span>
-          <span style="color:var(--gold)">${hStats.fip || '4.10'}</span>
-        </div>
-      </div>
-    `;
-
     // 4. SCORING PLAYS
     if (scoringPlays && scoringPlays.length > 0) {
       html += '<div class="expand-section-label" style="margin-top:12px">Recent Scoring Plays</div>';
@@ -1729,16 +1678,41 @@ function renderExpandPanel(panel, data) {
       const cellW = (szR - szL) / 3;
       const cellH = (szB - szT) / 3;
       const zoneStats = {
-        1: { name: "High & Inside", avg: ".195", hr: "2", ops: ".512", color: "#3b82f6" },
-        2: { name: "High Center", avg: ".260", hr: "5", ops: ".790", color: "#f59e0b" },
-        3: { name: "High & Away", avg: ".210", hr: "3", ops: ".590", color: "#3b82f6" },
-        4: { name: "Middle Inside", avg: ".290", hr: "8", ops: ".880", color: "#ef4444" },
-        5: { name: "Heart of the Plate", avg: ".365", hr: "14", ops: "1.120", color: "#dc2626" },
-        6: { name: "Middle Outside", avg: ".280", hr: "7", ops: ".850", color: "#f59e0b" },
-        7: { name: "Low & Inside", avg: ".220", hr: "4", ops: ".610", color: "#3b82f6" },
-        8: { name: "Low Center", avg: ".245", hr: "5", ops: ".720", color: "#f59e0b" },
-        9: { name: "Low & Away", avg: ".205", hr: "2", ops: ".540", color: "#3b82f6" }
+        1: { name: "High & Inside", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        2: { name: "High Center", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        3: { name: "High & Away", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        4: { name: "Middle Inside", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        5: { name: "Heart of the Plate", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        6: { name: "Middle Outside", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        7: { name: "Low & Inside", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        8: { name: "Low Center", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        9: { name: "Low & Away", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" }
       };
+
+      if (data.gameday.hotZones && data.gameday.hotZones.length > 0) {
+        const avgSplit = data.gameday.hotZones.find(z => z.stat.name === 'battingAverage');
+        const slgSplit = data.gameday.hotZones.find(z => z.stat.name === 'sluggingPercentage');
+        const opsSplit = data.gameday.hotZones.find(z => z.stat.name === 'onBasePlusSlugging');
+
+        for (let i = 1; i <= 9; i++) {
+          const zoneKey = i.toString().padStart(2, '0'); // '01', '02', etc.
+          if (avgSplit && avgSplit.stat && avgSplit.stat.zones) {
+            const avgData = avgSplit.stat.zones.find(z => z.zone === zoneKey);
+            if (avgData) zoneStats[i].avg = avgData.value;
+          }
+          if (slgSplit && slgSplit.stat && slgSplit.stat.zones) {
+            const slgData = slgSplit.stat.zones.find(z => z.zone === zoneKey);
+            if (slgData) zoneStats[i].slg = slgData.value;
+          }
+          if (opsSplit && opsSplit.stat && opsSplit.stat.zones) {
+            const opsData = opsSplit.stat.zones.find(z => z.zone === zoneKey);
+            if (opsData) {
+              zoneStats[i].ops = opsData.value;
+              zoneStats[i].color = opsData.color; // use OPS for color temperature
+            }
+          }
+        }
+      }
 
       for (let r = 0; r < 3; r++) {
         for (let c = 0; c < 3; c++) {
@@ -1752,7 +1726,7 @@ function renderExpandPanel(panel, data) {
                   data-zone="${zoneNum}"
                   data-name="${zS.name}"
                   data-avg="${zS.avg}"
-                  data-hr="${zS.hr}"
+                  data-slg="${zS.slg}"
                   data-ops="${zS.ops}"
                   data-color="${zS.color}"
                   fill="transparent"
@@ -5156,17 +5130,17 @@ async function renderLiveDuelCard(card, g) {
       <div class="duel-header">
         <div class="duel-team-bg" style="background:${teamColor(g.awayTeam)}"></div>
         <div class="duel-team-bg" style="background:${teamColor(g.homeTeam)}"></div>
-        <div class="duel-title">${g.awayTeam} @ ${g.homeTeam}</div>
+        <div class="duel-title">${escapeHTML(g.awayTeam)} @ ${escapeHTML(g.homeTeam)}</div>
       </div>
       <div class="duel-matchup">
         <div class="duel-player batter">
-          <div class="duel-player-name">${g.currentBatter.name}</div>
-          <div class="duel-player-stats">${g.currentBatter.avg}/${g.currentBatter.ops}</div>
+          <div class="duel-player-name">${escapeHTML(g.currentBatter.name)}</div>
+          <div class="duel-player-stats">${escapeHTML(g.currentBatter.avg)}/${escapeHTML(g.currentBatter.ops)}</div>
         </div>
         <div class="duel-vs">VS</div>
         <div class="duel-player pitcher">
-          <div class="duel-player-name">${g.currentPitcher.name}</div>
-          <div class="duel-player-stats">${g.currentPitcher.era} ERA</div>
+          <div class="duel-player-name">${escapeHTML(g.currentPitcher.name)}</div>
+          <div class="duel-player-stats">${escapeHTML(g.currentPitcher.era)} ERA</div>
         </div>
       </div>
       ${statsHtml}
@@ -5392,6 +5366,12 @@ function setLayoutMode(mode) {
   });
   const btn = document.getElementById('layout-' + mode);
   if (btn) btn.classList.add('active');
+
+  // Clear the state cache on all cards to force a full re-render on layout switch
+  document.querySelectorAll('.game-card').forEach(c => {
+    c._lastStateKey = null;
+  });
+
   if (lastGames) renderGames(lastGames);
 }
 
@@ -5463,7 +5443,7 @@ function showStrikeZoneStats(rect) {
   const zone = rect.getAttribute('data-zone');
   const name = rect.getAttribute('data-name');
   const avg = rect.getAttribute('data-avg');
-  const hr = rect.getAttribute('data-hr');
+  const slg = rect.getAttribute('data-slg');
   const ops = rect.getAttribute('data-ops');
   const color = rect.getAttribute('data-color');
 
@@ -5483,7 +5463,7 @@ function showStrikeZoneStats(rect) {
         <strong>Zone ${escapeHTML(zone)}: ${escapeHTML(name)}</strong>
         <div class="sz-readout-grid">
           <div>AVG: <strong style="color:var(--text)">${escapeHTML(avg)}</strong></div>
-          <div>HR: <strong style="color:var(--text)">${escapeHTML(hr)}</strong></div>
+          <div>SLG: <strong style="color:var(--text)">${escapeHTML(slg)}</strong></div>
           <div>OPS: <strong style="color:var(--gold)">${escapeHTML(ops)}</strong></div>
         </div>
       </div>
