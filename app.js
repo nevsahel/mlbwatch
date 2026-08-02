@@ -1348,6 +1348,60 @@ function parseExpandData(feed, wpData = []) {
       });
   }
 
+
+  function extractBoxscore(side) {
+    const players = bx[side]?.players || {};
+    const batters = [];
+    const pitchers = [];
+
+    // MLB usually presents batters in batting order, we should try to sort them.
+    // If not in batting order, sort by name or just use the order from the API.
+    const allPlayers = Object.values(players);
+
+    const b = allPlayers.filter(p => p.stats?.batting && p.stats.batting.plateAppearances > 0 || p.battingOrder);
+    b.sort((a, b) => {
+        const orderA = a.battingOrder ? parseInt(a.battingOrder) : 999;
+        const orderB = b.battingOrder ? parseInt(b.battingOrder) : 999;
+        return orderA - orderB;
+    });
+
+    const p = allPlayers.filter(p => p.stats?.pitching && parseFloat(p.stats.pitching.inningsPitched || '0') > 0 || p.position?.abbreviation === 'P');
+
+    b.forEach(player => {
+       batters.push({
+         name: player.person?.fullName || '?',
+         pos: player.position?.abbreviation || '?',
+         bo: player.battingOrder,
+         ab: player.stats?.batting?.atBats || 0,
+         r: player.stats?.batting?.runs || 0,
+         h: player.stats?.batting?.hits || 0,
+         rbi: player.stats?.batting?.rbi || 0,
+         bb: player.stats?.batting?.baseOnBalls || 0,
+         so: player.stats?.batting?.strikeOuts || 0,
+         avg: player.seasonStats?.batting?.avg || '.---',
+         ops: player.seasonStats?.batting?.ops || '.---',
+         isSub: (player.battingOrder && player.battingOrder % 100 !== 0)
+       });
+    });
+
+    p.forEach(player => {
+       pitchers.push({
+         name: player.person?.fullName || '?',
+         ip: player.stats?.pitching?.inningsPitched || '0.0',
+         h: player.stats?.pitching?.hits || 0,
+         r: player.stats?.pitching?.runs || 0,
+         er: player.stats?.pitching?.earnedRuns || 0,
+         bb: player.stats?.pitching?.baseOnBalls || 0,
+         k: player.stats?.pitching?.strikeOuts || 0,
+         hr: player.stats?.pitching?.homeRuns || 0,
+         era: player.seasonStats?.pitching?.era || '-.--'
+       });
+    });
+
+    return { batters, pitchers };
+  }
+  const playerBoxScores = { away: extractBoxscore('away'), home: extractBoxscore('home') };
+
   const lineup = { away: extractLineup('away'), home: extractLineup('home') };
   const bullpen = {
     away: awayPitching.filter(p => parseFloat(p.ip) < 3.5),
@@ -1399,7 +1453,7 @@ function parseExpandData(feed, wpData = []) {
       };
     });
 
-  return { boxRows, scoringPlays, awayPitching, homePitching, awayAbbr, homeAbbr, topWpaPlays, homeRuns, lineup, bullpen, gameday, momentumSeries };
+  return { boxRows, scoringPlays, awayPitching, homePitching, awayAbbr, homeAbbr, topWpaPlays, homeRuns, lineup, bullpen, gameday, momentumSeries, playerBoxScores };
 }
 
 function renderMomentumTimeline(series, awayAbbr, homeAbbr) {
@@ -1441,6 +1495,48 @@ function renderMomentumTimeline(series, awayAbbr, homeAbbr) {
       <div style="font-size:0.6rem;color:var(--text-dim);margin-top:5px;text-align:center">Dots indicate plays with ≥10% shift in win probability.</div>
     </div>
   `;
+}
+
+
+function renderMLBPlayerBoxScore(box, awayAbbr, homeAbbr) {
+  if (!box || !box.away || !box.home) return '';
+  let html = '';
+
+  ['away', 'home'].forEach(side => {
+    const data = box[side];
+    const abbr = side === 'away' ? awayAbbr : homeAbbr;
+
+    html += '<div class="boxscore-team-header">' + teamLogo(abbr) + ' ' + abbr + ' Batters</div>';
+    html += '<div class="boxscore-scroll-wrap"><table class="boxscore-table"><thead><tr>';
+    html += '<th>BATTER</th><th>AB</th><th>R</th><th>H</th><th>RBI</th><th>BB</th><th>SO</th><th>AVG</th><th>OPS</th>';
+    html += '</tr></thead><tbody>';
+
+    data.batters.forEach(b => {
+      const indent = (b.bo && parseInt(b.bo) % 100 !== 0) ? ' style="padding-left:16px; color:var(--text-dim)"' : '';
+      html += '<tr>';
+      html += '<td class="player-name"' + indent + '>' + escapeHTML(b.name) + ' <span style="font-size:0.65rem;font-weight:normal;color:var(--text-dim)">' + b.pos + '</span></td>';
+      html += '<td>' + b.ab + '</td><td>' + b.r + '</td><td>' + b.h + '</td><td>' + b.rbi + '</td>';
+      html += '<td>' + b.bb + '</td><td>' + b.so + '</td><td>' + b.avg + '</td><td>' + b.ops + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    html += '<div class="boxscore-team-header">' + teamLogo(abbr) + ' ' + abbr + ' Pitchers</div>';
+    html += '<div class="boxscore-scroll-wrap"><table class="boxscore-table" style="margin-bottom:20px"><thead><tr>';
+    html += '<th>PITCHER</th><th>IP</th><th>H</th><th>R</th><th>ER</th><th>BB</th><th>K</th><th>HR</th><th>ERA</th>';
+    html += '</tr></thead><tbody>';
+
+    data.pitchers.forEach(p => {
+      html += '<tr>';
+      html += '<td class="player-name">' + escapeHTML(p.name) + '</td>';
+      html += '<td>' + p.ip + '</td><td>' + p.h + '</td><td>' + p.r + '</td><td>' + p.er + '</td>';
+      html += '<td>' + p.bb + '</td><td>' + p.k + '</td><td>' + p.hr + '</td><td>' + p.era + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+  });
+
+  return html;
 }
 
 function renderExpandPanel(panel, data) {
