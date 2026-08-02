@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>App Tests - isFavoriteTeam</title>
+</head>
+<body>
+  <h1>App Tests - isFavoriteTeam</h1>
+  <div id="test-results"></div>
+
+  <!-- Mock localStorage for testing -->
+  <script>
+    const mockStorage = {};
+    window.localStorage = {
+      getItem: (key) => mockStorage[key] || null,
+      setItem: (key, val) => mockStorage[key] = val,
+      removeItem: (key) => delete mockStorage[key]
+    };
+
+    // Mock global variables to avoid errors when loading app.js
+    window.TEAM_DATA = { 'ARI': { id: 109 }, 'NYY': { id: 147 }, 'LAD': { id: 119 } };
+    window.RIVALRY_PAIRS = [['NYY', 'BOS']];
+    window.WATCHABILITY_CONFIG = { caps: {}, bases: {}, scaling: {}, final: { diff: {} }, live: { diff: {}, inning: {}, runners: {} } };
+  </script>
+
+  <script src="../utils/core.js"></script>
+  <script src="../app.js"></script>
+
+  <script>
+    const results = document.getElementById('test-results');
+    let passed = 0;
+    let total = 0;
+
+    function assert(condition, message) {
+      total++;
+      const div = document.createElement('div');
+      if (condition) {
+        div.style.color = 'green';
+        div.textContent = '✅ PASS: ' + message;
+        passed++;
+      } else {
+        div.style.color = 'red';
+        div.textContent = '❌ FAIL: ' + message;
+        console.error('FAIL:', message);
+      }
+      results.appendChild(div);
+      return condition;
+    }
+
+    function runTests() {
+      console.log('Running tests...');
+
+      // Clear favorites initially
+      favoriteTeams.clear();
+
+      // Test 1: Empty favorites
+      assert(isFavoriteTeam('NYY') === false, 'isFavoriteTeam returns false for empty favorites');
+
+      // Test 2: Added favorite
+      favoriteTeams.add('NYY');
+      assert(isFavoriteTeam('NYY') === true, 'isFavoriteTeam returns true for added favorite');
+
+      // Test 3: Normalization (assuming 'AZ' normalizes to 'ARI' in normalizeAbbr)
+      // First we add 'ARI' as a favorite. Then we query for 'AZ'.
+      favoriteTeams.add('ARI');
+      assert(isFavoriteTeam('AZ') === true, 'isFavoriteTeam normalizes input team abbreviation (AZ -> ARI)');
+
+      // Test 4: Check if 'ari' matches 'ARI' - typically normalizeAbbr doesn't change case,
+      // and Sets are case-sensitive. Let's verify standard behavior is case-sensitive, or not.
+      assert(isFavoriteTeam('ari') === false, 'isFavoriteTeam is case sensitive as per current implementation');
+
+      // Test 5: Empty or undefined inputs
+      assert(isFavoriteTeam('') === false, 'isFavoriteTeam handles empty string safely');
+      assert(isFavoriteTeam() === false, 'isFavoriteTeam handles undefined safely');
+
+      // Summary
+      const summary = document.createElement('h2');
+      summary.id = 'summary';
+      summary.textContent = `Results: ${passed} / ${total} passed`;
+      summary.style.color = passed === total ? 'green' : 'red';
+      results.appendChild(summary);
+
+      // For playwright to wait for
+      window.testsDone = true;
+    }
+
+    // Wait for the DOM and scripts to settle, then run tests
+    setTimeout(runTests, 200);
+  </script>
+</body>
+</html>
