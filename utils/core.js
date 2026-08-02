@@ -98,3 +98,9 @@ function todayET() {
   const d = String(et.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    escapeHTML,
+  };
+}

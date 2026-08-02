@@ -1,0 +1,24 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "description": "A sophisticated, data-driven live dashboard for both Major League Baseball (MLB) and the National Basketball Association (NBA) that uses a multi-factor **Watchability Index** to identify the most compelling action in real-time. From pennant races and high-stakes late-inning drama to clutch time and 4th quarter comebacks, this tool ensures you're always tuned into the game's most important moments.",
+  "main": "app.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nevsahel/mlbwatch.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nevsahel/mlbwatch/issues"
+  },
+  "homepage": "https://github.com/nevsahel/mlbwatch#readme",
+  "devDependencies": {
+    "jest": "^30.4.2"
+  }
+}
