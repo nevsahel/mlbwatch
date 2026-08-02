@@ -94,6 +94,37 @@ function runTests() {
     global.localStorage.setItem = originalSetItem;
   });
 
+  console.log('\n🧪 Running writeCache tests...');
+
+  // 7. Write to cache
+  runTest('Should write cache with savedAt timestamp and DATA_CACHE_PREFIX', () => {
+    const data = { scores: [1, 2, 3] };
+    const now = Date.now();
+
+    // Mock Date.now() to control the timestamp
+    const originalDateNow = Date.now;
+    Date.now = () => now;
+
+    writeCache('scores', data);
+    const stored = global.localStorage.getItem('mlbWatchCache:scores');
+    assert.strictEqual(stored, JSON.stringify({ savedAt: now, data }));
+
+    // Restore Date.now()
+    Date.now = originalDateNow;
+  });
+
+  // 8. writeCache LocalStorage throwing error
+  runTest('writeCache should not throw if localStorage.setItem throws', () => {
+    const originalSetItem = global.localStorage.setItem;
+    global.localStorage.setItem = () => { throw new Error('Quota exceeded'); };
+
+    assert.doesNotThrow(() => {
+      writeCache('scores', { data: 1 });
+    });
+
+    global.localStorage.setItem = originalSetItem;
+  });
+
   console.log(`\nResults: ${passed} passed, ${failed} failed`);
   if (failed > 0) {
     process.exit(1);
