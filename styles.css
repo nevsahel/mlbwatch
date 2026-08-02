@@ -780,7 +780,6 @@ body { background: var(--bg-primary); color: var(--text-primary); font-family: '
   .streak-cell.loss { color: var(--red); }
 
   /* ── Home Runs tab ── */
-  #tab-homeruns { }
   .hr-hero {
     display: grid; grid-template-columns: 1fr 1.2fr; gap: 14px; align-items: stretch;
     background: var(--bg-dark); border: 1px solid var(--border-secondary); border-radius: 10px; padding: 15px; margin-bottom: 18px;
