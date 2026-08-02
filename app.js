@@ -50,16 +50,22 @@ function normalizeAbbr(abbr) {
 }
 
 // ─── TABS ────────────────────────────────────────────────────────────────────
+let cachedTabBtns;
+let cachedTabContents;
+
 function switchTab(tab) {
   renderWithErrorBoundary(() => {
-    document.querySelectorAll('.tab-btn').forEach(b => {
+    if (!cachedTabBtns) cachedTabBtns = Array.from(document.querySelectorAll('.tab-btn'));
+    if (!cachedTabContents) cachedTabContents = Array.from(document.querySelectorAll('.tab-content'));
+
+    cachedTabBtns.forEach(b => {
       b.classList.remove('active');
       b.setAttribute('aria-selected', 'false');
     });
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    cachedTabContents.forEach(c => c.classList.remove('active'));
     const targetTab = document.getElementById('tab-' + tab);
     if (targetTab) targetTab.classList.add('active');
-    const targetBtn = document.querySelector(`.tab-btn[onclick*="'${tab}'"]`);
+    const targetBtn = cachedTabBtns.find(b => b.getAttribute('onclick')?.includes(`'${tab}'`));
     if (targetBtn) {
       targetBtn.classList.add('active');
       targetBtn.setAttribute('aria-selected', 'true');
