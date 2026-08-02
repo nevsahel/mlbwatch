@@ -1675,39 +1675,7 @@ body { background: var(--bg-primary); color: var(--text-primary); font-family: '
   gap: 4px;
 }
 
-/* Stathead table */
-.stathead-compare-table {
-  background: var(--bg-card);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  overflow: hidden;
-  margin-bottom: 12px;
-}
-.sh-row {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  padding: 8px 12px;
-  font-size: 0.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  align-items: center;
-}
-.sh-row:last-child {
-  border-bottom: none;
-}
-.sh-row.sh-header {
-  background: rgba(255, 255, 255, 0.04);
-  font-weight: 800;
-  color: var(--text-dim);
-}
-.sh-row:not(.sh-header):hover {
-  background: rgba(255, 255, 255, 0.02);
-}
-.sh-stat-name {
-  font-weight: 700;
-  color: var(--text-dim);
-  cursor: help;
-}
-.sh-tooltip-trigger, .wpa-tooltip-trigger {
+.wpa-tooltip-trigger {
   cursor: help;
   text-decoration: underline dotted var(--gold);
 }
