@@ -5466,3 +5466,8 @@ function switchDetailsTab(gamePk, tabName) {
 
 
 hydratePreferenceControls();
+
+// Export for Node.js testing
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { clamp };
+}
