@@ -4015,7 +4015,19 @@ async function fetchAwardRaces() {
     const VOTE_PTS = [14, 9, 7, 4, 2];
     function simulateVotes(candidates, scoreFn) {
       const votes = {};
-      candidates.forEach(p => { votes[p.id] = 0; });
+
+      const n = candidates.length;
+      const precomputed = new Array(n);
+      for (let i = 0; i < n; i++) {
+        const p = candidates[i];
+        votes[p.id] = 0;
+        precomputed[i] = {
+          p,
+          statsScore: scoreFn(p),
+          warScore: p.war ?? 0
+        };
+      }
+
       const voterProfiles = [
         { name: 'Traditionalist', weights: { stats: 1.2, war: 0.5, noise: 0.3 } },
         { name: 'Sabermetrician', weights: { stats: 0.4, war: 1.5, noise: 0.1 } },
@@ -4024,13 +4036,27 @@ async function fetchAwardRaces() {
         { name: 'Dominance-Focused', weights: { stats: 1.3, war: 0.8, noise: 0.2 } }
       ];
 
-      for (const voter of voterProfiles) {
-        const sorted = [...candidates].sort((a, b) => {
-          const sa = (scoreFn(a) * voter.weights.stats) + ((a.war ?? 0) * voter.weights.war) + (Math.random() * voter.weights.noise * 10);
-          const sb = (scoreFn(b) * voter.weights.stats) + ((b.war ?? 0) * voter.weights.war) + (Math.random() * voter.weights.noise * 10);
-          return sb - sa;
-        });
-        sorted.slice(0, 5).forEach((p, i) => { votes[p.id] = (votes[p.id] || 0) + VOTE_PTS[i]; });
+      const scoredCandidates = new Array(n);
+
+      for (let v = 0; v < voterProfiles.length; v++) {
+        const voter = voterProfiles[v];
+        const ws = voter.weights.stats;
+        const ww = voter.weights.war;
+        const wn = voter.weights.noise * 10;
+
+        for (let i = 0; i < n; i++) {
+          const c = precomputed[i];
+          const score = (c.statsScore * ws) + (c.warScore * ww) + (Math.random() * wn);
+          scoredCandidates[i] = { p: c.p, score };
+        }
+
+        scoredCandidates.sort((a, b) => b.score - a.score);
+
+        const limit = Math.min(5, n);
+        for (let i = 0; i < limit; i++) {
+          const p = scoredCandidates[i].p;
+          votes[p.id] += VOTE_PTS[i];
+        }
       }
       return votes;
     }
