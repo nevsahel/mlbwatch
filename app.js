@@ -5056,17 +5056,17 @@ async function renderLiveDuelCard(card, g) {
       <div class="duel-header">
         <div class="duel-team-bg" style="background:${teamColor(g.awayTeam)}"></div>
         <div class="duel-team-bg" style="background:${teamColor(g.homeTeam)}"></div>
-        <div class="duel-title">${g.awayTeam} @ ${g.homeTeam}</div>
+        <div class="duel-title">${escapeHTML(g.awayTeam)} @ ${escapeHTML(g.homeTeam)}</div>
       </div>
       <div class="duel-matchup">
         <div class="duel-player batter">
-          <div class="duel-player-name">${g.currentBatter.name}</div>
-          <div class="duel-player-stats">${g.currentBatter.avg}/${g.currentBatter.ops}</div>
+          <div class="duel-player-name">${escapeHTML(g.currentBatter.name)}</div>
+          <div class="duel-player-stats">${escapeHTML(g.currentBatter.avg)}/${escapeHTML(g.currentBatter.ops)}</div>
         </div>
         <div class="duel-vs">VS</div>
         <div class="duel-player pitcher">
-          <div class="duel-player-name">${g.currentPitcher.name}</div>
-          <div class="duel-player-stats">${g.currentPitcher.era} ERA</div>
+          <div class="duel-player-name">${escapeHTML(g.currentPitcher.name)}</div>
+          <div class="duel-player-stats">${escapeHTML(g.currentPitcher.era)} ERA</div>
         </div>
       </div>
       ${statsHtml}
