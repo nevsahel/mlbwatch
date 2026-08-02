@@ -587,10 +587,6 @@ function calculateWatchabilityBreakdown(g) {
   return { score: clamp(raw), situation: sit, context, parts: finalParts };
 }
 
-function calculateWatchability(g) {
-  return calculateWatchabilityBreakdown(g).score;
-}
-
 function clamp(v) { return Math.min(100, Math.max(0, Math.round(v))); }
 
 // ─── POTD FORMATTING & SCORING ──────────────────────────────────────────────
