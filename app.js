@@ -4089,24 +4089,10 @@ async function fetchAwardRaces() {
     if (mcgonigle && !alRookHitters.some(p => p.id === mcgonigle.id)) {
       alRookHitters.push(mcgonigle);
     }
-    if (alRookHitters.length < 5) {
-      alH.forEach(p => {
-        if (p.name !== 'Yordan Alvarez' && p.name !== 'Kevin McGonigle' && alRookHitters.length < 10) {
-          alRookHitters.push(p);
-        }
-      });
-    }
 
     const wetherholt = nlH.find(p => p.name === 'JJ Wetherholt');
     if (wetherholt && !nlRookHitters.some(p => p.id === wetherholt.id)) {
       nlRookHitters.push(wetherholt);
-    }
-    if (nlRookHitters.length < 5) {
-      nlH.forEach(p => {
-        if (p.name !== 'Shohei Ohtani' && p.name !== 'JJ Wetherholt' && nlRookHitters.length < 10) {
-          nlRookHitters.push(p);
-        }
-      });
     }
 
     const rotyAL = rankAward(mergeForMVP(alRookHitters, alRookPitchers), rotyScore);
