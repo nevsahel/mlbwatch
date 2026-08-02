@@ -1094,7 +1094,7 @@ async function fetchHotZones(playerId) {
       `${MLB_API}/people/${playerId}?hydrate=stats(group=[hitting],type=[hotColdZones])`,
       { cacheKey: `hotZones:${playerId}`, ttl: 86400000 }
     );
-    const zones = data.people?.[0]?.stats?.find(s => s.group?.code === 'hitting')?.zones || [];
+    const zones = data.people?.[0]?.stats?.find(s => s.type?.displayName === 'hotColdZones')?.splits || [];
     hotZonesCache[playerId] = zones;
     return zones;
   } catch (e) { return []; }
@@ -1629,16 +1629,41 @@ function renderExpandPanel(panel, data) {
       const cellW = (szR - szL) / 3;
       const cellH = (szB - szT) / 3;
       const zoneStats = {
-        1: { name: "High & Inside", avg: ".195", hr: "2", ops: ".512", color: "#3b82f6" },
-        2: { name: "High Center", avg: ".260", hr: "5", ops: ".790", color: "#f59e0b" },
-        3: { name: "High & Away", avg: ".210", hr: "3", ops: ".590", color: "#3b82f6" },
-        4: { name: "Middle Inside", avg: ".290", hr: "8", ops: ".880", color: "#ef4444" },
-        5: { name: "Heart of the Plate", avg: ".365", hr: "14", ops: "1.120", color: "#dc2626" },
-        6: { name: "Middle Outside", avg: ".280", hr: "7", ops: ".850", color: "#f59e0b" },
-        7: { name: "Low & Inside", avg: ".220", hr: "4", ops: ".610", color: "#3b82f6" },
-        8: { name: "Low Center", avg: ".245", hr: "5", ops: ".720", color: "#f59e0b" },
-        9: { name: "Low & Away", avg: ".205", hr: "2", ops: ".540", color: "#3b82f6" }
+        1: { name: "High & Inside", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        2: { name: "High Center", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        3: { name: "High & Away", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        4: { name: "Middle Inside", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        5: { name: "Heart of the Plate", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        6: { name: "Middle Outside", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        7: { name: "Low & Inside", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        8: { name: "Low Center", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" },
+        9: { name: "Low & Away", avg: "N/A", slg: "N/A", ops: "N/A", color: "rgba(255, 255, 255, 0.2)" }
       };
+
+      if (data.gameday.hotZones && data.gameday.hotZones.length > 0) {
+        const avgSplit = data.gameday.hotZones.find(z => z.stat.name === 'battingAverage');
+        const slgSplit = data.gameday.hotZones.find(z => z.stat.name === 'sluggingPercentage');
+        const opsSplit = data.gameday.hotZones.find(z => z.stat.name === 'onBasePlusSlugging');
+
+        for (let i = 1; i <= 9; i++) {
+          const zoneKey = i.toString().padStart(2, '0'); // '01', '02', etc.
+          if (avgSplit && avgSplit.stat && avgSplit.stat.zones) {
+            const avgData = avgSplit.stat.zones.find(z => z.zone === zoneKey);
+            if (avgData) zoneStats[i].avg = avgData.value;
+          }
+          if (slgSplit && slgSplit.stat && slgSplit.stat.zones) {
+            const slgData = slgSplit.stat.zones.find(z => z.zone === zoneKey);
+            if (slgData) zoneStats[i].slg = slgData.value;
+          }
+          if (opsSplit && opsSplit.stat && opsSplit.stat.zones) {
+            const opsData = opsSplit.stat.zones.find(z => z.zone === zoneKey);
+            if (opsData) {
+              zoneStats[i].ops = opsData.value;
+              zoneStats[i].color = opsData.color; // use OPS for color temperature
+            }
+          }
+        }
+      }
 
       for (let r = 0; r < 3; r++) {
         for (let c = 0; c < 3; c++) {
@@ -1652,7 +1677,7 @@ function renderExpandPanel(panel, data) {
                   data-zone="${zoneNum}"
                   data-name="${zS.name}"
                   data-avg="${zS.avg}"
-                  data-hr="${zS.hr}"
+                  data-slg="${zS.slg}"
                   data-ops="${zS.ops}"
                   data-color="${zS.color}"
                   fill="transparent"
@@ -5363,7 +5388,7 @@ function showStrikeZoneStats(rect) {
   const zone = rect.getAttribute('data-zone');
   const name = rect.getAttribute('data-name');
   const avg = rect.getAttribute('data-avg');
-  const hr = rect.getAttribute('data-hr');
+  const slg = rect.getAttribute('data-slg');
   const ops = rect.getAttribute('data-ops');
   const color = rect.getAttribute('data-color');
 
@@ -5383,7 +5408,7 @@ function showStrikeZoneStats(rect) {
         <strong>Zone ${escapeHTML(zone)}: ${escapeHTML(name)}</strong>
         <div class="sz-readout-grid">
           <div>AVG: <strong style="color:var(--text)">${escapeHTML(avg)}</strong></div>
-          <div>HR: <strong style="color:var(--text)">${escapeHTML(hr)}</strong></div>
+          <div>SLG: <strong style="color:var(--text)">${escapeHTML(slg)}</strong></div>
           <div>OPS: <strong style="color:var(--gold)">${escapeHTML(ops)}</strong></div>
         </div>
       </div>
