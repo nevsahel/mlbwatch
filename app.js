@@ -5245,6 +5245,12 @@ function setLayoutMode(mode) {
   });
   const btn = document.getElementById('layout-' + mode);
   if (btn) btn.classList.add('active');
+
+  // Clear the state cache on all cards to force a full re-render on layout switch
+  document.querySelectorAll('.game-card').forEach(c => {
+    c._lastStateKey = null;
+  });
+
   if (lastGames) renderGames(lastGames);
 }
 
