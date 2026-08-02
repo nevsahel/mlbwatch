@@ -5055,7 +5055,6 @@ async function pollGames() {
     renderGames(games);
     // Refresh only the active tab if it's one of the live ones
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
-    // if (activeTab === 'homeruns') fetchAndRenderHomeRuns(games); // Redundant, handled below
     if (activeTab === 'potd') fetchAndRenderPOTD(games);
     if (activeTab === 'ticker') fetchAndRenderTicker(games);
     if (activeTab === 'duel') fetchAndRenderDuel(games);
