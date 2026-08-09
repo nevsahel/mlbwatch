@@ -1213,11 +1213,23 @@ async function fetchNBAMilestones() {
       m.paceText = milestonePaceText(m);
     });
 
-    await Promise.all(allMilestones.map(async m => {
-      try {
-        m.heat = await fetchPlayerHeatNBA(m.id, m.stat);
-      } catch (e) { m.heat = []; }
-    }));
+    const CONCURRENCY_LIMIT = 5;
+    let heatIndex = 0;
+    const worker = async () => {
+      while (heatIndex < allMilestones.length) {
+        const m = allMilestones[heatIndex++];
+        try {
+          m.heat = await fetchPlayerHeatNBA(m.id, m.stat);
+        } catch (e) {
+          m.heat = [];
+        }
+      }
+    };
+    const workers = Array.from(
+      { length: Math.min(CONCURRENCY_LIMIT, allMilestones.length) },
+      worker
+    );
+    await Promise.all(workers);
 
     allMilestones.sort((a, b) => b.priority - a.priority || a.diff - b.diff);
     window.lastNBAMilestones = allMilestones;
