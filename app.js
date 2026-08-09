@@ -2532,17 +2532,21 @@ async function fetchPlayoffRaces(todayGames) {
       // ── Key games today: scored by playoff importance ──
       if (todayGames) {
         const scoredGames = [];
+
+        // Build a fast lookup map for teams in this league
+        const teamLookup = {};
+        for (const divId of lg.divs) {
+          const div = divMap[divId];
+          if (!div) continue;
+          for (const t of div) {
+            teamLookup[t.abbr] = t;
+          }
+        }
+
         for (const g of todayGames) {
           // Find both teams anywhere in this league's divisions
-          let aTeam = null, hTeam = null;
-          for (const divId of lg.divs) {
-            const div = divMap[divId];
-            if (!div) continue;
-            const a = div.find(t => t.abbr === g.awayTeam);
-            const h = div.find(t => t.abbr === g.homeTeam);
-            if (a) aTeam = a;
-            if (h) hTeam = h;
-          }
+          const aTeam = teamLookup[g.awayTeam];
+          const hTeam = teamLookup[g.homeTeam];
           if (!aTeam || !hTeam) continue; // game not in this league
 
           const aWCGB = parseFloat(aTeam.wcGB) || 0;
