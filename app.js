@@ -4397,11 +4397,8 @@ async function fetchAwardRaces() {
       for (const [pos, coords] of Object.entries(FIELD_POSITIONS)) {
         const p = sluggersByPos[pos];
         const lastName = p ? (function(n) {
-          const SUFFIX = /^(Jr\.?|Sr\.?|II|III|IV|V)$/i;
           const parts = n.split(' ');
-          // Find first non-suffix word from the end that we'd call "last name"
           // Strategy: drop first name (index 0), keep everything else
-          // but if last token is a suffix, keep it attached
           if (parts.length <= 1) return n;
           // last name = everything after first name
           const rest = parts.slice(1);
