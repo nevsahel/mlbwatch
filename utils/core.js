@@ -6,6 +6,10 @@ const APP_PREFS_KEY = 'mlbWatchPrefsV1';
 const DATA_CACHE_PREFIX = 'mlbWatchCache:';
 let usedStaleData = { value: false };
 
+function isRivalry(a, b, rivalrySet) {
+  return rivalrySet.has(a < b ? a + '-' + b : b + '-' + a);
+}
+
 function escapeHTML(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;',
@@ -101,6 +105,7 @@ function todayET() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    isRivalry,
     escapeHTML,
   };
 }
