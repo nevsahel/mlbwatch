@@ -125,6 +125,20 @@ function runTests() {
     global.localStorage.setItem = originalSetItem;
   });
 
+
+  console.log('\n🧪 Running isRivalry tests...');
+  runTest('Should return true for a valid rivalry regardless of order', () => {
+    const mockSet = new Set(['BOS-LAL', 'NYK-PHI']);
+    assert.strictEqual(isRivalry('BOS', 'LAL', mockSet), true);
+    assert.strictEqual(isRivalry('LAL', 'BOS', mockSet), true);
+  });
+
+  runTest('Should return false for non-rivalry teams', () => {
+    const mockSet = new Set(['BOS-LAL']);
+    assert.strictEqual(isRivalry('LAL', 'NYK', mockSet), false);
+    assert.strictEqual(isRivalry('NYK', 'BOS', mockSet), false);
+  });
+
   console.log(`\nResults: ${passed} passed, ${failed} failed`);
   if (failed > 0) {
     process.exit(1);

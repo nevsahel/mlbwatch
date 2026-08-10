@@ -44,10 +44,6 @@ function teamColor(abbr) {
   return NBA_TEAM_DATA[abbr]?.color || 'var(--text-dim)';
 }
 
-function isRivalry(a, b) {
-  return NBA_RIVALRY_SET.has(a < b ? a + '-' + b : b + '-' + a);
-}
-
 // ─── TABS ────────────────────────────────────────────────────────────────────
 
 let cachedTabBtns;
@@ -279,7 +275,7 @@ function renderNBAStandings(conferences) {
 
 function calculateNBAWatchability(g) {
   const cfg = NBA_WATCHABILITY_CONFIG;
-  const rival = isRivalry(g.awayTeam, g.homeTeam);
+  const rival = isRivalry(g.awayTeam, g.homeTeam, NBA_RIVALRY_SET);
 
   const teamQA = teamRecords[g.awayTeam]?.winPct || 0.5;
   const teamQH = teamRecords[g.homeTeam]?.winPct || 0.5;

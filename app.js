@@ -15,10 +15,6 @@ const revealedGames = new Set();
 // BOLT OPTIMIZATION: Use a Set for O(1) rivalry lookups instead of linear search
 const RIVALRY_SET = new Set(RIVALRY_PAIRS.map(([x, y]) => x < y ? x + '-' + y : y + '-' + x));
 
-function isRivalry(a, b) {
-  return RIVALRY_SET.has(a < b ? a + '-' + b : b + '-' + a);
-}
-
 // ─── TEAM DATA (logos + colors) ───────────────────────────────────────────────
 
 
@@ -486,7 +482,7 @@ function calculateWatchabilityBreakdown(g) {
   const isFinal   = /final|game over|completed/i.test(g.gameState);
   const isPreview = /scheduled|pre-game|warmup|preview|postponed/i.test(g.gameState);
 
-  const rival    = isRivalry(g.awayTeam, g.homeTeam);
+  const rival    = isRivalry(g.awayTeam, g.homeTeam, RIVALRY_SET);
   const starPow  = Math.min(getStarPowerScore(g), cfg.caps.starPower);
   const teamQA   = getTeamQualityScore(g.awayTeam);
   const teamQH   = getTeamQualityScore(g.homeTeam);
@@ -2591,7 +2587,7 @@ async function fetchPlayoffRaces(todayGames) {
           if (hWCGB >= 3 && hWCGB <= 5) { score += 5; }
 
           // Rivalry bonus
-          if (isRivalry(g.awayTeam, g.homeTeam)) { score += 10; reasons.push('Rivalry'); }
+          if (isRivalry(g.awayTeam, g.homeTeam, RIVALRY_SET)) { score += 10; reasons.push('Rivalry'); }
 
           if (score >= 25) {
             scoredGames.push({ g, score, reasons });
@@ -3469,7 +3465,7 @@ function renderSingleGameCard(card, game) {
     badgeHtml += '<div class="badge followed-badge">WATCHING</div>';
   }
 
-  if (isRivalry(game.awayTeam, game.homeTeam)) badgeHtml += '<div class="badge rivalry">Rivalry</div>';
+  if (isRivalry(game.awayTeam, game.homeTeam, RIVALRY_SET)) badgeHtml += '<div class="badge rivalry">Rivalry</div>';
   if (game.isPerfectGame && !isFinal) badgeHtml += '<div class="badge perfect">PERFECT GAME ALERT</div>';
   else if (game.isNoHitter && !isFinal) badgeHtml += '<div class="badge nohitter">NO HITTER ALERT</div>';
 
@@ -5417,7 +5413,7 @@ function getWatchabilityExplanation(game) {
 
   if (isScheduled) {
     factors.push("⚡ Pre-game anticipation building up.");
-    if (isRivalry(game.awayTeam, game.homeTeam)) {
+    if (isRivalry(game.awayTeam, game.homeTeam, RIVALRY_SET)) {
       factors.push("⚔️ High-emotion historic rivalry match!");
     }
   } else if (isFinal) {
