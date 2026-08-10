@@ -3177,10 +3177,13 @@ function renderMilestoneBoard(allMilestones) {
       reached: true
     }));
   }
-  const liveCount = allMilestones.filter(m => m.playingNow).length;
-  const todayCount = allMilestones.filter(m => m.playingToday).length;
-  const historicCount = allMilestones.filter(m => m.importance === 'Historic' || m.importance === 'Major').length;
-  const favCount = allMilestones.filter(m => isFavoriteTeam(m.team)).length;
+  const { liveCount, todayCount, historicCount, favCount } = allMilestones.reduce((acc, m) => {
+    if (m.playingNow) acc.liveCount++;
+    if (m.playingToday) acc.todayCount++;
+    if (m.importance === 'Historic' || m.importance === 'Major') acc.historicCount++;
+    if (isFavoriteTeam(m.team)) acc.favCount++;
+    return acc;
+  }, { liveCount: 0, todayCount: 0, historicCount: 0, favCount: 0 });
 
   const urgencyOrder = ['Recently Reached', 'Could happen today', 'This series', 'This week', 'Longer watch'];
   const groups = {};
