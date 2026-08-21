@@ -139,6 +139,26 @@ function runTests() {
     assert.strictEqual(isRivalry('NYK', 'BOS', mockSet), false);
   });
 
+  runTest('Should return false when rivalrySet is empty', () => {
+    const mockSet = new Set();
+    assert.strictEqual(isRivalry('BOS', 'LAL', mockSet), false);
+  });
+
+  runTest('Should handle empty string inputs gracefully', () => {
+    const mockSet = new Set(['-LAL', '-BOS']);
+    assert.strictEqual(isRivalry('', 'LAL', mockSet), true);
+    assert.strictEqual(isRivalry('LAL', '', mockSet), true);
+    assert.strictEqual(isRivalry('BOS', '', mockSet), true);
+    assert.strictEqual(isRivalry('', '', mockSet), false);
+  });
+
+  runTest('Should handle identical team inputs (self-rivalry)', () => {
+    const mockSet = new Set(['BOS-BOS']);
+    assert.strictEqual(isRivalry('BOS', 'BOS', mockSet), true);
+    const mockSet2 = new Set(['BOS-LAL']);
+    assert.strictEqual(isRivalry('BOS', 'BOS', mockSet2), false);
+  });
+
   console.log(`\nResults: ${passed} passed, ${failed} failed`);
   if (failed > 0) {
     process.exit(1);
