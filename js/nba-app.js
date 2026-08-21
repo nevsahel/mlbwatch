@@ -1343,8 +1343,8 @@ function renderMilestoneCard(m) {
         <span class="milestone-importance ${importanceClass}">${m.importance}</span>
         ${followBtn}
       </div>
-      <div class="milestone-player">${teamLogo(m.team)} ${m.name}</div>
-      <div class="milestone-team">${m.team} · ${m.stat} ${m.icon}</div>
+      <div class="milestone-player">${teamLogo(m.team)} ${escapeHTML(m.name)}</div>
+      <div class="milestone-team">${escapeHTML(m.team)} · ${escapeHTML(m.stat)} ${m.icon}</div>
       ${heatHtml}
       <div class="milestone-target">
         <strong>${m.current}</strong>
