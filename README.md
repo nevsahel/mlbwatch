@@ -106,9 +106,7 @@ Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestr
 ├── js/
 │   ├── constants.js     # Team metadata, rivalry pairs, and scoring config (MLB)
 │   ├── nba-app.js       # Core orchestration, scoring logic, and UI rendering (NBA)
-│   ├── nba-constants.js # Team metadata, rivalry pairs, and scoring config (NBA)
-│   └── modules/
-│       └── api.js       # Specialized API interaction layers
+│   └── nba-constants.js # Team metadata, rivalry pairs, and scoring config (NBA)
 ├── utils/
 │   ├── core.js          # Shared utilities (formatting, storage, notifications)
 │   └── performance.js   # Request management, batching, and caching
