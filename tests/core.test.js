@@ -126,6 +126,40 @@ function runTests() {
   });
 
 
+  console.log('\n🧪 Running readCache tests...');
+
+  // 9. Read valid cache
+  runTest('Should return parsed JSON when valid cache exists', () => {
+    global.localStorage.setItem('mlbWatchCache:validKey', '{"data":"test"}');
+    const result = readCache('validKey');
+    assert.deepEqual(result, { data: 'test' });
+  });
+
+  // 10. Read non-existent cache
+  runTest('Should return null when cache does not exist', () => {
+    const result = readCache('missingKey');
+    assert.strictEqual(result, null);
+  });
+
+  // 11. Read invalid JSON cache
+  runTest('Should return null and catch error when cache contains invalid JSON', () => {
+    global.localStorage.setItem('mlbWatchCache:invalidKey', '{invalid');
+    const result = readCache('invalidKey');
+    assert.strictEqual(result, null);
+  });
+
+  // 12. LocalStorage throwing error
+  runTest('Should return null if localStorage.getItem throws', () => {
+    const originalGetItem = global.localStorage.getItem;
+    global.localStorage.getItem = () => { throw new Error('Access denied'); };
+
+    const result = readCache('someKey');
+    assert.strictEqual(result, null);
+
+    global.localStorage.getItem = originalGetItem;
+  });
+
+
   console.log('\n🧪 Running isRivalry tests...');
   runTest('Should return true for a valid rivalry regardless of order', () => {
     const mockSet = new Set(['BOS-LAL', 'NYK-PHI']);
