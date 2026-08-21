@@ -3643,7 +3643,7 @@ function renderStarList() {
 }
 
 // ─── AWARD RACES ─────────────────────────────────────────────────────────────
-// MVP + ROTY: ranked by fWAR (hitters AND pitchers compete together).
+// MVP: ranked by fWAR (hitters AND pitchers compete together).
 // Cy Young: pitchers only, ranked by ERA/K/WHIP/IP blend (qualified starters only).
 // Silver Slugger: hitters only by position, ranked by OPS+ (park-adjusted).
 
@@ -3691,13 +3691,6 @@ async function fetchAwardRaces() {
       batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=40&leagueId=104`, { ttl: 900000 })),
       batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/schedule?sportId=1&season=${season}&endDate=${date}&gameType=R&teamId=147`, { ttl: 900000 }).catch((e) =>null)),
       batchFetcher.add(() => requestPool.fetchDedup(`${MLB_API}/people/660271/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1`, { ttl: 900000 }).catch((e) => null)),
-    ]);
-
-    const rotyPromise = Promise.all([
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=100&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch((e) =>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=hitting&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=100&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch((e) =>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=100&leagueId=103&playerPool=rookies`, { ttl: 900000 }).catch((e) =>({})),
-      requestPool.fetchDedup(`${MLB_API}/stats?stats=byDateRange&group=pitching&startDate=${season}-01-01&endDate=${date}&sportId=1&limit=100&leagueId=104&playerPool=rookies`, { ttl: 900000 }).catch((e) =>({})),
     ]);
 
     const asStatsPromise = Promise.all([
@@ -3771,7 +3764,7 @@ async function fetchAwardRaces() {
           if (stats.era && !stats.earnedRunAverage) stats.earnedRunAverage = stats.era;
           if (stats.whip && !stats.walksAndHitsPerInningPitched) stats.walksAndHitsPerInningPitched = stats.whip;
 
-          // Ensure counting stats are explicitly defaulted for ROTY and other races
+          // Ensure counting stats are explicitly defaulted for other races
           stats.homeRuns = stats.homeRuns || 0;
           stats.runs = stats.runs || 0;
           stats.hits = stats.hits || 0;
@@ -3913,38 +3906,6 @@ async function fetchAwardRaces() {
       return p.isPitcher ? scoreMVPPitcher(p) : scoreMVPHitter(p);
     };
 
-    const scoreROTYHitter = (p) => {
-      const s = p.stats || {};
-      const war = p.war ?? 0;
-      const ops = parseFloat(s.onBasePlusSlugging) || 0;
-      const hr = parseInt(s.homeRuns) || 0;
-      const rbi = parseInt(s.runsBattedIn) || 0;
-      const r = parseInt(s.runs) || 0;
-      const h = parseInt(s.hits) || 0;
-      const avg = parseFloat(s.battingAverage) || 0;
-      // Balanced ROTY: WAR-heavy with traditional "voter feel" metrics.
-      // Elite rookie hitter (5 WAR, .850 OPS, 25 HR, 80 RBI) scores ~120.
-      let score = (war * 12.0) + (ops * 25.0) + (hr * 0.6) + (rbi * 0.1) + (r * 0.1) + (h * 0.05) + (avg * 10);
-      if (p.name === 'Kevin McGonigle' || p.name === 'JJ Wetherholt') {
-        score += 35.0;
-      }
-      return score;
-    };
-
-    const scoreROTYPitcher = (p) => {
-      const s = p.stats || {};
-      const war = p.war ?? 0;
-      const w = parseInt(s.wins) || 0;
-      const era = parseFloat(s.earnedRunAverage) || 4.5;
-      const so = parseInt(s.strikeouts) || 0;
-      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
-      // Balanced scale: Elite rookie pitcher (5 WAR, 12 W, 2.50 ERA, 180 K) scores ~95.
-      // Lower multiplier (0.75) keeps hitters as the slight default for ROTY unless pitchers are historic.
-      return ((war * 12.0) + (w * 2.0) + ((3.5 - era) * 12.0) + (so * 0.08) + ((1.2 - whip) * 15.0)) * 0.75;
-    };
-
-    const rotyScore = (p) => p.isPitcher ? scoreROTYPitcher(p) : scoreROTYHitter(p);
-
     const scoreCY = p => {
       const s = p.stats;
       const era = parseFloat(s.earnedRunAverage) || 4.5;
@@ -4037,31 +3998,6 @@ async function fetchAwardRaces() {
     const cyAL = rankCY(alP);
     const cyNL = rankCY(nlP);
 
-    // ── 6. ROTY: rookies only, hitters + pitchers, ranked by WAR then stats ──
-    // MLB API has a playerPool=rookies param — fetch both groups
-    // BOLT OPTIMIZATION: Use requestPool for deduplication and persistent caching
-    const [alRookH, nlRookH, alRookP, nlRookP] = await rotyPromise;
-
-    const alRookHitters  = attachWAR(buildPool(alRookH), false);
-    const nlRookHitters  = attachWAR(buildPool(nlRookH), false);
-    const alRookPitchers = attachWAR(buildPool(alRookP), true);
-    const nlRookPitchers = attachWAR(buildPool(nlRookP), true);
-
-    // Fallback Injection: If rookie lists are missing our award winners due to API timeout/failure,
-    // dynamically extract them and candidates from the main pools.
-    const mcgonigle = alH.find(p => p.name === 'Kevin McGonigle');
-    if (mcgonigle && !alRookHitters.some(p => p.id === mcgonigle.id)) {
-      alRookHitters.push(mcgonigle);
-    }
-
-    const wetherholt = nlH.find(p => p.name === 'JJ Wetherholt');
-    if (wetherholt && !nlRookHitters.some(p => p.id === wetherholt.id)) {
-      nlRookHitters.push(wetherholt);
-    }
-
-    const rotyAL = rankAward(mergeForMVP(alRookHitters, alRookPitchers), rotyScore);
-    const rotyNL = rankAward(mergeForMVP(nlRookHitters, nlRookPitchers), rotyScore);
-
     // ── 7. Format stat display lines ─────────────────────────────────────────
     function fmtMVP(p) {
       const parts = [];
@@ -4080,27 +4016,6 @@ async function fetchAwardRaces() {
         if (s.onBasePlusSlugging) parts.push(`<strong>${s.onBasePlusSlugging}</strong> OPS`);
         if (s.runs) parts.push(`<strong>${s.runs}</strong> R`);
         if (s.stolenBases) parts.push(`<strong>${s.stolenBases}</strong> SB`);
-      }
-      return parts.join(' · ');
-    }
-
-    function fmtROTY(p) {
-      const parts = [];
-      const s = p.stats;
-      if (p.isPitcher) {
-        if (s.wins) parts.push(`<strong>${s.wins}</strong> W`);
-        if (s.earnedRunAverage) parts.push(`<strong>${s.earnedRunAverage}</strong> ERA`);
-        if (s.strikeouts) parts.push(`<strong>${s.strikeouts}</strong> K`);
-        if (s.walksAndHitsPerInningPitched) parts.push(`<strong>${s.walksAndHitsPerInningPitched}</strong> WHIP`);
-        if (p.war !== null) parts.push(`<span style="color:var(--text-muted)">${p.war.toFixed(1)} WAR</span>`);
-      } else {
-        if (s.homeRuns) parts.push(`<strong style="color:var(--gold)">${s.homeRuns} HR</strong>`);
-        if (s.runsBattedIn) parts.push(`<strong style="color:var(--gold)">${s.runsBattedIn} RBI</strong>`);
-        if (s.battingAverage) parts.push(`<strong style="color:var(--gold)">${s.battingAverage} AVG</strong>`);
-        if (s.onBasePlusSlugging) parts.push(`<strong>${s.onBasePlusSlugging}</strong> OPS`);
-        if (s.hits) parts.push(`<strong>${s.hits}</strong> H`);
-        if (s.runs) parts.push(`<strong>${s.runs}</strong> R`);
-        if (p.war !== null) parts.push(`<span style="color:var(--text-muted)">${p.war.toFixed(1)} WAR</span>`);
       }
       return parts.join(' · ');
     }
@@ -4499,16 +4414,6 @@ async function fetchAwardRaces() {
         ${awardBlock('nl','NL','Cy Young Award', candidatesHtml(cyNL, fmtCY))}
       </div>`;
     container.appendChild(cyRow);
-
-    const rotyRow = document.createElement('div');
-    rotyRow.innerHTML = `<div class="section-title" style="margin-bottom:8px">Rookie of the Year Race</div>
-      <div style="font-size:0.68rem;color:var(--text-dim);margin-bottom:12px">Pitchers eligible. <span style="color:#60a5fa;font-weight:700">P</span> tag shown for pitcher candidates.</div>
-      <div class="awards-league-row">
-        ${awardBlock('al','AL','Rookie of the Year', candidatesHtml(rotyAL, fmtROTY))}
-        ${awardBlock('nl','NL','Rookie of the Year', candidatesHtml(rotyNL, fmtROTY))}
-      </div>`;
-    container.appendChild(rotyRow);
-
 
     const ssSection = document.createElement('div');
     ssSection.className = 'ss-section';
