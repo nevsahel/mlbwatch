@@ -1208,23 +1208,15 @@ async function fetchNBAMilestones() {
       m.paceText = milestonePaceText(m);
     });
 
-    const CONCURRENCY_LIMIT = 5;
-    let heatIndex = 0;
-    const worker = async () => {
-      while (heatIndex < allMilestones.length) {
-        const m = allMilestones[heatIndex++];
-        try {
-          m.heat = await fetchPlayerHeatNBA(m.id, m.stat);
-        } catch (e) {
-          m.heat = [];
-        }
-      }
-    };
-    const workers = Array.from(
-      { length: Math.min(CONCURRENCY_LIMIT, allMilestones.length) },
-      worker
-    );
-    await Promise.all(workers);
+    try {
+      const playerIds = allMilestones.map(m => m.id);
+      const heats = await fetchPlayersHeatNBA(playerIds);
+      allMilestones.forEach(m => {
+        m.heat = heats[m.id] || [];
+      });
+    } catch (e) {
+      allMilestones.forEach(m => m.heat = []);
+    }
 
     allMilestones.sort((a, b) => b.priority - a.priority || a.diff - b.diff);
     window.lastNBAMilestones = allMilestones;
@@ -1893,12 +1885,16 @@ function renderWinProbSparkline(game) {
   </div>`;
 }
 
-async function fetchPlayerHeatNBA(playerId, statKey) {
-  // Mocking last 10 games performance
-  // In a real scenario, we'd fetch player game logs
-  const heat = [];
-  for (let i = 0; i < 10; i++) {
-    heat.push(Math.random() > 0.5 ? 1 : 0);
+async function fetchPlayersHeatNBA(playerIds) {
+  // Batched mock implementation. In a real scenario, we would
+  // fetch player game logs for all requested player IDs in a single query.
+  const heats = {};
+  for (const id of playerIds) {
+    const heat = [];
+    for (let i = 0; i < 10; i++) {
+      heat.push(Math.random() > 0.5 ? 1 : 0);
+    }
+    heats[id] = heat;
   }
-  return heat;
+  return heats;
 }
