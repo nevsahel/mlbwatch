@@ -955,12 +955,24 @@ async function fetchNBALeaders() {
   }
 }
 
+const _athleteRefCache = new Map();
 async function resolveAthleteRef(ref) {
-  return requestPool.fetchDedup(ref.replace('http:', 'https:'), { ttl: 86400000 });
+  if (_athleteRefCache.has(ref)) {
+    return _athleteRefCache.get(ref);
+  }
+  const promise = requestPool.fetchDedup(ref.replace('http:', 'https:'), { ttl: 86400000 });
+  _athleteRefCache.set(ref, promise);
+  return promise;
 }
 
+const _teamRefCache = new Map();
 async function resolveTeamRef(ref) {
-  return requestPool.fetchDedup(ref.replace('http:', 'https:'), { ttl: 86400000 });
+  if (_teamRefCache.has(ref)) {
+    return _teamRefCache.get(ref);
+  }
+  const promise = requestPool.fetchDedup(ref.replace('http:', 'https:'), { ttl: 86400000 });
+  _teamRefCache.set(ref, promise);
+  return promise;
 }
 
 function renderNBALeaders(leaders) {
