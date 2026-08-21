@@ -1417,8 +1417,7 @@ async function buildNBAAwardCandidates(categories) {
 
   // 1. MVP: Weighted blend of PPG, RPG, APG, and Team Success
   // 2. DPOY: RPG, SPG, BPG
-  // 3. ROTY: PPG, RPG, APG (filtered by rookies - though core API doesn't make it easy to filter)
-  // 4. 6th Man: (Hard to identify starters vs bench from this endpoint alone)
+  // 3. 6th Man: (Hard to identify starters vs bench from this endpoint alone)
 
   // PPG, RPG, APG, SPG, BPG, FG%, 3P%, PER (if available)
   const importantCats = ['pointsPerGame', 'reboundsPerGame', 'assistsPerGame', 'stealsPerGame', 'blocksPerGame', 'fieldGoalPercentage'];

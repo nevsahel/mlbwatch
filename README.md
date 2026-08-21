@@ -13,7 +13,7 @@ A sophisticated, data-driven live dashboard for both Major League Baseball (MLB)
 - **Dynamic Theming**: UI elements automatically adapt to team brand colors for an immersive experience.
 
 ### 🏆 Award Race Projections
-- **Simulated Voting**: Projections for MVP, Cy Young, and ROTY use a unique **5-voter panel simulation** (Traditionalist, Stat-head, etc.) based on fWAR and traditional metrics.
+- **Simulated Voting**: Projections for MVP and Cy Young use a unique **5-voter panel simulation** (Traditionalist, Stat-head, etc.) based on fWAR and traditional metrics.
 - **Silver Slugger Field**: Interactive SVG field diagrams showing the projected Silver Slugger at every position.
 - **All-Star Roster Builder**: Real-time 34-man roster projections for both leagues, ensuring every MLB club is represented.
 
