@@ -3097,6 +3097,39 @@ async function fetchMilestones(todayGames) {
       allMilestones.filter(m => m.diff <= 5).map(m => m.team)
     );
 
+    const catMap = {
+      'Career Home Runs (HR)': 'homeRuns', 'Career Hits (H)': 'hits', 'Career Runs Batted In (RBI)': 'runsBattedIn',
+      'Career Strikeouts (SO)': 'strikeouts', 'Career Stolen Bases (SB)': 'stolenBases', 'Career Doubles (2B)': 'doubles',
+      'Career Triples (3B)': 'triples', 'Career Runs (R)': 'runs', 'Career Walks (BB)': 'baseOnBalls',
+      'Career Wins (W)': 'wins', 'Career Saves (SV)': 'saves'
+    };
+
+    // Pre-fetch all time leaders to prevent N+1 query problem
+    const leaderFetches = {};
+    allMilestones.forEach(m => {
+      if (m.scope === 'career') {
+        const cat = catMap[m.stat];
+        const group = m.type === 'pitcher' ? 'pitching' : 'hitting';
+        if (cat) {
+          const key = `${cat}|${group}`;
+          if (!leaderFetches[key]) {
+            // Catch errors here so a single failure doesn't fail the entire Promise.all
+            leaderFetches[key] = fetchAllTimeLeaders(cat, group).catch(e => {
+              console.warn(`Prefetch failed for ${key}:`, e);
+              return [];
+            });
+          }
+        }
+      }
+    });
+
+    const preFetchedLeaders = {};
+    await Promise.all(
+      Object.entries(leaderFetches).map(async ([key, promise]) => {
+        preFetchedLeaders[key] = await promise;
+      })
+    );
+
     await Promise.all(allMilestones.map(async m => {
       m.importance = milestoneImportance(m);
       m.urgency = milestoneUrgency(m);
@@ -3107,16 +3140,12 @@ async function fetchMilestones(todayGames) {
 
       // Chasing History
       if (m.scope === 'career') {
-        const catMap = {
-          'Career Home Runs (HR)': 'homeRuns', 'Career Hits (H)': 'hits', 'Career Runs Batted In (RBI)': 'runsBattedIn',
-          'Career Strikeouts (SO)': 'strikeouts', 'Career Stolen Bases (SB)': 'stolenBases', 'Career Doubles (2B)': 'doubles',
-          'Career Triples (3B)': 'triples', 'Career Runs (R)': 'runs', 'Career Walks (BB)': 'baseOnBalls',
-          'Career Wins (W)': 'wins', 'Career Saves (SV)': 'saves'
-        };
         const cat = catMap[m.stat];
         if (cat) {
           try {
-            const leaders = await fetchAllTimeLeaders(cat, m.type === 'pitcher' ? 'pitching' : 'hitting');
+            const group = m.type === 'pitcher' ? 'pitching' : 'hitting';
+            const key = `${cat}|${group}`;
+            const leaders = preFetchedLeaders[key] || [];
             const myVal = parseInt(m.current);
             // Find the player immediately ahead on the leaderboard (smallest value > myVal)
             const nextLegend = [...leaders].reverse().find(l => l.value > myVal);
