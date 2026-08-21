@@ -1968,7 +1968,7 @@ async function searchNBAPlayer(name) {
   // Since there's no easy player search in the ESPN API that returns stats directly,
   // we'll use the athletes endpoint if we can find an ID, or just mock it.
   // Real implementation would hit a search API.
-  return { name: name, id: Math.random() };
+  return { name: name, id: crypto.randomUUID() };
 }
 
 function renderWinProbSparkline(game) {
