@@ -1850,14 +1850,14 @@ async function fetchAndRenderNBAShots(games) {
     allImpactShots.slice(0, 12).forEach(s => {
       const teamColor = NBA_TEAM_DATA[s.team]?.color || 'var(--gold)';
       html += `
-        <div class="hr-card ${s.isClutch ? 'nuke' : 'barrel'}" onclick="openGameDrawer('${s.gamePk}')">
+        <div class="hr-card ${s.isClutch ? 'nuke' : 'barrel'}" onclick="openGameDrawer('${escapeHTML(s.gamePk)}')">
           <div class="hr-matchup">
-            ${teamLogo(s.team)} <span style="font-weight:700;color:var(--text-main)">${s.team}</span>
-            <span style="margin-left:auto;color:var(--text-dim)">${s.period} ${s.clock}</span>
+            ${teamLogo(s.team)} <span style="font-weight:700;color:var(--text-main)">${escapeHTML(s.team)}</span>
+            <span style="margin-left:auto;color:var(--text-dim)">${escapeHTML(s.period)} ${escapeHTML(s.clock)}</span>
           </div>
-          <div class="hr-hitter">${s.text}</div>
+          <div class="hr-hitter">${escapeHTML(s.text)}</div>
           <div class="hr-score-change">
-            ${s.game} · ${s.awayScore}-${s.homeScore}
+            ${escapeHTML(s.game)} · ${escapeHTML(String(s.awayScore))}-${escapeHTML(String(s.homeScore))}
             <span>${s.wpa > 0 ? `+${s.wpa.toFixed(1)}% WPA` : 'Clutch Performance'}</span>
           </div>
           <div class="hr-bottom-row">
