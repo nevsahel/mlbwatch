@@ -37,7 +37,8 @@ const NBA_RIVALRY_SET = new Set(NBA_RIVALRY_PAIRS.map(([x, y]) => x < y ? x + '-
 // ─── TEAM DATA HELPERS ────────────────────────────────────────────────────────
 
 function teamLogo(abbr) {
-  return `<img class="team-logo" src="https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png" alt="${abbr} logo" onerror="this.style.display='none'">`;
+  const safeAbbr = escapeHTML(abbr);
+  return `<img class="team-logo" src="https://a.espncdn.com/i/teamlogos/nba/500/${safeAbbr.toLowerCase()}.png" alt="${safeAbbr} logo" onerror="this.style.display='none'">`;
 }
 
 function teamColor(abbr) {
@@ -1716,18 +1717,18 @@ async function fetchAndRenderNBAPOTD(games) {
     let html = '<div class="potd-grid">';
     topPerformers.forEach(p => {
       // stats indices: MIN(0), PTS(1), REB(5), AST(6)
-      const statLine = `${p.stats[1]} PTS, ${p.stats[5]} REB, ${p.stats[6]} AST`;
+      const statLine = `${escapeHTML(p.stats[1])} PTS, ${escapeHTML(p.stats[5])} REB, ${escapeHTML(p.stats[6])} AST`;
       html += `
-        <div class="potd-card" onclick="openGameDrawer('${p.gamePk}')">
+        <div class="potd-card" onclick="openGameDrawer('${escapeHTML(p.gamePk)}')">
           <div class="potd-team-line">
-            ${teamLogo(p.team)} <strong>${p.team}</strong>
+            ${teamLogo(p.team)} <strong>${escapeHTML(p.team)}</strong>
             <span class="potd-vs">vs</span>
-            ${teamLogo(p.opp)} ${p.opp}
+            ${teamLogo(p.opp)} ${escapeHTML(p.opp)}
             ${p.isLive ? '<span class="potd-live-tag">LIVE</span>' : ''}
           </div>
-          <div class="potd-player-name">${p.name}</div>
+          <div class="potd-player-name">${escapeHTML(p.name)}</div>
           <div class="potd-stats">${statLine}</div>
-          <div class="potd-score-pill">Performance Score: ${p.score.toFixed(1)}</div>
+          <div class="potd-score-pill">Performance Score: ${escapeHTML(p.score.toFixed(1))}</div>
         </div>`;
     });
     html += '</div>';
