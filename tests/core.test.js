@@ -40,6 +40,40 @@ function runTests() {
     }
   }
 
+  console.log('\n🧪 Running loadPrefs tests...');
+
+  runTest('loadPrefs: Should load valid JSON from localStorage', () => {
+    global.localStorage.setItem('mlbWatchPrefsV1', '{"theme":"dark"}');
+    const prefs = loadPrefs();
+    assert.deepEqual(prefs, { theme: 'dark' });
+  });
+
+  runTest('loadPrefs: Should return empty object when localStorage is empty', () => {
+    // localStorage is cleared before each test
+    const prefs = loadPrefs();
+    assert.deepEqual(prefs, {});
+  });
+
+  runTest('loadPrefs: Should return empty object when localStorage contains invalid JSON', () => {
+    global.localStorage.setItem('mlbWatchPrefsV1', '{invalid json');
+    const prefs = loadPrefs();
+    assert.deepEqual(prefs, {});
+  });
+
+  runTest('loadPrefs: Should return empty object and not throw if localStorage.getItem throws', () => {
+    const originalGetItem = global.localStorage.getItem;
+    global.localStorage.getItem = () => { throw new Error('SecurityError: access denied'); };
+
+    let prefs;
+    assert.doesNotThrow(() => {
+      prefs = loadPrefs();
+    });
+    assert.deepEqual(prefs, {});
+
+    // Restore
+    global.localStorage.getItem = originalGetItem;
+  });
+
   // 1. Empty state
   runTest('Should save new preferences when localStorage is empty', () => {
     savePrefs({ theme: 'dark' });
