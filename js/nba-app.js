@@ -72,7 +72,6 @@ function switchTab(tab) {
   if (tab === 'potd') fetchAndRenderNBAPOTD(lastGames);
   if (tab === 'shots') fetchAndRenderNBAShots(lastGames);
   if (tab === 'awards') fetchNBAAwardRaces();
-  if (tab === 'duel') fetchAndRenderNBADuel(lastGames);
   if (tab === 'milestones') {
     const milestones = window.lastNBAMilestones;
     if (milestones) renderMilestoneBoard(milestones);
@@ -565,7 +564,6 @@ async function pollGames() {
     if (activeTab === 'standings') fetchNBAStandings();
     if (activeTab === 'potd') fetchAndRenderNBAPOTD(games);
     if (activeTab === 'shots') fetchAndRenderNBAShots(games);
-    if (activeTab === 'duel') fetchAndRenderNBADuel(games);
 
     document.getElementById('last-update').textContent = `Updated ${new Date().toLocaleTimeString()}`;
   } catch (e) {
@@ -1876,102 +1874,6 @@ async function fetchAndRenderNBAShots(games) {
   }
 }
 
-// ─── NBA THE DUEL ────────────────────────────────────────────────────────────
-
-async function fetchAndRenderNBADuel(games) {
-  const container = document.getElementById('duel-container');
-  if (!container) return;
-
-  const selectorHtml = `
-    <div class="duel-selector-wrap">
-      <div class="duel-section-title">🏀 NBA Matchup Simulator</div>
-      <div class="duel-selector">
-         <input type="text" id="duel-player1-search" placeholder="Search Player 1 (e.g. LeBron James)">
-         <div class="duel-vs-circle">VS</div>
-         <input type="text" id="duel-player2-search" placeholder="Search Player 2 (e.g. Stephen Curry)">
-         <button class="btn" onclick="runNBASimulatedDuel()">Simulate Duel 🎲</button>
-      </div>
-      <div id="duel-sim-result-container"></div>
-    </div>`;
-
-  container.innerHTML = selectorHtml;
-}
-
-async function runNBASimulatedDuel() {
-  const p1Name = document.getElementById('duel-player1-search')?.value;
-  const p2Name = document.getElementById('duel-player2-search')?.value;
-  const container = document.getElementById('duel-sim-result-container');
-
-  if (!p1Name || !p2Name) {
-    showNotification('Please enter both player names.', 'info');
-    return;
-  }
-
-  if (container) container.innerHTML = '<div class="expand-load-msg">Simulating matchup...</div>';
-
-  try {
-    // For NBA, we'll simulate a 1-on-1 possession
-    // We need some stats for these players. Since we don't have a direct "search" that returns stats,
-    // we'll try to find them in the current season leaders if they exist, or just use a generic model.
-
-    const res1 = await searchNBAPlayer(p1Name);
-    const res2 = await searchNBAPlayer(p2Name);
-
-    if (!res1 || !res2) {
-      if (container) container.innerHTML = '<div class="empty-msg">Player not found. Try a full name.</div>';
-      return;
-    }
-
-    const p1 = res1;
-    const p2 = res2;
-
-    // Simulation logic:
-    // P1 is on offense, P2 is on defense.
-    // Based on their "ratings" (simulated from PPG, etc. if available, or just random for now)
-
-    const scoreP1 = Math.random() * 100;
-    const scoreP2 = Math.random() * 100;
-
-    let result = "";
-    if (scoreP1 > scoreP2 + 20) {
-      result = `${p1.name} blows past ${p2.name} for a monster dunk! 💥`;
-    } else if (scoreP1 > scoreP2) {
-      result = `${p1.name} hits a tough contested jumper over ${p2.name}. 🏀`;
-    } else if (scoreP2 > scoreP1 + 20) {
-      result = `${p2.name} absolutely swats ${p1.name}'s shot! 🚫`;
-    } else {
-      result = `${p1.name} misses the shot under heavy pressure from ${p2.name}. 🛡️`;
-    }
-
-    container.innerHTML = `
-      <div class="sim-result-wrap">
-        <div class="sim-result" style="grid-column: span 2;">
-          <div class="sim-label">SIMULATED POSSESSION</div>
-          <div class="sim-val">${result}</div>
-          <div class="sim-odds">
-            Matchup: <strong>${p1.name}</strong> vs <strong>${p2.name}</strong>
-          </div>
-        </div>
-      </div>`;
-
-  } catch (e) {
-    console.error('NBA Duel simulation failed:', e);
-    if (container) container.innerHTML = 'Simulation failed';
-  }
-}
-
-async function searchNBAPlayer(name) {
-  // Try to find in cache first
-  const cacheKey = `nbaPlayerSearch:${name}`;
-  const cached = persistentCache.get(cacheKey);
-  if (cached) return cached;
-
-  // Since there's no easy player search in the ESPN API that returns stats directly,
-  // we'll use the athletes endpoint if we can find an ID, or just mock it.
-  // Real implementation would hit a search API.
-  return { name: name, id: crypto.randomUUID() };
-}
-
 function renderWinProbSparkline(game) {
   const series = game.winProbSeries || [];
   if (series.length < 2) return '';
@@ -2001,5 +1903,3 @@ async function fetchPlayerHeatNBA(playerId, statKey) {
   }
   return heat;
 }
-
-window.runNBASimulatedDuel = runNBASimulatedDuel;
