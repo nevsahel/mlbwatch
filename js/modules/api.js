@@ -1,6 +1,6 @@
 import { MLB_API } from '../constants.js';
 import { requestPool } from '../../utils/performance.js';
-import { normalizeAbbr, formatGameTime, currentSeason, selectedDate, todayET } from '../../app.js';
+import { selectedDate, todayET } from '../../app.js';
 
 export async function fetchLiveGamesData() {
   const date = selectedDate || todayET();
@@ -15,8 +15,3 @@ export async function fetchLiveGamesData() {
   return schedData.dates[0].games;
 }
 
-export async function fetchTeamRecords() {
-    const season = currentSeason();
-    const date = selectedDate || todayET();
-    return await requestPool.fetchDedup(`${MLB_API}/standings?leagueId=103,104&season=${season}&date=${date}&standingsTypes=regularSeason&hydrate=team`, { cacheKey: `standings:regular:${date}` });
-}
