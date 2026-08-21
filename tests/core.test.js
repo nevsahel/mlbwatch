@@ -159,6 +159,30 @@ function runTests() {
     assert.strictEqual(isRivalry('BOS', 'BOS', mockSet2), false);
   });
 
+  console.log('\n🧪 Running escapeHTML tests...');
+
+  runTest('Should properly escape special characters', () => {
+    assert.strictEqual(escapeHTML('1 & 2 < 3 > 0 "quote" \'apostrophe\''), '1 &amp; 2 &lt; 3 &gt; 0 &quot;quote&quot; &#39;apostrophe&#39;');
+  });
+
+  runTest('Should handle null, undefined, and empty strings', () => {
+    assert.strictEqual(escapeHTML(null), '');
+    assert.strictEqual(escapeHTML(undefined), '');
+    assert.strictEqual(escapeHTML(''), '');
+  });
+
+  runTest('Should handle strings with no special characters', () => {
+    assert.strictEqual(escapeHTML('Hello World! 123'), 'Hello World! 123');
+  });
+
+  runTest('Should cast non-string types to string', () => {
+    assert.strictEqual(escapeHTML(123), '123');
+    assert.strictEqual(escapeHTML(true), 'true');
+    assert.strictEqual(escapeHTML(false), 'false');
+    // For arrays and objects, String() conversion happens
+    assert.strictEqual(escapeHTML([1, 2]), '1,2');
+  });
+
   console.log(`\nResults: ${passed} passed, ${failed} failed`);
   if (failed > 0) {
     process.exit(1);
