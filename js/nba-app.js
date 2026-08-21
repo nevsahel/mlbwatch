@@ -1558,8 +1558,8 @@ function renderNBAAwardRaces(awards) {
         <div class="award-candidate">
           <div class="award-rank r${i + 1}">${['🥇', '🥈', '🥉', '4', '5'][i] || (i + 1)}</div>
           <div class="award-cand-info">
-            <div class="award-cand-name">${teamLogo(p.team)} ${p.name}</div>
-            <div class="award-cand-team">${p.team}</div>
+            <div class="award-cand-name">${teamLogo(escapeHTML(p.team))} ${escapeHTML(p.name)}</div>
+            <div class="award-cand-team">${escapeHTML(p.team)}</div>
             <div class="award-cand-stats">${statsLine}</div>
             ${voteBar}
           </div>
