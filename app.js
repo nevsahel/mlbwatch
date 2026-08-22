@@ -5409,25 +5409,66 @@ function showStrikeZoneStats(rect) {
 function getJournalistRecap(data) {
   const away = data.awayAbbr;
   const home = data.homeAbbr;
+  const awayRuns = data.boxRows?.awayTotals?.runs || 0;
+  const homeRuns = data.boxRows?.homeTotals?.runs || 0;
   const isFinal = /final/i.test(data.inningStatus);
   const status = data.inningStatus;
 
+  const rDiff = homeRuns - awayRuns;
+
   let title = `[PRESS BOX RECAP] ${away} @ ${home} (${status})\n`;
-  if (isFinal && data.boxRows.homeTotals && data.boxRows.awayTotals) {
-    const rDiff = (data.boxRows.homeTotals.runs || 0) - (data.boxRows.awayTotals.runs || 0);
+  let leadParagraph = '';
+
+  if (isFinal) {
     if (rDiff > 0) {
-      title = `📰 PRESS BOX: ${home} Defeats ${away} in Thrilling Finish, ${data.boxRows.homeTotals.runs}-${data.boxRows.awayTotals.runs}\n`;
+      title = `📰 PRESS BOX: ${home} Defeats ${away}, ${homeRuns}-${awayRuns}\n`;
+      if (rDiff >= 5) {
+        leadParagraph = `In a commanding performance, ${home} routed ${away} by a score of ${homeRuns}-${awayRuns}. The home crowd was treated to a dominant display as ${home} controlled the tempo from the early innings, never letting ${away} find their footing.`;
+      } else if (rDiff === 1) {
+        leadParagraph = `Fans were kept on the edge of their seats as ${home} edged out ${away} in a nail-biting ${homeRuns}-${awayRuns} victory. Every pitch mattered in this tightly contested battle, culminating in a dramatic finish.`;
+      } else {
+        leadParagraph = `${home} secured a solid ${homeRuns}-${awayRuns} win over ${away} today. It was a well-rounded effort from the home side, doing enough in key moments to keep the visitors at bay.`;
+      }
+    } else if (rDiff < 0) {
+      title = `📰 PRESS BOX: ${away} Defeats ${home}, ${awayRuns}-${homeRuns}\n`;
+      if (rDiff <= -5) {
+         leadParagraph = `${away} silenced the home crowd with a resounding ${awayRuns}-${homeRuns} blowout victory over ${home}. The visitors offense exploded, leaving the home team scrambling for answers in a lopsided affair.`;
+      } else if (rDiff === -1) {
+         leadParagraph = `In a tense, back-and-forth affair, ${away} managed to sneak past ${home} for a thrilling ${awayRuns}-${homeRuns} win on the road. The visitors showed tremendous grit, coming through in the clutch to silence the home fans.`;
+      } else {
+         leadParagraph = `${away} went on the road and handled their business, taking down ${home} by a score of ${awayRuns}-${homeRuns}. The visitors executed their game plan effectively to secure a hard-fought victory.`;
+      }
     } else {
-      title = `📰 PRESS BOX: ${away} Defeats ${home} in Tight Battle, ${data.boxRows.awayTotals.runs}-${data.boxRows.homeTotals.runs}\n`;
+      title = `📰 PRESS BOX: ${away} and ${home} Tie, ${awayRuns}-${homeRuns}\n`;
+      leadParagraph = `After a hard-fought battle, ${away} and ${home} ended in a ${awayRuns}-${homeRuns} draw.`;
     }
+  } else {
+      if (rDiff > 0) {
+        leadParagraph = `As the game progresses through the ${status.toLowerCase()}, ${home} currently holds a ${homeRuns}-${awayRuns} lead over ${away}. The home team has capitalized on their opportunities so far, but with baseball, anything can happen in the remaining frames.`;
+      } else if (rDiff < 0) {
+        leadParagraph = `The visiting ${away} squad has jumped out to a ${awayRuns}-${homeRuns} advantage over ${home} in the ${status.toLowerCase()}. ${away} has quieted the home crowd early on, forcing ${home} to play catch-up as the game unfolds.`;
+      } else {
+        leadParagraph = `We are locked in a dead heat here in the ${status.toLowerCase()}, with ${away} and ${home} tied at ${awayRuns}-${awayRuns}. Both sides are trading blows in what is shaping up to be a highly competitive matchup.`;
+      }
   }
 
-  let lineScore = `Line Score:\n--------------------------\n`;
-  lineScore += `${away}: ${data.boxRows.awayTotals.runs || 0} R, ${data.boxRows.awayTotals.hits || 0} H, ${data.boxRows.awayTotals.errors || 0} E\n`;
-  lineScore += `${home}: ${data.boxRows.homeTotals.runs || 0} R, ${data.boxRows.homeTotals.hits || 0} H, ${data.boxRows.homeTotals.errors || 0} E\n`;
-  lineScore += `--------------------------\n`;
+  // add context from top momentum shift
+  if (data.topWpaPlays && data.topWpaPlays.length > 0) {
+    const topPlay = data.topWpaPlays[0];
+    let desc = topPlay.desc;
+    if (desc.endsWith('.')) {
+        desc = desc.substring(0, desc.length - 1);
+    }
+    leadParagraph += ` A major turning point occurred in the ${topPlay.half.toLowerCase()} of the ${topPlay.inn}, when ${desc}.`;
+  }
 
-  let keyPlays = 'Key Game Highlights:\n';
+  let statSheet = `\n--- GAME STATS ---\n`;
+
+  statSheet += `Line Score:\n`;
+  statSheet += `${away}: ${awayRuns} R, ${data.boxRows?.awayTotals?.hits || 0} H, ${data.boxRows?.awayTotals?.errors || 0} E\n`;
+  statSheet += `${home}: ${homeRuns} R, ${data.boxRows?.homeTotals?.hits || 0} H, ${data.boxRows?.homeTotals?.errors || 0} E\n`;
+
+  let keyPlays = '\nKey Game Highlights:\n';
   if (data.scoringPlays && data.scoringPlays.length > 0) {
     data.scoringPlays.slice(0, 4).forEach(p => {
       keyPlays += `• [${p.half}${p.inn}] ${p.desc} (${away} ${p.away} - ${home} ${p.home})\n`;
@@ -5443,7 +5484,7 @@ function getJournalistRecap(data) {
     wpaSwing += `• [${topPlay.half}${topPlay.inn}] ${topPlay.desc} (${topPlay.delta > 0 ? '+' : ''}${topPlay.delta.toFixed(1)}% WPA Shift)\n`;
   }
 
-  return `${title}\n${lineScore}\n${keyPlays}${wpaSwing}\nGenerated via MLB Watchability Index — Official Press Feed.`;
+  return `${title}\n${leadParagraph}\n${statSheet}${keyPlays}${wpaSwing}\n\nGenerated via MLB Watchability Index — Official Press Feed.`;
 }
 
 function copyJournalistDraft() {
