@@ -8,6 +8,62 @@ const favoriteAlerts = {};
 const gameDetailsByPk = {};
 const revealedGames = new Set();
 
+const liveModelPipeline = typeof LiveModelPipeline !== 'undefined' ? new LiveModelPipeline() : null;
+window.livePredictions = window.livePredictions || {};
+
+// Historical-based Award Models (Global)
+const scoreMVPHitter = (p) => {
+  const s = p.stats;
+  const ops = parseFloat(s.onBasePlusSlugging) || 0;
+  const hr = parseInt(s.homeRuns) || 0;
+  const rbi = parseInt(s.runsBattedIn) || 0;
+  const r = parseInt(s.runs) || 0;
+  const avg = parseFloat(s.battingAverage) || 0;
+  const war = p.war ?? 0;
+      // Weights calibrated to historical means (.993 OPS, 34 HR, 114 RBI, 110 R)
+      let score = (war * 10.0) + (ops * 45.0) + (hr * 0.45) + (rbi * 0.12) + (r * 0.12) + (avg * 25.0);
+      if (p.name === 'Yordan Alvarez') {
+        score += 25.0;
+      }
+      return score;
+    };
+
+const scoreMVPPitcher = (p) => {
+  const s = p.stats;
+  const w = parseInt(s.wins) || 0;
+  const era = parseFloat(s.earnedRunAverage) || 4.5;
+  const so = parseInt(s.strikeouts) || 0;
+  const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
+  const war = p.war ?? 0;
+      // Pitchers need ~20% higher relative dominance to match hitters in MVP voting
+      return ((war * 9.0) + (w * 1.0) + ((3.5 - era) * 10.0) + (so * 0.06) + ((1.2 - whip) * 18.0)) * 0.82;
+    };
+
+const mvpScore = (p) => {
+      if (p.id === 660271 || p.isTwoWay || p.name === 'Shohei Ohtani') {
+        return scoreMVPHitter(p) + scoreMVPPitcher(p) + 35.0;
+      }
+      return p.isPitcher ? scoreMVPPitcher(p) : scoreMVPHitter(p);
+    };
+
+const scoreCY = p => {
+  const s = p.stats;
+  const era = parseFloat(s.earnedRunAverage) || 4.5;
+  const k = parseInt(s.strikeouts) || 0;
+  const w = parseInt(s.wins) || 0;
+  const ip = parseFloat(s.inningsPitched) || 0;
+  const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
+  const sho = parseInt(s.shutouts) || 0;
+  const war = p.war ?? 0;
+      // Calibrated to 2.46 ERA, 19 W, 213 SO, 1.04 WHIP means. Reduced WAR weight.
+      let score = (w * 2.2) + ((3.2 - era) * 18) + (k * 0.16) + (ip * 0.1) + ((1.15 - whip) * 26) + (sho * 4) + (war * 2.5);
+      if (p.name === 'Cam Schlittler' || p.name === 'Jacob Misiorowski') {
+        score += 25.0;
+      }
+      return score;
+    };
+
+
 
 
 // ─── RIVALRY PAIRS ─────────────────────────────────────────────────────────────
@@ -1015,6 +1071,51 @@ async function fetchLiveGamesData() {
       obj.watchabilityBreakdown = calculateWatchabilityBreakdown(obj);
       obj.watchabilityIndex = obj.watchabilityBreakdown.score;
       checkBoxscoreMilestones(feed);
+
+      // Process live prediction using the pipeline
+      try {
+        const rawDataForModel = {
+            status: g.status.detailedState,
+            inning: obj.currentInning,
+            outs: obj.outs,
+            awayScore: obj.awayScore,
+            homeScore: obj.homeScore,
+            onFirst: obj.onFirst,
+            onSecond: obj.onSecond,
+            onThird: obj.onThird,
+            currentBatter: obj.currentBatter,
+            currentPitcher: obj.currentPitcher
+        };
+        const modelInput = liveModelPipeline ? liveModelPipeline.process(rawDataForModel) : { hitter: null, pitcher: null };
+
+        const bid = obj.currentBatter?.id;
+        const pid = obj.currentPitcher?.id;
+        const eventKey = `${g.gamePk}-${obj.currentInning}-${obj.inningHalf}-${obj.outs}-${obj.awayScore}-${obj.homeScore}-${bid}-${pid}-${obj.onFirst}-${obj.onSecond}-${obj.onThird}`;
+
+        if (window.livePredictions[g.gamePk]?.eventKey !== eventKey) {
+            const pred = {};
+            if (modelInput.hitter && !modelInput.hitter._missingVariables.length) {
+                pred.hitterScore = scoreMVPHitter(modelInput.hitter);
+            }
+            if (modelInput.pitcher && !modelInput.pitcher._missingVariables.length) {
+                pred.pitcherScore = scoreCY(modelInput.pitcher);
+            }
+            window.livePredictions[g.gamePk] = {
+                timestamp: Date.now(),
+                eventKey,
+                prediction: pred
+            };
+
+            // Make the latest prediction available through the backend API
+            fetch('/api/live-predictions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ gamePk: g.gamePk, prediction: window.livePredictions[g.gamePk] })
+            }).catch(() => {}); // Fire and forget
+        }
+      } catch (err) {
+        console.warn('Live model prediction failed for game ' + g.gamePk, err);
+      }
       return obj;
     } catch (e) {
       console.error(`Feed error ${g.gamePk}:`, e);
@@ -3900,57 +4001,13 @@ async function fetchAwardRaces() {
       return Object.values(merged);
     };
 
-    // Historical-based Award Models
-    const scoreMVPHitter = (p) => {
-      const s = p.stats;
-      const ops = parseFloat(s.onBasePlusSlugging) || 0;
-      const hr = parseInt(s.homeRuns) || 0;
-      const rbi = parseInt(s.runsBattedIn) || 0;
-      const r = parseInt(s.runs) || 0;
-      const avg = parseFloat(s.battingAverage) || 0;
-      const war = p.war ?? 0;
-      // Weights calibrated to historical means (.993 OPS, 34 HR, 114 RBI, 110 R)
-      let score = (war * 10.0) + (ops * 45.0) + (hr * 0.45) + (rbi * 0.12) + (r * 0.12) + (avg * 25.0);
-      if (p.name === 'Yordan Alvarez') {
-        score += 25.0;
-      }
-      return score;
-    };
 
-    const scoreMVPPitcher = (p) => {
-      const s = p.stats;
-      const w = parseInt(s.wins) || 0;
-      const era = parseFloat(s.earnedRunAverage) || 4.5;
-      const so = parseInt(s.strikeouts) || 0;
-      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
-      const war = p.war ?? 0;
-      // Pitchers need ~20% higher relative dominance to match hitters in MVP voting
-      return ((war * 9.0) + (w * 1.0) + ((3.5 - era) * 10.0) + (so * 0.06) + ((1.2 - whip) * 18.0)) * 0.82;
-    };
 
-    const mvpScore = (p) => {
-      if (p.id === 660271 || p.isTwoWay || p.name === 'Shohei Ohtani') {
-        return scoreMVPHitter(p) + scoreMVPPitcher(p) + 35.0;
-      }
-      return p.isPitcher ? scoreMVPPitcher(p) : scoreMVPHitter(p);
-    };
 
-    const scoreCY = p => {
-      const s = p.stats;
-      const era = parseFloat(s.earnedRunAverage) || 4.5;
-      const k = parseInt(s.strikeouts) || 0;
-      const w = parseInt(s.wins) || 0;
-      const ip = parseFloat(s.inningsPitched) || 0;
-      const whip = parseFloat(s.walksAndHitsPerInningPitched) || 1.3;
-      const sho = parseInt(s.shutouts) || 0;
-      const war = p.war ?? 0;
-      // Calibrated to 2.46 ERA, 19 W, 213 SO, 1.04 WHIP means. Reduced WAR weight.
-      let score = (w * 2.2) + ((3.2 - era) * 18) + (k * 0.16) + (ip * 0.1) + ((1.15 - whip) * 26) + (sho * 4) + (war * 2.5);
-      if (p.name === 'Cam Schlittler' || p.name === 'Jacob Misiorowski') {
-        score += 25.0;
-      }
-      return score;
-    };
+
+
+
+
 
     // ── Votes simulation ─────────────────────────────────────────────────────
     // Simulates a 5-voter panel with varied statistical focuses.
