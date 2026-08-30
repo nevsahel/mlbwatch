@@ -960,16 +960,49 @@ async function resolveAthleteRef(ref) {
   if (_athleteRefCache.has(ref)) {
     return _athleteRefCache.get(ref);
   }
-  const promise = requestPool.fetchDedup(ref.replace('http:', 'https:'), { ttl: 86400000 });
+  // Wrap in batchFetcher to throttle concurrent core API requests and avoid rate limiting
+  const promise = batchFetcher.add(() =>
+    requestPool.fetchDedup(ref.replace('http:', 'https:'), { ttl: 86400000 })
+  );
   _athleteRefCache.set(ref, promise);
   return promise;
 }
 
 const _teamRefCache = new Map();
+
+// Map team IDs to team abbreviations for O(1) synchronous lookups without API calls
+const _teamIdToAbbrMap = new Map();
+if (typeof NBA_TEAM_DATA !== 'undefined') {
+  Object.entries(NBA_TEAM_DATA).forEach(([abbr, data]) => {
+    _teamIdToAbbrMap.set(String(data.id), abbr);
+  });
+}
+
 async function resolveTeamRef(ref) {
   if (_teamRefCache.has(ref)) {
     return _teamRefCache.get(ref);
   }
+
+  // Fast O(1) synchronous resolution if ref contains team ID
+  // e.g. .../teams/20 -> ID 20
+  const match = ref.match(/\/teams\/(\d+)/);
+  if (match) {
+    const teamId = match[1];
+    const abbr = _teamIdToAbbrMap.get(teamId);
+    if (abbr) {
+      const teamObj = {
+        id: teamId,
+        abbreviation: abbr,
+        displayName: NBA_TEAM_DATA[abbr].name, // e.g. "Celtics"
+        name: NBA_TEAM_DATA[abbr].name,
+        color: NBA_TEAM_DATA[abbr].color
+      };
+      _teamRefCache.set(ref, Promise.resolve(teamObj));
+      return teamObj;
+    }
+  }
+
+  // Fallback to API if not mapped
   const promise = requestPool.fetchDedup(ref.replace('http:', 'https:'), { ttl: 86400000 });
   _teamRefCache.set(ref, promise);
   return promise;
