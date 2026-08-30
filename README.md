@@ -103,10 +103,17 @@ Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestr
 ├── nba.html             # NBA dashboard main layout
 ├── check_nba_api.js     # Utility for testing ESPN API responses
 ├── styles.css           # Comprehensive dark-themed design system
+├── css/
+│   └── variables.css    # CSS variables and theme configuration
 ├── js/
 │   ├── constants.js     # Team metadata, rivalry pairs, and scoring config (MLB)
+│   ├── landing.js       # Landing page logic and game peek functionality
+│   ├── live-model-pipeline.js # MLB prediction analytics model integration
 │   ├── nba-app.js       # Core orchestration, scoring logic, and UI rendering (NBA)
-│   └── nba-constants.js # Team metadata, rivalry pairs, and scoring config (NBA)
+│   ├── nba-constants.js # Team metadata, rivalry pairs, and scoring config (NBA)
+│   └── providers/
+│       └── mlb-provider.js # External API requests and data normalization for MLB
+├── tests/               # Test suite for unit and integration testing
 ├── utils/
 │   ├── core.js          # Shared utilities (formatting, storage, notifications)
 │   └── performance.js   # Request management, batching, and caching
