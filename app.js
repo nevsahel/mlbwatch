@@ -1595,47 +1595,6 @@ function renderMomentumTimeline(series, awayAbbr, homeAbbr) {
 }
 
 
-function renderMLBPlayerBoxScore(box, awayAbbr, homeAbbr) {
-  if (!box || !box.away || !box.home) return '';
-  let html = '';
-
-  ['away', 'home'].forEach(side => {
-    const data = box[side];
-    const abbr = side === 'away' ? awayAbbr : homeAbbr;
-
-    html += '<div class="boxscore-team-header">' + teamLogo(abbr) + ' ' + abbr + ' Batters</div>';
-    html += '<div class="boxscore-scroll-wrap"><table class="boxscore-table"><thead><tr>';
-    html += '<th>BATTER</th><th>AB</th><th>R</th><th>H</th><th>RBI</th><th>BB</th><th>SO</th><th>AVG</th><th>OPS</th>';
-    html += '</tr></thead><tbody>';
-
-    data.batters.forEach(b => {
-      const indent = (b.bo && parseInt(b.bo) % 100 !== 0) ? ' style="padding-left:16px; color:var(--text-dim)"' : '';
-      html += '<tr>';
-      html += '<td class="player-name"' + indent + '>' + escapeHTML(b.name) + ' <span style="font-size:0.65rem;font-weight:normal;color:var(--text-dim)">' + b.pos + '</span></td>';
-      html += '<td>' + b.ab + '</td><td>' + b.r + '</td><td>' + b.h + '</td><td>' + b.rbi + '</td>';
-      html += '<td>' + b.bb + '</td><td>' + b.so + '</td><td>' + b.avg + '</td><td>' + b.ops + '</td>';
-      html += '</tr>';
-    });
-    html += '</tbody></table></div>';
-
-    html += '<div class="boxscore-team-header">' + teamLogo(abbr) + ' ' + abbr + ' Pitchers</div>';
-    html += '<div class="boxscore-scroll-wrap"><table class="boxscore-table" style="margin-bottom:20px"><thead><tr>';
-    html += '<th>PITCHER</th><th>IP</th><th>H</th><th>R</th><th>ER</th><th>BB</th><th>K</th><th>HR</th><th>ERA</th>';
-    html += '</tr></thead><tbody>';
-
-    data.pitchers.forEach(p => {
-      html += '<tr>';
-      html += '<td class="player-name">' + escapeHTML(p.name) + '</td>';
-      html += '<td>' + p.ip + '</td><td>' + p.h + '</td><td>' + p.r + '</td><td>' + p.er + '</td>';
-      html += '<td>' + p.bb + '</td><td>' + p.k + '</td><td>' + p.hr + '</td><td>' + p.era + '</td>';
-      html += '</tr>';
-    });
-    html += '</tbody></table></div>';
-  });
-
-  return html;
-}
-
 function renderExpandPanel(panel, data) {
   const boxRows      = data.boxRows;
   const scoringPlays = data.scoringPlays;
