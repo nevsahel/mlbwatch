@@ -153,3 +153,45 @@ The project now includes a Node.js backend. To run the backend locally:
    ```
 
 The backend will run on port 3000 by default (e.g., http://localhost:3000/api/health).
+
+## Database Setup
+
+The backend uses a Sequelize ORM with a SQLite database by default.
+
+### Required Environment Variables
+
+Configure your database by adding the following variables to your `.env` file at the root of the project:
+
+\`\`\`env
+DB_DIALECT=sqlite
+DB_STORAGE=./backend/database.sqlite
+\`\`\`
+
+### Migration Commands
+
+To set up the database schema, run the Sequelize migrations from the `backend/src/db` directory:
+
+\`\`\`bash
+cd backend/src/db
+npx sequelize-cli db:migrate
+\`\`\`
+
+### Seed Commands
+
+To populate the development database with initial sample data (Teams, Players, Venues, Games):
+
+\`\`\`bash
+cd backend/src/db
+npx sequelize-cli db:seed:all
+\`\`\`
+
+### Resetting the Development Database
+
+To completely wipe and reset the development database (useful when iterating on schemas):
+
+\`\`\`bash
+cd backend/src/db
+npx sequelize-cli db:migrate:undo:all
+npx sequelize-cli db:migrate
+npx sequelize-cli db:seed:all
+\`\`\`
