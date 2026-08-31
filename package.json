@@ -4,7 +4,9 @@
   "description": "A sophisticated, data-driven live dashboard for both Major League Baseball (MLB) and the National Basketball Association (NBA) that uses a multi-factor **Watchability Index** to identify the most compelling action in real-time. From pennant races and high-stakes late-inning drama to clutch time and 4th quarter comebacks, this tool ensures you're always tuned into the game's most important moments.",
   "main": "app.js",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "start:backend": "node backend/src/server.js",
+    "dev:backend": "nodemon backend/src/server.js"
   },
   "repository": {
     "type": "git",
@@ -19,6 +21,14 @@
   },
   "homepage": "https://github.com/nevsahel/mlbwatch#readme",
   "devDependencies": {
-    "jest": "^30.4.2"
+    "jest": "^30.4.2",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "morgan": "^1.12.0"
   }
 }

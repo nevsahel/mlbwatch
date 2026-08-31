@@ -98,6 +98,10 @@ Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestr
 
 ```text
 ├── app.js               # Core orchestration, scoring logic, and UI rendering (MLB)
+├── backend/             # Node.js backend server, APIs, and configuration
+│   ├── __tests__/       # Backend tests
+│   ├── src/             # Backend source code (routes, middleware, app)
+│   └── server.js        # Backend entry point
 ├── index.html           # Sport selector landing page
 ├── mlb.html             # MLB dashboard main layout
 ├── nba.html             # NBA dashboard main layout
@@ -123,3 +127,29 @@ Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestr
 ---
 
 *Data provided by MLB Stats API, Baseball Savant, Fangraphs, and the ESPN API.*
+
+---
+
+## 🚀 Running the Project
+
+### Starting the Backend
+The project now includes a Node.js backend. To run the backend locally:
+
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Start the backend in development mode (using nodemon):
+   ```bash
+   npm run dev:backend
+   ```
+   Or start normally:
+   ```bash
+   npm run start:backend
+   ```
+
+The backend will run on port 3000 by default (e.g., http://localhost:3000/api/health).
