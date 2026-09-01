@@ -9,10 +9,9 @@ describe('Health Routes', () => {
     expect(res.body).toHaveProperty('timestamp');
   });
 
-  it('GET /api/health/database should return 503 unavailable as placeholder', async () => {
+  it('GET /api/health/database should return 200 ok when db is connected', async () => {
     const res = await request(app).get('/api/health/database');
-    expect(res.statusCode).toEqual(503);
-    expect(res.body).toHaveProperty('status', 'unavailable');
-    expect(res.body).toHaveProperty('message', 'Database check not yet implemented.');
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toHaveProperty('status', 'ok');
   });
 });
