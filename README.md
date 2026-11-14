@@ -98,10 +98,9 @@ Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestr
 
 ```text
 ├── app.js               # Core orchestration, scoring logic, and UI rendering (MLB)
-├── backend/             # Node.js backend server, APIs, and configuration
-│   ├── __tests__/       # Backend tests
-│   ├── src/             # Backend source code (routes, middleware, app)
-│   └── server.js        # Backend entry point
+├── backend/             # Python FastAPI backend and SQLAlchemy models
+│   ├── app/             # API, configuration, database, and models
+│   └── tests/           # Python backend tests
 ├── index.html           # Sport selector landing page
 ├── mlb.html             # MLB dashboard main layout
 ├── nba.html             # NBA dashboard main layout
@@ -132,66 +131,29 @@ Built with vanilla ES6+ JavaScript and a focus on high-concurrency data orchestr
 
 ## 🚀 Running the Project
 
-### Starting the Backend
-The project now includes a Node.js backend. To run the backend locally:
+### Python backend
 
-1. Copy `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the backend in development mode (using nodemon):
-   ```bash
-   npm run dev:backend
-   ```
-   Or start normally:
-   ```bash
-   npm run start:backend
-   ```
+The API backend uses Python, FastAPI, and SQLAlchemy. From the repository root, install its dependencies and start it with:
 
-The backend will run on port 3000 by default (e.g., http://localhost:3000/api/health).
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+python -m backend
+```
 
-## Database Setup
+The API listens on port 3000 by default. Check `http://localhost:3000/api/health` and `http://localhost:3000/api/health/database`.
+For development with automatic reload, run `python -m uvicorn backend.app.main:app --reload --port 3000`.
 
-The backend uses a Sequelize ORM with a SQLite database by default.
+The database defaults to SQLite at `backend/database.sqlite`. The SQLAlchemy model schema is created when the API starts. Configure the database with these optional root `.env` values:
 
-### Required Environment Variables
-
-Configure your database by adding the following variables to your `.env` file at the root of the project:
-
-\`\`\`env
+```env
 DB_DIALECT=sqlite
 DB_STORAGE=./backend/database.sqlite
-\`\`\`
+PORT=3000
+```
 
-### Migration Commands
+To use another SQLAlchemy-supported database, set `DATABASE_URL` to its connection URL. Run the preserved sample data seeder with `python -m backend.app.seed`.
 
-To set up the database schema, run the Sequelize migrations from the `backend/src/db` directory:
-
-\`\`\`bash
-cd backend/src/db
-npx sequelize-cli db:migrate
-\`\`\`
-
-### Seed Commands
-
-To populate the development database with initial sample data (Teams, Players, Venues, Games):
-
-\`\`\`bash
-cd backend/src/db
-npx sequelize-cli db:seed:all
-\`\`\`
-
-### Resetting the Development Database
-
-To completely wipe and reset the development database (useful when iterating on schemas):
-
-\`\`\`bash
-cd backend/src/db
-npx sequelize-cli db:migrate:undo:all
-npx sequelize-cli db:migrate
-npx sequelize-cli db:seed:all
-\`\`\`
+The frontend remains the existing JavaScript browser app; only the API backend was migrated to Python.
