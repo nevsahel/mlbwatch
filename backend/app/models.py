@@ -1,3 +1,8 @@
+"""SQLAlchemy models for sports data stored by the backend.
+
+The camelCase column names are retained to match the existing database schema.
+"""
+
 from __future__ import annotations
 
 import uuid
@@ -11,15 +16,20 @@ from .database import Base
 
 
 def new_id() -> str:
+    """Generate a UUID string for a new database record."""
     return str(uuid.uuid4())
 
 
 class Timestamped:
+    """Shared creation and update timestamps used by every entity."""
+
     createdAt: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updatedAt: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class Venue(Timestamped, Base):
+    """A stadium or arena where a game is played."""
+
     __tablename__ = "Venues"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     providerId: Mapped[str | None] = mapped_column(String)
@@ -30,6 +40,8 @@ class Venue(Timestamped, Base):
 
 
 class Team(Timestamped, Base):
+    """A sports team and its relationships to players and games."""
+
     __tablename__ = "Teams"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     providerId: Mapped[str | None] = mapped_column(String)
@@ -42,6 +54,8 @@ class Team(Timestamped, Base):
 
 
 class Player(Timestamped, Base):
+    """A player record, optionally associated with a team."""
+
     __tablename__ = "Players"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     providerId: Mapped[str | None] = mapped_column(String)
@@ -54,6 +68,8 @@ class Player(Timestamped, Base):
 
 
 class Game(Timestamped, Base):
+    """A scheduled or in-progress game between two teams."""
+
     __tablename__ = "Games"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     providerId: Mapped[str | None] = mapped_column(String)
@@ -70,6 +86,8 @@ class Game(Timestamped, Base):
 
 
 class GameState(Timestamped, Base):
+    """The current score and situation for a game."""
+
     __tablename__ = "GameStates"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     gameId: Mapped[str | None] = mapped_column(ForeignKey("Games.id"), unique=True)
@@ -89,6 +107,8 @@ class GameState(Timestamped, Base):
 
 
 class GameEvent(Timestamped, Base):
+    """A play-by-play event; provider event IDs must be unique."""
+
     __tablename__ = "GameEvents"
     __table_args__ = (UniqueConstraint("providerEventId", name="uq_game_events_provider_event_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -104,6 +124,8 @@ class GameEvent(Timestamped, Base):
 
 
 class Lineup(Timestamped, Base):
+    """A player's position and batting order for a particular game."""
+
     __tablename__ = "Lineups"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     gameId: Mapped[str | None] = mapped_column(ForeignKey("Games.id"))
@@ -114,6 +136,8 @@ class Lineup(Timestamped, Base):
 
 
 class PlayerStatistic(Timestamped, Base):
+    """A categorized statistic for a player in a game."""
+
     __tablename__ = "PlayerStatistics"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     playerId: Mapped[str | None] = mapped_column(ForeignKey("Players.id"))
@@ -123,6 +147,8 @@ class PlayerStatistic(Timestamped, Base):
 
 
 class TeamStatistic(Timestamped, Base):
+    """A categorized statistic for a team in a game."""
+
     __tablename__ = "TeamStatistics"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     teamId: Mapped[str | None] = mapped_column(ForeignKey("Teams.id"))
@@ -132,6 +158,8 @@ class TeamStatistic(Timestamped, Base):
 
 
 class Prediction(Timestamped, Base):
+    """A model prediction and probability output for a game or event."""
+
     __tablename__ = "Predictions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     gameId: Mapped[str | None] = mapped_column(ForeignKey("Games.id"))

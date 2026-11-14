@@ -7,13 +7,17 @@ from .database import Base, SessionLocal, engine
 
 
 def seed() -> None:
+    """Create the schema and insert one example Yankees–Red Sox game."""
+    # Ensure tables exist even when the seeder is run before starting the API.
     Base.metadata.create_all(bind=engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # The transaction commits automatically when this context exits successfully.
     with SessionLocal.begin() as session:
         venue = models.Venue(providerId="v-1", name="Yankee Stadium", city="Bronx", state="NY")
         yankees = models.Team(providerId="t-147", name="New York Yankees", abbreviation="NYY", locationName="Bronx")
         red_sox = models.Team(providerId="t-111", name="Boston Red Sox", abbreviation="BOS", locationName="Boston")
         session.add_all([venue, yankees, red_sox])
+        # Flush to generate team IDs before assigning them to player records.
         session.flush()
         session.add_all([
             models.Player(providerId="p-1", firstName="Aaron", lastName="Judge", fullName="Aaron Judge", position="RF", teamId=yankees.id),

@@ -1,3 +1,5 @@
+"""Database model tests for IDs, relationships, and uniqueness constraints."""
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,7 @@ from backend.app.database import Base
 
 
 def test_models_support_basic_crud_and_unique_provider_event_id():
+    """Models persist successfully, and provider event IDs cannot be duplicated."""
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
